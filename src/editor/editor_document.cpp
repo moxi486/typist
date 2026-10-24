@@ -146,10 +146,18 @@ QString serializeDocument(const QTextDocument* document) {
   QString out;
   QTextBlock block = document->firstBlock();
 
+  // Nested content must line up with the text after the parent item's marker, so each
+  // nesting level contributes its own marker width. Ordered numbering continues across
+  // groups the document interleaves. Marker width assumes single-digit item numbers.
+  std::vector<int> markerWidths;
+  std::vector<int> orderedCounters;
+  bool prevWasList = false;
+
   while (block.isValid()) {
     if (document->findTable(block.textCursor()) != nullptr) {
       // Table cells stay out of the Markdown stream; table fidelity lives in the
       // block tree. Emitting from QTextTable needs its dimension API verified.
+      prevWasList = false;
       block = block.next();
       continue;
     }
@@ -159,6 +167,7 @@ QString serializeDocument(const QTextDocument* document) {
 
     if (format.userProperty(kRuleProperty).toBool()) {
       out += QStringLiteral("---\n\n");
+      prevWasList = false;
       block = block.next();
       continue;
     }
@@ -173,6 +182,7 @@ QString serializeDocument(const QTextDocument* document) {
         current = current.next();
       }
       out += QStringLiteral("```\n\n");
+      prevWasList = false;
       block = current;
       continue;
     }
@@ -188,6 +198,7 @@ QString serializeDocument(const QTextDocument* document) {
         current = current.next();
       }
       out += QStringLiteral("\n");
+      prevWasList = false;
       block = current;
       continue;
     }
@@ -196,8 +207,19 @@ QString serializeDocument(const QTextDocument* document) {
     if (list != nullptr) {
       const int depth = std::max(0, static_cast<int>(list->format().indent()) - 1);
       const bool ordered = list->format().style() == QTextListFormat::ListDecimal;
+      const std::size_t level = static_cast<std::size_t>(depth);
+
+      int indentSpaces = 0;
+      for (std::size_t below = 0; below < level && below < markerWidths.size(); ++below) {
+        indentSpaces += markerWidths[below];
+      }
+      if (!prevWasList) {
+        if (orderedCounters.size() <= level) orderedCounters.resize(level + 1, 0);
+        orderedCounters[level] = 0;
+      }
+      int index = ordered ? orderedCounters[level] + 1 : 1;
+
       QTextBlock current = block;
-      int index = 1;
       while (current.isValid()) {
         const QTextBlockFormat itemFormat = current.blockFormat();
         QTextList* itemList = itemFormat.list();
@@ -213,7 +235,7 @@ QString serializeDocument(const QTextDocument* document) {
           current = current.next();
           continue;
         }
-        out += QString(depth * 2, QLatin1Char(' '));
+        out += QString(indentSpaces, QLatin1Char(' '));
         out += ordered ? QString::number(index++) + QStringLiteral(". ") : QStringLiteral("- ");
         if (itemFormat.userProperty(kTaskProperty).isValid()) {
           out += itemFormat.userProperty(kTaskProperty).toBool() ? QStringLiteral("[x] ")
@@ -222,6 +244,13 @@ QString serializeDocument(const QTextDocument* document) {
         out += itemText + QStringLiteral("\n");
         current = current.next();
       }
+      while (markerWidths.size() < level) markerWidths.push_back(2);
+      markerWidths.resize(level + 1);
+      markerWidths[level] = ordered ? 3 : 2;
+      orderedCounters.resize(level + 1, 0);
+      orderedCounters[level] = ordered ? index - 1 : 0;
+      prevWasList = true;
+
       if (current.isValid() && current.blockFormat().list() == nullptr) {
         out += QStringLiteral("\n");
       }
@@ -232,11 +261,15 @@ QString serializeDocument(const QTextDocument* document) {
     if (format.headingLevel() > 0) {
       out += QString(format.headingLevel(), QLatin1Char('#')) + QStringLiteral(" ") + text;
       out += QStringLiteral("\n\n");
+      prevWasList = false;
       block = block.next();
       continue;
     }
 
-    if (!text.isEmpty()) out += text + QStringLiteral("\n\n");
+    if (!text.isEmpty()) {
+      out += text + QStringLiteral("\n\n");
+      prevWasList = false;
+    }
     block = block.next();
   }
 

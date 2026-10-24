@@ -135,26 +135,26 @@ std::string serializeTable(const Block& table) {
   return out;
 }
 
-std::string serializeBlock(const Block& block, int depth, int itemIndex) {
-  const std::string indent(static_cast<std::size_t>(depth) * 2, ' ');
+std::string serializeBlock(const Block& block, int indent, int itemIndex) {
+  const std::string prefix(static_cast<std::size_t>(indent), ' ');
   std::string out;
 
   switch (block.type) {
     case BlockType::Heading:
-      out += std::string(static_cast<std::size_t>(block.level), '#');
+      out += prefix + std::string(static_cast<std::size_t>(block.level), '#');
       out += " " + block.text + "\n\n";
       break;
     case BlockType::Paragraph:
-      out += block.text.empty() ? "\n" : block.text + "\n\n";
+      out += block.text.empty() ? "\n" : prefix + block.text + "\n\n";
       break;
     case BlockType::CodeBlock:
-      out += "```" + block.info + "\n";
+      out += prefix + "```" + block.info + "\n";
       out += block.text;
       if (block.text.empty() || block.text.back() != '\n') out += "\n";
-      out += "```\n\n";
+      out += prefix + "```\n\n";
       break;
     case BlockType::ThematicBreak:
-      out += "---\n\n";
+      out += prefix + "---\n\n";
       break;
     case BlockType::Table:
       out += serializeTable(block);
@@ -164,8 +164,8 @@ std::string serializeBlock(const Block& block, int depth, int itemIndex) {
       break;
     case BlockType::BlockQuote:
       for (const Block& child : block.children) {
-        for (const std::string& line : splitLines(serializeBlock(child, depth, 1))) {
-          out += indent + "> " + line + "\n";
+        for (const std::string& line : splitLines(serializeBlock(child, indent + 2, 1))) {
+          out += prefix + "> " + line + "\n";
         }
       }
       out += "\n";
@@ -173,18 +173,20 @@ std::string serializeBlock(const Block& block, int depth, int itemIndex) {
     case BlockType::List: {
       int index = 1;
       for (const Block& item : block.children) {
-        out += serializeBlock(item, depth, index++);
+        out += serializeBlock(item, indent, index++);
       }
       out += "\n";
       break;
     }
     case BlockType::ListItem: {
-      const std::string prefix =
-          block.ordered ? std::to_string(itemIndex) + ". " : "- ";
-      out += indent + prefix;
+      // Nested content must line up with the text after this item's marker, so the
+      // child indent follows the marker width, not a fixed two spaces.
+      const std::string marker = block.ordered ? std::to_string(itemIndex) + ". " : "- ";
+      out += prefix + marker;
       if (block.task) out += block.checked ? "[x] " : "[ ] ";
       out += block.text + "\n";
-      for (const Block& child : block.children) out += serializeBlock(child, depth + 1, 1);
+      const int childIndent = indent + static_cast<int>(marker.size());
+      for (const Block& child : block.children) out += serializeBlock(child, childIndent, 1);
       break;
     }
     case BlockType::Unsupported:

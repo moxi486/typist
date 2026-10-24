@@ -28,4 +28,4 @@
 - Windows 的 Qt 安装器参数尚未核实：ci.yml 的 windows job 目前只在手动 dispatch 时运行，跑通后改为常规触发。
 - cmark-gfm fenced code 的语言标签读取方式需在首次 CI 运行中确认（src/core/markdown.cpp 已标注）。
 - 表格的 Markdown 保真走 AST 路径（core 已实现表头与 | --- | 分隔行往返），文档侧序列化有意跳过表格；QTextDocument -> Markdown 有意跳过表格单元格，待核实 QTextTable 的行列读取 API 后再补齐，tests/editor 有一条测试把这个缺口显式挂着。
-- 嵌套有序列表的缩进保真未实现：CommonMark 要求有序项的嵌套缩进跟随标记宽度（1. 为 3 个空格），序列化器目前统一输出 2 个空格，语料只覆盖嵌套无序列表。
+- 嵌套列表缩进已按标记宽度输出（无序 2 空格，有序按 1. 的 3 空格）；多数字序号（10. 起）仍按单数字假设，需补语料后核实。
