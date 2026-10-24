@@ -26,6 +26,7 @@ std::string readFile(const std::filesystem::path& path) {
 
 std::vector<std::filesystem::path> mdFilesIn(const std::filesystem::path& dir) {
   std::vector<std::filesystem::path> out;
+  if (!std::filesystem::exists(dir)) return out;
   for (const auto& entry : std::filesystem::directory_iterator(dir)) {
     if (entry.is_regular_file() && entry.path().extension() == ".md") out.push_back(entry.path());
   }
@@ -33,11 +34,21 @@ std::vector<std::filesystem::path> mdFilesIn(const std::filesystem::path& dir) {
   return out;
 }
 
-bool containsBlock(const std::vector<typist::core::Block>& blocks,
-                   typist::core::BlockType type, const std::string& text) {
+void checkRoundTrip(const std::filesystem::path& file) {
+  const std::string source = readFile(file);
+  const auto first = typist::core::parseMarkdown(source);
+  const auto again = typist::core::parseMarkdown(source);
+  check(first.ok && typist::core::astEqual(first.blocks, again.blocks),
+        "parse stable: " + file.filename().string());
+  const auto reparsed = typist::core::parseMarkdown(typist::core::serializeMarkdown(first.blocks));
+  check(reparsed.ok && typist::core::astEqual(first.blocks, reparsed.blocks),
+        "round trip: " + file.filename().string());
+}
+
+bool containsBlock(const std::vector<typist::core::Block>& blocks, typist::core::BlockType type) {
   for (const auto& block : blocks) {
-    if (block.type == type && (text.empty() || block.text == text)) return true;
-    if (containsBlock(block.children, type, text)) return true;
+    if (block.type == type) return true;
+    if (containsBlock(block.children, type)) return true;
   }
   return false;
 }
@@ -50,21 +61,12 @@ int main(int argc, char** argv) {
   }
   const std::filesystem::path corpus = argv[1];
 
-  for (const auto& file : mdFilesIn(corpus)) {
-    const std::string source = readFile(file);
-    const auto first = typist::core::parseMarkdown(source);
-    const auto again = typist::core::parseMarkdown(source);
-    check(first.ok && typist::core::astEqual(first.blocks, again.blocks),
-          "parse stable: " + file.filename().string());
-    const std::string roundTripped = typist::core::serializeMarkdown(first.blocks);
-    const auto reparsed = typist::core::parseMarkdown(roundTripped);
-    check(reparsed.ok && typist::core::astEqual(first.blocks, reparsed.blocks),
-          "round trip: " + file.filename().string());
-  }
+  for (const auto& file : mdFilesIn(corpus)) checkRoundTrip(file);
+  for (const auto& file : mdFilesIn(corpus / "gfm")) checkRoundTrip(file);
 
   const auto table = typist::core::parseMarkdown(readFile(corpus / "gfm" / "table.md"));
-  check(table.ok && containsBlock(table.blocks, typist::core::BlockType::Unsupported, "table"),
-        "gfm table parsed");
+  check(table.ok && containsBlock(table.blocks, typist::core::BlockType::Table), "gfm table parsed");
+  check(table.ok && containsBlock(table.blocks, typist::core::BlockType::TableCell), "gfm table cells parsed");
 
   const auto tasks = typist::core::parseMarkdown(readFile(corpus / "gfm" / "tasklist.md"));
   bool checkedSeen = false;

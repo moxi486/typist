@@ -14,6 +14,9 @@ enum class BlockType {
   CodeBlock,
   ThematicBreak,
   BlockQuote,
+  Table,
+  TableRow,
+  TableCell,
   Unsupported,
 };
 
@@ -44,7 +47,7 @@ struct ParseResult {
 ParseResult parseMarkdown(std::string_view source, const ParseOptions& options = {});
 
 // Serializes a block tree back to Markdown. Inline emphasis, links and images are
-// flattened to plain text for now; tables and task lists serialize to nothing yet.
+// flattened to plain text for now; table alignment is dropped.
 // Fidelity gaps are tracked in docs/ROADMAP.md.
 std::string serializeMarkdown(const std::vector<Block>& blocks);
 

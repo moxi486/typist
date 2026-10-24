@@ -85,6 +85,15 @@ Block buildBlock(cmark_node* node) {
          child = cmark_node_next(child)) {
       block.children.push_back(buildBlock(child));
     }
+  } else if (type == "table" || type == "table_row") {
+    block.type = type == "table" ? BlockType::Table : BlockType::TableRow;
+    for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
+         child = cmark_node_next(child)) {
+      block.children.push_back(buildBlock(child));
+    }
+  } else if (type == "table_cell") {
+    block.type = BlockType::TableCell;
+    block.text = flattenInline(node);
   } else {
     block.type = BlockType::Unsupported;
     block.text = type;
@@ -108,6 +117,24 @@ std::vector<std::string> splitLines(const std::string& text) {
   return lines;
 }
 
+std::string serializeRow(const Block& row) {
+  std::string out = "|";
+  for (const Block& cell : row.children) out += " " + cell.text + " |";
+  out += "\n";
+  return out;
+}
+
+std::string serializeTable(const Block& table) {
+  if (table.children.empty()) return "\n";
+  std::string out = serializeRow(table.children.front());
+  out += "|";
+  for (std::size_t i = 0; i < table.children.front().children.size(); ++i) out += " --- |";
+  out += "\n";
+  for (std::size_t i = 1; i < table.children.size(); ++i) out += serializeRow(table.children[i]);
+  out += "\n";
+  return out;
+}
+
 std::string serializeBlock(const Block& block, int depth, int itemIndex) {
   const std::string indent(static_cast<std::size_t>(depth) * 2, ' ');
   std::string out;
@@ -128,6 +155,12 @@ std::string serializeBlock(const Block& block, int depth, int itemIndex) {
       break;
     case BlockType::ThematicBreak:
       out += "---\n\n";
+      break;
+    case BlockType::Table:
+      out += serializeTable(block);
+      break;
+    case BlockType::TableRow:
+    case BlockType::TableCell:
       break;
     case BlockType::BlockQuote:
       for (const Block& child : block.children) {
