@@ -16,6 +16,8 @@ add_subdirectory(src/core)
 
 find_package(Qt6 COMPONENTS Widgets Test PrintTest QUIET)
 if(TYPIST_BUILD_APP AND Qt6_FOUND)
+  add_subdirectory(src/platform)
+  add_subdirectory(src/editor)
   add_subdirectory(src/ui)
   add_subdirectory(tests/editor)
 endif()

@@ -16,9 +16,18 @@ class MainWindow : public QMainWindow {
 
   void openFile(const QString& path);
 
+ private slots:
+  void openDialog();
+  void save();
+  void saveAs();
+
  private:
+  void updateTitleAndStatus();
+
   QTextEdit* m_editor = nullptr;
   QTextDocument* m_document = nullptr;
+  QString m_currentPath;
+  bool m_dirty = false;
 };
 
 }  // namespace typist

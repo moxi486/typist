@@ -1,7 +1,10 @@
 #include "editor_document.h"
+#include "FileWriter.h"
 #include "markdown.h"
 
 #include <QtTest>
+#include <QDir>
+#include <QFile>
 #include <QTextDocument>
 
 #include <filesystem>
@@ -18,6 +21,8 @@ class EditorSpike : public QObject {
   void taskListRoundTripsThroughDocument();
   void tableCapabilityProbe();
   void tableSerializationStaysOnTheAst();
+  void writeFileAtomicallyOverwritesTarget();
+  void savedMarkdownMatchesParsedSource();
 
  private:
   std::string m_corpus;
@@ -94,6 +99,40 @@ void EditorSpike::tableSerializationStaysOnTheAst() {
   typist::editor::buildDocument(parsed.blocks, &document);
   QVERIFY(!typist::editor::serializeDocument(&document).contains("|"));
   QVERIFY(typist::core::serializeMarkdown(parsed.blocks).contains("| --- |"));
+}
+
+void EditorSpike::writeFileAtomicallyOverwritesTarget() {
+  const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_writer_probe.md"));
+  QString error;
+  QVERIFY2(typist::platform::writeAtomic(path, QStringLiteral("# One\n"), &error), error.toLatin1().constData());
+  QVERIFY2(typist::platform::writeAtomic(path, QStringLiteral("# Two\n"), &error), error.toLatin1().constData());
+
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::ReadOnly));
+  QCOMPARE(QString::fromUtf8(file.readAll()), QStringLiteral("# Two\n"));
+  file.close();
+  QVERIFY(QFile::remove(path));
+}
+
+void EditorSpike::savedMarkdownMatchesParsedSource() {
+  const auto parsed = typist::core::parseMarkdown(read("quote.md"));
+  QVERIFY(parsed.ok);
+
+  QTextDocument document;
+  typist::editor::buildDocument(parsed.blocks, &document);
+
+  const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_save_probe.md"));
+  QString error;
+  QVERIFY2(typist::platform::writeAtomic(path, typist::editor::serializeDocument(&document), &error),
+           error.toLatin1().constData());
+
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::ReadOnly));
+  const auto reparsed = typist::core::parseMarkdown(QString::fromUtf8(file.readAll()).toStdString());
+  QVERIFY(reparsed.ok);
+  QVERIFY(typist::core::astEqual(parsed.blocks, reparsed.blocks));
+  file.close();
+  QVERIFY(QFile::remove(path));
 }
 
 QTEST_MAIN(EditorSpike)
