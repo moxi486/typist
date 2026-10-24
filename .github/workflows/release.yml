@@ -1,0 +1,37 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - if: matrix.os == 'ubuntu-24.04'
+        run: sudo apt-get update && sudo apt-get install -y libcmark-gfm-dev libcmark-gfm-extensions-dev qt6-base-dev
+      - if: matrix.os == 'macos-14'
+        run: brew install cmark-gfm qt@6
+      - run: cmake --preset linux-gcc
+      - run: cmake --build build/linux-gcc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: typist-${{ matrix.os }}
+          path: build/linux-gcc
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*

@@ -1,0 +1,9 @@
+build/
+out/
+.vs/
+node_modules/
+*.o
+*.obj
+*.pdb
+.cache/
+dist/

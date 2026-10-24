@@ -1,0 +1,10 @@
+QTextEdit {
+  background: #ffffff;
+  color: #24292e;
+  font: 14px;
+  selection-background-color: #c8e0ff;
+}
+QMainWindow::separator {
+  background: #d0d7de;
+  width: 1px;
+}

@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Format check
+        run: git ls-files 'src/**/*.cpp' 'src/**/*.h' 'tests/**/*.cpp' | xargs -r clang-format --dry-run --Werror
+      - name: core must stay UI-free
+        run: |
+          if grep -rn -E 'QWidget|QTextEdit|QApplication|Qt6::Widgets' src/core; then
+            echo 'src/core must not depend on Qt Widgets'; exit 1
+          fi
+
+  core-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libcmark-gfm-dev libcmark-gfm-extensions-dev qt6-base-dev
+      - run: cmake --preset linux-gcc
+      - run: cmake --build build/linux-gcc
+      - run: ctest --test-dir build/linux-gcc --output-on-failure
+
+  core-without-qt:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libcmark-gfm-dev libcmark-gfm-extensions-dev
+      - run: cmake -S . -B build/core -D TYPIST_BUILD_APP=OFF -D TYPIST_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
+      - run: cmake --build build/core
+      - run: ctest --test-dir build/core --output-on-failure
+
+  core-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install cmark-gfm qt@6
+      - run: export CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" && cmake --preset macos-clang
+      - run: cmake --build build/macos-clang
+      - run: ctest --test-dir build/macos-clang --output-on-failure
+
+  windows:
+    # Qt install parameters are not verified yet; runs only on manual dispatch
+    # until open item 1 in docs/ROADMAP.md is settled.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2022
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo Windows Qt install step pending verification
