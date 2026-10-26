@@ -16,12 +16,13 @@ constexpr uint kCodeBlockProperty = 0x100001;  // value: group id
 constexpr uint kQuoteProperty = 0x100002;      // value: group id
 constexpr uint kRuleProperty = 0x100003;
 constexpr uint kTaskProperty = 0x100004;       // value: bool checked
+constexpr uint kCodeInfoProperty = 0x100005;   // value: fence info string, first block of a group
 
 // Builds a QTextDocument from parsed Markdown blocks.
 void buildDocument(const std::vector<typist::core::Block>& blocks, QTextDocument* document);
 
-// Serializes a document back to Markdown. Table cells are skipped rather than
-// emitted: table fidelity lives in the block tree (docs/ROADMAP.md open item).
+// Serializes a document back to Markdown: tables emit their header row and a
+// | --- | divider, cells escape '|' as \| and line breaks as <br>.
 QString serializeDocument(const QTextDocument* document);
 
 // Native table probe: inserts a rows x cols table and reports whether the cells

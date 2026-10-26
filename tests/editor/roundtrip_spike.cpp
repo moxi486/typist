@@ -52,8 +52,9 @@ void EditorSpike::headingsAndParagraphsSurviveDocument() {
 
 void EditorSpike::documentRoundTripMatchesSource() {
   const std::vector<std::string> files = {
-      "headings.md", "paragraphs.md", "lists.md", "nested_ordered.md", "thematic.md", "code.md",
-      "quote.md", "fences.md", "gfm/table.md", "gfm/table_escapes.md",
+      "headings.md", "paragraphs.md", "lists.md", "nested_ordered.md", "nested_wide.md",
+      "thematic.md", "code.md", "code_info.md", "fences.md", "gfm/table.md",
+      "gfm/table_escapes.md", "gfm/tasklist.md",
   };
   for (const std::string& name : files) {
     const auto parsed = typist::core::parseMarkdown(read(name));

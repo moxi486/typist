@@ -31,27 +31,37 @@ void insertTaggedBlock(QTextCursor& cursor, const QString& text, uint property,
   cursor.insertText(text, charFormat);
 }
 
-void insertCodeBlock(const std::string& code, QTextCursor& cursor, BuildContext& ctx) {
+void insertCodeBlock(const std::string& code, const std::string& info, QTextCursor& cursor,
+                     BuildContext& ctx) {
   QTextCharFormat codeFormat;
   QFont mono(QStringLiteral("monospace"));
   mono.setStyleHint(QFont::TypeWriter);
   codeFormat.setFont(mono);
 
   const QVariant groupId = QVariant(++ctx.groupCounter);
+  const QVariant infoValue = QString::fromStdString(info);
+  const auto emitLine = [&](const std::string& line) {
+    QTextBlockFormat blockFormat;
+    blockFormat.setProperty(kCodeBlockProperty, groupId);
+    // cmark exposes no accessor for the fence label, so it travels as a document
+    // property on the group's first block.
+    if (!info.empty()) blockFormat.setProperty(kCodeInfoProperty, infoValue);
+    cursor.insertBlock(blockFormat);
+    cursor.insertText(QString::fromStdString(line), codeFormat);
+  };
+
   std::string line;
   for (char c : code) {
     if (c == '\n') {
       if (!line.empty()) {
-        insertTaggedBlock(cursor, QString::fromStdString(line), kCodeBlockProperty, groupId, codeFormat);
+        emitLine(line);
         line.clear();
       }
     } else {
       line += c;
     }
   }
-  if (!line.empty()) {
-    insertTaggedBlock(cursor, QString::fromStdString(line), kCodeBlockProperty, groupId, codeFormat);
-  }
+  if (!line.empty()) emitLine(line);
 }
 
 void insertTable(const typist::core::Block& table, QTextCursor& cursor) {
@@ -93,7 +103,7 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
       break;
     }
     case typist::core::BlockType::CodeBlock:
-      insertCodeBlock(block.text, cursor, ctx);
+      insertCodeBlock(block.text, block.info, cursor, ctx);
       break;
     case typist::core::BlockType::ThematicBreak:
       insertTaggedBlock(cursor, QStringLiteral("\u2014"), kRuleProperty, QVariant(true), plain);
@@ -223,7 +233,7 @@ QString serializeDocument(const QTextDocument* document) {
     if (format.property(kCodeBlockProperty).toInt() > 0) {
       const int groupId = format.property(kCodeBlockProperty).toInt();
       QTextBlock current = block;
-      out += QStringLiteral("```\n");
+      out += QStringLiteral("```") + format.property(kCodeInfoProperty).toString() + QStringLiteral("\n");
       while (current.isValid() &&
              current.blockFormat().property(kCodeBlockProperty).toInt() == groupId) {
         out += current.text() + QStringLiteral("\n");
