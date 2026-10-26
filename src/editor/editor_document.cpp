@@ -346,6 +346,12 @@ bool loadMarkdown(const QString& source, QTextDocument* document, QString* error
   return true;
 }
 
+void boundUndoHistory(QTextDocument* document) {
+  if (document->availableUndoSteps() > kUndoStepLimit) {
+    document->clearUndoRedoStacks(QTextDocument::UndoStack);
+  }
+}
+
 bool insertTableProbe(QTextDocument* document, int rows, int cols) {
   QTextCursor cursor(document);
   cursor.movePosition(QTextCursor::End);

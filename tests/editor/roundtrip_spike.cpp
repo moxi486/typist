@@ -26,6 +26,7 @@ class EditorSpike : public QObject {
   void savedMarkdownMatchesParsedSource();
   void undoRestoresSavedMarkdown();
   void sourceToggleRoundTripsWithoutUndoLeak();
+  void undoHistoryStaysBounded();
 
  private:
   std::string m_corpus;
@@ -158,6 +159,28 @@ void EditorSpike::sourceToggleRoundTripsWithoutUndoLeak() {
   QVERIFY(reparsed.ok);
   QVERIFY(typist::core::astEqual(parsed.blocks, reparsed.blocks));
   QVERIFY(!document.toPlainText().contains("typed edit"));
+}
+
+void EditorSpike::undoHistoryStaysBounded() {
+  QTextDocument document;
+  document.setUndoRedoEnabled(true);
+  const auto parsed = typist::core::parseMarkdown(read("paragraphs.md"));
+  QVERIFY(parsed.ok);
+  typist::editor::buildDocument(parsed.blocks, &document);
+  document.clearUndoRedoStacks(QTextDocument::UndoAndRedoStacks);
+
+  QTextCursor cursor(&document);
+  cursor.movePosition(QTextCursor::End);
+  for (int i = 0; i <= typist::editor::kUndoStepLimit; ++i) {
+    cursor.beginEditBlock();
+    cursor.insertText(QStringLiteral("x"));
+    cursor.endEditBlock();
+  }
+  QVERIFY(document.availableUndoSteps() > typist::editor::kUndoStepLimit);
+
+  typist::editor::boundUndoHistory(&document);
+  QVERIFY(document.availableUndoSteps() == 0);
+  QVERIFY(!document.isUndoAvailable());
 }
 
 void EditorSpike::writeFileAtomicallyOverwritesTarget() {

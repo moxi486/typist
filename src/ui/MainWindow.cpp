@@ -62,7 +62,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   connect(m_sourceAction, &QAction::triggered, this, &MainWindow::toggleSourceView);
 
   connect(m_document, &QTextDocument::contentsChanged, this, [this] {
-    m_dirty = currentMarkdown() != m_savedMarkdown;
+    // A plain flag keeps typing cheap; the exact comparison against the saved
+    // snapshot happens at save, undo, redo and view switch instead.
+    typist::editor::boundUndoHistory(m_document);
+    m_dirty = true;
     updateTitleAndStatus();
   });
   connect(m_document, &QTextDocument::undoAvailable, m_undoAction, &QAction::setEnabled);
