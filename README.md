@@ -13,14 +13,14 @@
 - 导出 PDF（Ctrl+Shift+P，走 Qt QPrinter 的 PdfFormat）
 - 主题 light / dark / system（Ctrl+Shift+D 循环，偏好写入 QSettings；导出的 HTML 内嵌同一份主题样式）
 - 往返保真测试：parse → serialize → parse 产生相同 AST
-- 性能基线：`perf_baseline`（ctest 项）打印两种 1MB 形状的耗时；本机 Windows Release 实测冷启动 295ms、常驻工作集 21.7MB、1MB 文档 realistic 117ms、tableheavy 244ms（预算 <250ms）
+- 性能基线：`perf_baseline` 与 `repaint_baseline`（ctest 项）打印打开耗时与打字到重绘耗时；本机 Windows Release 实测冷启动 295ms、常驻工作集 21.7MB、1MB 文档 realistic 117ms、tableheavy 244ms、打字到重绘 0–1ms
 
 ## 性能预算（验收数字）
 
-- 冷启动 < 400ms
-- 常驻内存 < 80MB
-- 打开 1MB Markdown < 250ms
-- 输入到重绘 < 16ms
+- 冷启动 < 400ms（本机 Windows Release 实测 295ms；offscreen 的 17ms 只作 proxy）
+- 常驻内存 < 80MB（本机实测工作集 21.7MB）
+- 打开 1MB Markdown < 250ms（本机实测 realistic 117ms、tableheavy 244ms）
+- 输入到重绘 < 16ms（本机实测 0–1ms，含载入 1MB 文档后；由 `typist --bench-repaint` 测量，空文档形状进 ctest）
 
 ## 技术栈
 

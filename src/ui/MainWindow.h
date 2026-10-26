@@ -18,6 +18,12 @@ class MainWindow : public QMainWindow {
 
   void openFile(const QString& path);
 
+  // Typing-to-repaint latency for the performance bench: one edit plus a synchronous repaint.
+  qint64 measureTypingRepaint();
+
+  // Lets the bench confirm a file actually loaded before timing keystrokes.
+  int documentBlockCount() const;
+
  private slots:
   void openDialog();
   void save();

@@ -10,6 +10,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -292,6 +293,19 @@ void MainWindow::applyTheme() {
 void MainWindow::applyThemePalette(const QPalette& palette) {
   m_editor->setPalette(palette);
   setPalette(palette);
+}
+
+int MainWindow::documentBlockCount() const { return m_document->blockCount(); }
+
+qint64 MainWindow::measureTypingRepaint() {
+  QElapsedTimer timer;
+  timer.start();
+  QTextCursor cursor(m_document);
+  cursor.movePosition(QTextCursor::End);
+  cursor.insertText(QStringLiteral("x"));
+  // A synchronous repaint runs the paint path now instead of waiting for the event loop.
+  m_editor->repaint();
+  return timer.elapsed();
 }
 
 QString MainWindow::themePreference() const { return m_themePreference; }

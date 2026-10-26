@@ -3,11 +3,15 @@ target_link_libraries(perf_bench PRIVATE typist::core typist::editor Qt6::Widget
 target_compile_options(perf_bench PRIVATE -Wall -Wextra)
 add_test(NAME perf_baseline COMMAND perf_bench)
 
+add_test(NAME repaint_baseline COMMAND $<TARGET_FILE:typist> --bench-repaint)
+
 if(WIN32)
   get_filename_component(qt_prefix "${Qt6_DIR}/../../.." ABSOLUTE)
   file(TO_NATIVE_PATH "${qt_prefix}/bin" qt_bin_native)
   file(TO_NATIVE_PATH "${cmark-gfm_BIN_DIR}" cmark_bin_native)
   set_tests_properties(perf_baseline PROPERTIES ENVIRONMENT "PATH=${cmark_bin_native}\;${qt_bin_native};QT_QPA_PLATFORM=offscreen")
+  set_tests_properties(repaint_baseline PROPERTIES ENVIRONMENT "PATH=${cmark_bin_native}\;${qt_bin_native};QT_QPA_PLATFORM=offscreen")
 else()
   set_tests_properties(perf_baseline PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+  set_tests_properties(repaint_baseline PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
