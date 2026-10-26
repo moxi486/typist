@@ -1,5 +1,6 @@
 #include "editor_document.h"
 #include "FileWriter.h"
+#include "PdfWriter.h"
 #include "markdown.h"
 
 #include <QtTest>
@@ -27,6 +28,7 @@ class EditorSpike : public QObject {
   void undoRestoresSavedMarkdown();
   void sourceToggleRoundTripsWithoutUndoLeak();
   void undoHistoryStaysBounded();
+  void pdfExportWritesPdfFile();
 
  private:
   std::string m_corpus;
@@ -181,6 +183,27 @@ void EditorSpike::undoHistoryStaysBounded() {
   typist::editor::boundUndoHistory(&document);
   QVERIFY(document.availableUndoSteps() == 0);
   QVERIFY(!document.isUndoAvailable());
+}
+
+void EditorSpike::pdfExportWritesPdfFile() {
+  if (!typist::platform::pdfExportAvailable()) QSKIP("Qt PrintSupport is not available in this build");
+
+  QTextDocument document;
+  const auto parsed = typist::core::parseMarkdown(read("gfm/table.md"));
+  QVERIFY(parsed.ok);
+  typist::editor::buildDocument(parsed.blocks, &document);
+
+  const QString path = QDir::tempPath() + QStringLiteral("/typist_pdf_probe.pdf");
+  QFile::remove(path);
+  QString error;
+  QVERIFY2(typist::platform::exportPdf(path, &document, &error), qPrintable(error));
+
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::ReadOnly));
+  QVERIFY(file.size() > 200);
+  QVERIFY(file.read(5) == QByteArray("%PDF-"));
+  file.close();
+  QFile::remove(path);
 }
 
 void EditorSpike::writeFileAtomicallyOverwritesTarget() {

@@ -10,6 +10,7 @@
 - 撤销 / 重做，历史上限 200 步
 - 同一视图内源码与渲染切换（Ctrl+/）
 - 导出 HTML（Ctrl+Shift+E，走 cmark-gfm 的 GFM 扩展）
+- 导出 PDF（Ctrl+Shift+P，走 Qt QPrinter 的 PdfFormat）
 - 往返保真测试：parse → serialize → parse 产生相同 AST
 
 ## 性能预算（验收数字）
@@ -48,7 +49,7 @@ macOS：brew install cmark-gfm qt@6，并把 CMAKE_PREFIX_PATH 设为 brew --pre
     cmake --build build/windows-mingw
     ctest --test-dir build/windows-mingw --output-on-failure
 
-Qt 的 PrintTest 模块在 MSYS2 包里不存在，已在 CMake 里降级为可选组件。
+Qt 的 PrintTest 模块在 MSYS2 包里不存在，已在 CMake 里降级为可选组件；PrintSupport 本身是存在的（found 变量名是 Qt6PrintSupport_FOUND）。
 
 ## 许可
 

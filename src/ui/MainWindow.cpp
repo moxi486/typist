@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "FileWriter.h"
+#include "PdfWriter.h"
 #include "editor_document.h"
 #include "markdown.h"
 
@@ -48,6 +49,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   exportHtmlAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+E")));
   fileMenu->addAction(exportHtmlAction);
   connect(exportHtmlAction, &QAction::triggered, this, &MainWindow::exportHtml);
+
+  QAction* exportPdfAction = new QAction(QStringLiteral("Export PDF"), this);
+  exportPdfAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+P")));
+  fileMenu->addAction(exportPdfAction);
+  connect(exportPdfAction, &QAction::triggered, this, &MainWindow::exportPdf);
 
   QMenu* editMenu = menuBar()->addMenu(QStringLiteral("Edit"));
   m_undoAction = new QAction(QStringLiteral("Undo"), this);
@@ -151,6 +157,35 @@ void MainWindow::exportHtml() {
     return;
   }
   statusBar()->showMessage(QStringLiteral("Exported HTML"));
+}
+
+void MainWindow::exportPdf() {
+  if (!typist::platform::pdfExportAvailable()) {
+    statusBar()->showMessage(QStringLiteral("PDF export needs Qt PrintSupport, which this build lacks"));
+    return;
+  }
+
+  const QString suggested = m_currentPath.isEmpty()
+      ? QDir::homePath() + QStringLiteral("/untitled.pdf")
+      : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
+            QFileInfo(m_currentPath).baseName() + QStringLiteral(".pdf");
+  const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Export PDF"), suggested,
+                                                    QStringLiteral("PDF (*.pdf)"));
+  if (path.isEmpty()) return;
+
+  // PDF always reflects Markdown semantics, so it prints a detached rendered document
+  // instead of whatever the editor view is currently showing.
+  QTextDocument rendered;
+  QString error;
+  if (!typist::editor::loadMarkdown(currentMarkdown(), &rendered, &error)) {
+    statusBar()->showMessage(error);
+    return;
+  }
+  if (!typist::platform::exportPdf(path, &rendered, &error)) {
+    statusBar()->showMessage(error);
+    return;
+  }
+  statusBar()->showMessage(QStringLiteral("Exported PDF"));
 }
 
 void MainWindow::undo() {

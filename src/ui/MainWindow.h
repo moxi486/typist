@@ -25,6 +25,7 @@ class MainWindow : public QMainWindow {
   void redo();
   void toggleSourceView();
   void exportHtml();
+  void exportPdf();
 
  private:
   void updateTitleAndStatus();

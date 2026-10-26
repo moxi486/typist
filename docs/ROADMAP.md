@@ -36,4 +36,6 @@
 - typing 路径已去掉序列化开销：contentsChanged 只置脏标记（近似判定），精确比较发生在保存、撤销、重做与视图切换；代价是打字改回原内容后仍显示未保存，撤销会纠正。
 - 撤销历史上限已实现：editor::kUndoStepLimit=200，contentsChanged 时 availableUndoSteps() 超限就 clearUndoRedoStacks(UndoStack)；Qt 没有部分裁剪，只能整栈丢弃，超限后撤销不可用。
 - HTML 导出走 cmark-gfm 的 GFM 扩展：core::toHtml 用 cmark_render_html(root, CMARK_OPT_UNSAFE, extensions)，扩展列表要与解析侧一致（cmark_markdown_to_html 不带扩展，表格/任务列表会退化），CMARK_OPT_UNSAFE 让 raw inline html（表格里的 <br>）保留；core::wrapHtmlDocument 加 UTF-8 charset 与中性默认样式。导出的是作者本机文档的 HTML，保留的原始 HTML 会执行脚本——只用于本地打开，不做网络服务。
+- PDF 导出走 QPrinter 的 PdfFormat：platform::exportPdf(path, document, error) 打印传入的文档并校验 %PDF 头，失败时删除半成品；主窗口导出前用 editor::loadMarkdown 造一份 detached 渲染文档，因此 PDF 始终反映 Markdown 语义，不受当前视图模式影响。Qt 的 QTextDocument 排版不做分页控制（无页眉页脚、无自定义分页），要精细版式需换成 QPrintEngine 或自定义排版，列为后续项。
+- MSYS2 的 Qt6 包其实带 PrintSupport（headers、Qt6PrintSupport.dll、lib/cmake/Qt6PrintSupport 都有），缺的只是 PrintTest；find_package 的 found 变量名是 Qt6PrintSupport_FOUND（Qt6 与组件名之间没有下划线），写成 Qt6_PrintSupport_FOUND 会恒为 false 并把实现降级成 stub。
 - MSVC 路线仍未核实：windows-msvc preset 保留，本机与 CI 都未验证过。
