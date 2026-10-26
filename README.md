@@ -22,7 +22,25 @@ Qt 6 Widgets（C++17）+ QTextDocument 富文本模型 + cmark-gfm（GFM 扩展�
     cmake --build build/linux-gcc
     ctest --test-dir build/linux-gcc --output-on-failure
 
-macOS：brew install cmark-gfm qt@6，并把 CMAKE_PREFIX_PATH 设为 brew --prefix qt@6。Windows 的 Qt 安装参数尚未核实，见 docs/ROADMAP.md 的开放项。
+macOS：brew install cmark-gfm qt@6，并把 CMAKE_PREFIX_PATH 设为 brew --prefix qt@6。
+
+## 构建（Windows，MSYS2 mingw64）
+
+本机已验证的组合是 gcc 16.2 + CMake 4.4.4 + Qt 6.12.0（pacman 的 mingw-w64-x86_64-qt6-base）。cmark-gfm 不在 MSYS2 仓库里（只有无 GFM 扩展的 cmark），需从源码构建：
+
+    winget install MSYS2.MSYS2
+    pacman -S --noconfirm mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake \
+      mingw-w64-x86_64-ninja mingw-w64-x86_64-pkg-config mingw-w64-x86_64-qt6-base
+    curl -L -o cmark.tar.gz https://github.com/github/cmark-gfm/archive/refs/tags/0.29.0.gfm.13.tar.gz
+    tar xzf cmark.tar.gz
+    cmake -S cmark-gfm-0.29.0.gfm.13 -B cmark-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+    cmake --build cmark-build && cmake --install cmark-build
+    cmake --preset windows-mingw
+    cmake --build build/windows-mingw
+    ctest --test-dir build/windows-mingw --output-on-failure
+
+Qt 的 PrintTest 模块在 MSYS2 包里不存在，已在 CMake 里降级为可选组件。
 
 ## 许可
 

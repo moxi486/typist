@@ -35,7 +35,7 @@ std::string EditorSpike::read(const std::string& name) const {
 }
 
 void EditorSpike::initTestCase() {
-  m_corpus = qEnvironmentVariable("TYPIST_CORPUS_DIR");
+  m_corpus = qEnvironmentVariable("TYPIST_CORPUS_DIR").toStdString();
   QVERIFY(!m_corpus.empty());
 }
 
@@ -99,7 +99,7 @@ void EditorSpike::tableSerializationStaysOnTheAst() {
   QTextDocument document;
   typist::editor::buildDocument(parsed.blocks, &document);
   QVERIFY(!typist::editor::serializeDocument(&document).contains("|"));
-  QVERIFY(typist::core::serializeMarkdown(parsed.blocks).contains("| --- |"));
+  QVERIFY(typist::core::serializeMarkdown(parsed.blocks).find("| --- |") != std::string::npos);
 }
 
 void EditorSpike::writeFileAtomicallyOverwritesTarget() {

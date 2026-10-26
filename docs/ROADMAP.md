@@ -25,7 +25,9 @@
 
 ## 开放项（M0 内必须核实）
 
-- Windows 的 Qt 安装器参数尚未核实：ci.yml 的 windows job 目前只在手动 dispatch 时运行，跑通后改为常规触发。
-- cmark-gfm fenced code 的语言标签读取方式需在首次 CI 运行中确认（src/core/markdown.cpp 已标注）。
-- 表格的 Markdown 保真走 AST 路径（core 已实现表头与 | --- | 分隔行往返），文档侧序列化有意跳过表格；QTextDocument -> Markdown 有意跳过表格单元格，待核实 QTextTable 的行列读取 API 后再补齐，tests/editor 有一条测试把这个缺口显式挂着。
-- 嵌套列表缩进已按标记宽度输出（无序 2 空格，有序按 1. 的 3 空格）；多数字序号（10. 起）仍按单数字假设，需补语料后核实。
+- Windows 构建路线已在本机核实：MSYS2 mingw64（gcc 16.2、CMake 4.4.4、Qt 6.12.0 来自 pacman 的 mingw-w64-x86_64-qt6-base）。cmark-gfm 需从 github/cmark-gfm 的 tag 0.29.0.gfm.13 源码构建并安装到 /usr/local，MSYS2 仓库只有不带 GFM 扩展的 cmark。ci.yml 的 windows job 已改为常规触发（msys2/setup-msys2@v2）。
+- cmark-gfm 的围栏语言标签已核实：0.29.0.gfm.13 没有信息串读取接口（cmark_node_get_string_content 对围栏块返回空），改由节点起始行扫描围栏行取得标签（src/core/markdown.cpp fenceInfo），语料 tests/corpus/code_info.md 覆盖。
+- Qt 的 QTextTable API 已核实：QTextCursor::insertTable + QTextTableFormat::setColumns + cellAt().firstCursorPosition()（无 cellTextCursor、无 QTextDocument::findTable、QTextBlockFormat 无 list()，改用 QTextBlock::textList()）。文档构建侧已按真实单元格填充；文档 -> Markdown 仍跳过表格，tests/editor 挂着该缺口。
+- 自定义 QTextFormat 属性 id 必须高于 QTextFormat::UserProperty（0x100000），旧的 0x4001 区间会撞 Qt 内部枚举；已改为 0x100001 起。
+- 嵌套列表缩进按标记宽度输出；语料 tests/corpus/nested_wide.md（9. 与 10. 混排）在 core 往返通过，文档侧嵌套缩进仍按单数字序号假设。
+- MSVC 路线仍未核实：windows-msvc preset 保留，本机与 CI 都未验证过。

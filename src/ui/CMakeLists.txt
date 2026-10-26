@@ -1,3 +1,4 @@
 qt_add_executable(typist main.cpp MainWindow.h MainWindow.cpp)
+set_target_properties(typist PROPERTIES AUTOMOC ON)
 target_link_libraries(typist PRIVATE typist::core typist::editor typist::platform Qt6::Core Qt6::Gui Qt6::Widgets)
 target_compile_options(typist PRIVATE -Wall -Wextra)

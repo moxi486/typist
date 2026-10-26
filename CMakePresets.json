@@ -45,6 +45,17 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
+    },
+    {
+      "name": "windows-mingw",
+      "inherits": [
+        "base"
+      ],
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PREFIX_PATH": "C:/msys64/mingw64;C:/msys64/usr/local"
+      }
     }
   ],
   "buildPresets": [
@@ -59,6 +70,10 @@
     {
       "name": "windows-msvc",
       "configurePreset": "windows-msvc"
+    },
+    {
+      "name": "windows-mingw",
+      "configurePreset": "windows-mingw"
     }
   ],
   "testPresets": [
@@ -72,6 +87,13 @@
     {
       "name": "macos-clang",
       "configurePreset": "macos-clang",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-mingw",
+      "configurePreset": "windows-mingw",
       "output": {
         "outputOnFailure": true
       }

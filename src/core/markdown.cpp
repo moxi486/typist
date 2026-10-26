@@ -1,6 +1,7 @@
 #include "markdown.h"
 
 #include <cmark-gfm.h>
+#include <cmark-gfm-core-extensions.h>
 #include <cmark-gfm-extension_api.h>
 
 #include <memory>
@@ -15,8 +16,15 @@ std::string flattenInline(cmark_node* node) {
   for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
        child = cmark_node_next(child)) {
     const std::string type = cmark_node_get_type_string(child);
+    if (type == "list" || type == "item" || type == "tasklist" || type == "table" ||
+        type == "table_row" || type == "table_header" || type == "table_cell") {
+      // Structural children are modelled as blocks, never folded into text.
+      continue;
+    }
     const char* literal = cmark_node_get_literal(child);
     if (type == "text" && literal != nullptr) {
+      out += literal;
+    } else if (type == "code" && literal != nullptr) {
       out += literal;
     } else if (type == "softbreak") {
       out += " ";
@@ -29,7 +37,37 @@ std::string flattenInline(cmark_node* node) {
   return out;
 }
 
-Block buildBlock(cmark_node* node) {
+// cmark-gfm 0.29.0.gfm.13 exposes no fence info accessor: string_content comes
+// back empty for a fenced block, so the tag is read from the fence line itself.
+std::string fenceInfo(cmark_node* node, const std::vector<std::string>& lines) {
+  const int line = cmark_node_get_start_line(node);
+  if (line < 1 || static_cast<std::size_t>(line) > lines.size()) return "";
+  const std::string& raw = lines[static_cast<std::size_t>(line) - 1];
+  const std::size_t start = raw.find_first_not_of(" \t");
+  if (start == std::string::npos) return "";
+  if (raw.compare(start, 3, "```") != 0 && raw.compare(start, 3, "~~~") != 0) return "";
+  std::string rest = raw.substr(start + 3);
+  const std::size_t end = rest.find_first_of(" \t");
+  if (end != std::string::npos) rest = rest.substr(0, end);
+  return rest;
+}
+
+std::vector<std::string> sourceLines(std::string_view source) {
+  std::vector<std::string> lines;
+  std::size_t pos = 0;
+  while (pos < source.size()) {
+    const std::size_t next = source.find('\n', pos);
+    if (next == std::string_view::npos) {
+      lines.push_back(std::string(source.substr(pos)));
+      break;
+    }
+    lines.push_back(std::string(source.substr(pos, next - pos)));
+    pos = next + 1;
+  }
+  return lines;
+}
+
+Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
   Block block;
   const std::string type = cmark_node_get_type_string(node);
 
@@ -42,54 +80,59 @@ Block buildBlock(cmark_node* node) {
     block.text = flattenInline(node);
   } else if (type == "list") {
     block.type = BlockType::List;
-    block.ordered = cmark_node_get_list_type(node) == CMARK_LIST_TYPE_ORDERED;
+    block.ordered = cmark_node_get_list_type(node) == CMARK_ORDERED_LIST;
     for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
          child = cmark_node_next(child)) {
-      block.children.push_back(buildBlock(child));
+      block.children.push_back(buildBlock(child, lines));
     }
   } else if (type == "item") {
     block.type = BlockType::ListItem;
-    std::string flat;
     for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
          child = cmark_node_next(child)) {
-      flat += flattenInline(child);
-    }
-    if (flat.rfind("[ ] ", 0) == 0) {
-      block.task = true;
-      flat = flat.substr(4);
-    } else if (flat.rfind("[x] ", 0) == 0 || flat.rfind("[X] ", 0) == 0) {
-      block.task = true;
-      block.checked = true;
-      flat = flat.substr(4);
-    }
-    block.text = flat;
-    for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
-         child = cmark_node_next(child)) {
-      if (cmark_node_get_type_string(child) == "list") {
-        block.children.push_back(buildBlock(child));
+      const std::string childType = cmark_node_get_type_string(child);
+      if (childType == "list") {
+        block.children.push_back(buildBlock(child, lines));
+        continue;
       }
+      if (childType == "tasklist") {
+        block.task = true;
+        block.checked = cmark_gfm_extensions_get_tasklist_item_checked(child);
+      }
+      block.text += flattenInline(child);
+    }
+  } else if (type == "tasklist") {
+    // The GFM tasklist extension replaces the item node itself, so the checked
+    // flag comes from the extension accessor rather than the text prefix.
+    block.type = BlockType::ListItem;
+    block.task = true;
+    block.checked = cmark_gfm_extensions_get_tasklist_item_checked(node);
+    for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
+         child = cmark_node_next(child)) {
+      const std::string childType = cmark_node_get_type_string(child);
+      if (childType == "list") {
+        block.children.push_back(buildBlock(child, lines));
+        continue;
+      }
+      block.text += flattenInline(child);
     }
   } else if (type == "code_block") {
     block.type = BlockType::CodeBlock;
     const char* literal = cmark_node_get_literal(node);
     block.text = literal != nullptr ? literal : "";
-    // Fence info is exposed through string content; verify against the installed
-    // libcmark-gfm headers on the first CI run (docs/ROADMAP.md open item).
-    const char* info = cmark_node_get_string_content(node);
-    block.info = info != nullptr ? info : "";
+    block.info = fenceInfo(node, lines);
   } else if (type == "thematic_break") {
     block.type = BlockType::ThematicBreak;
-  } else if (type == "blockquote") {
+  } else if (type == "block_quote") {
     block.type = BlockType::BlockQuote;
     for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
          child = cmark_node_next(child)) {
-      block.children.push_back(buildBlock(child));
+      block.children.push_back(buildBlock(child, lines));
     }
-  } else if (type == "table" || type == "table_row") {
+  } else if (type == "table" || type == "table_row" || type == "table_header") {
     block.type = type == "table" ? BlockType::Table : BlockType::TableRow;
     for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
          child = cmark_node_next(child)) {
-      block.children.push_back(buildBlock(child));
+      block.children.push_back(buildBlock(child, lines));
     }
   } else if (type == "table_cell") {
     block.type = BlockType::TableCell;
@@ -135,7 +178,7 @@ std::string serializeTable(const Block& table) {
   return out;
 }
 
-std::string serializeBlock(const Block& block, int indent, int itemIndex) {
+std::string serializeBlock(const Block& block, int indent) {
   const std::string prefix(static_cast<std::size_t>(indent), ' ');
   std::string out;
 
@@ -164,7 +207,7 @@ std::string serializeBlock(const Block& block, int indent, int itemIndex) {
       break;
     case BlockType::BlockQuote:
       for (const Block& child : block.children) {
-        for (const std::string& line : splitLines(serializeBlock(child, indent + 2, 1))) {
+        for (const std::string& line : splitLines(serializeBlock(child, indent + 2))) {
           out += prefix + "> " + line + "\n";
         }
       }
@@ -173,22 +216,19 @@ std::string serializeBlock(const Block& block, int indent, int itemIndex) {
     case BlockType::List: {
       int index = 1;
       for (const Block& item : block.children) {
-        out += serializeBlock(item, indent, index++);
+        const std::string marker = block.ordered ? std::to_string(index++) + ". " : "- ";
+        out += prefix + marker;
+        if (item.task) out += item.checked ? "[x] " : "[ ] ";
+        out += item.text + "\n";
+        const int childIndent = indent + static_cast<int>(marker.size());
+        for (const Block& child : item.children) out += serializeBlock(child, childIndent);
       }
       out += "\n";
       break;
     }
-    case BlockType::ListItem: {
-      // Nested content must line up with the text after this item's marker, so the
-      // child indent follows the marker width, not a fixed two spaces.
-      const std::string marker = block.ordered ? std::to_string(itemIndex) + ". " : "- ";
-      out += prefix + marker;
-      if (block.task) out += block.checked ? "[x] " : "[ ] ";
-      out += block.text + "\n";
-      const int childIndent = indent + static_cast<int>(marker.size());
-      for (const Block& child : block.children) out += serializeBlock(child, childIndent, 1);
+    case BlockType::ListItem:
+      // Items are emitted by their parent List, which owns the marker and numbering.
       break;
-    }
     case BlockType::Unsupported:
       break;
   }
@@ -221,6 +261,7 @@ ParseResult parseMarkdown(std::string_view source, const ParseOptions& options) 
     if (extension != nullptr) cmark_parser_attach_syntax_extension(parser.get(), extension);
   }
 
+  const std::vector<std::string> lines = sourceLines(source);
   cmark_parser_feed(parser.get(), source.data(), source.size());
   std::unique_ptr<cmark_node, decltype(&cmark_node_free)> root(
       cmark_parser_finish(parser.get()), &cmark_node_free);
@@ -231,7 +272,7 @@ ParseResult parseMarkdown(std::string_view source, const ParseOptions& options) 
 
   for (cmark_node* child = cmark_node_first_child(root.get()); child != nullptr;
        child = cmark_node_next(child)) {
-    result.blocks.push_back(buildBlock(child));
+    result.blocks.push_back(buildBlock(child, lines));
   }
   result.ok = true;
   return result;
@@ -239,7 +280,7 @@ ParseResult parseMarkdown(std::string_view source, const ParseOptions& options) 
 
 std::string serializeMarkdown(const std::vector<Block>& blocks) {
   std::string out;
-  for (const Block& block : blocks) out += serializeBlock(block, 0, 1);
+  for (const Block& block : blocks) out += serializeBlock(block, 0);
   if (!out.empty() && out.back() != '\n') out += "\n";
   return out;
 }

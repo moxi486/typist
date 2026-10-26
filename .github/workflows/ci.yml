@@ -47,11 +47,36 @@ jobs:
       - run: ctest --test-dir build/macos-clang --output-on-failure
 
   windows:
-    # Qt install parameters are not verified yet; runs only on manual dispatch
-    # until open item 1 in docs/ROADMAP.md is settled.
-    if: github.event_name == 'workflow_dispatch'
+    # Verified locally with MSYS2 mingw64: gcc 16.2, CMake 4.4.4, Qt 6.12.0,
+    # plus cmark-gfm 0.29.0.gfm.13 built from source into /usr/local.
     runs-on: windows-2022
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - run: echo Windows Qt install step pending verification
+      - uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-qt6-base
+      - name: Build and install cmark-gfm
+        shell: msys2 {0}
+        run: |
+          curl -L -o cmark.tar.gz https://github.com/github/cmark-gfm/archive/refs/tags/0.29.0.gfm.13.tar.gz
+          tar xzf cmark.tar.gz
+          cmake -S cmark-gfm-0.29.0.gfm.13 -B cmark-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build cmark-build
+          cmake --install cmark-build
+      - name: Configure
+        shell: msys2 {0}
+        run: cmake -S . -B build/mingw -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=/mingw64;/usr/local"
+      - name: Build
+        shell: msys2 {0}
+        run: cmake --build build/mingw
+      - name: Test
+        shell: msys2 {0}
+        run: ctest --test-dir build/mingw --output-on-failure

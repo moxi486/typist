@@ -9,12 +9,18 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(TYPIST_BUILD_APP "Build the Qt Widgets application" ON)
 option(TYPIST_BUILD_TESTS "Build tests" ON)
 
+# enable_testing must run before any add_test in a subdirectory, otherwise that
+# test never lands in CTestTestfile.cmake.
+enable_testing()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-find_package(cmark-gfm REQUIRED)
+find_package(CmarkGfm REQUIRED)
 add_subdirectory(src/core)
 
-find_package(Qt6 COMPONENTS Widgets Test PrintTest QUIET)
+# Widgets and Test are required; PrintSupport/PrintTest stay optional because
+# some distro packages (MSYS2) ship PrintSupport without the PrintTest module.
+find_package(Qt6 COMPONENTS Widgets Test OPTIONAL_COMPONENTS PrintSupport PrintTest QUIET)
 if(TYPIST_BUILD_APP AND Qt6_FOUND)
   add_subdirectory(src/platform)
   add_subdirectory(src/editor)
@@ -23,6 +29,5 @@ if(TYPIST_BUILD_APP AND Qt6_FOUND)
 endif()
 
 if(TYPIST_BUILD_TESTS)
-  enable_testing()
   add_subdirectory(tests/core)
 endif()

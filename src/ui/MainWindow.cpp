@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QKeySequence>
+#include <QMenuBar>
 #include <QMenu>
 #include <QStatusBar>
 #include <QString>
