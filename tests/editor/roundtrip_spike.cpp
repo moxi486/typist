@@ -25,6 +25,7 @@ class EditorSpike : public QObject {
   void writeFileAtomicallyOverwritesTarget();
   void savedMarkdownMatchesParsedSource();
   void undoRestoresSavedMarkdown();
+  void sourceToggleRoundTripsWithoutUndoLeak();
 
  private:
   std::string m_corpus;
@@ -134,6 +135,29 @@ void EditorSpike::undoRestoresSavedMarkdown() {
 
   document.redo();
   QVERIFY(typist::editor::serializeDocument(&document) == edited);
+}
+
+void EditorSpike::sourceToggleRoundTripsWithoutUndoLeak() {
+  QTextDocument document;
+  document.setUndoRedoEnabled(true);
+  const auto parsed = typist::core::parseMarkdown(read("gfm/table_escapes.md"));
+  QVERIFY(parsed.ok);
+  typist::editor::buildDocument(parsed.blocks, &document);
+
+  const QString source = typist::editor::serializeDocument(&document);
+  QTextCursor cursor(&document);
+  cursor.movePosition(QTextCursor::End);
+  cursor.insertText(QStringLiteral(" typed edit"));
+  QVERIFY(document.isUndoAvailable());
+
+  QString error;
+  QVERIFY2(typist::editor::loadMarkdown(source, &document, &error), error.isEmpty() ? "parse failed" : qPrintable(error));
+  QVERIFY(!document.isUndoAvailable());
+
+  const auto reparsed = typist::core::parseMarkdown(typist::editor::serializeDocument(&document).toStdString());
+  QVERIFY(reparsed.ok);
+  QVERIFY(typist::core::astEqual(parsed.blocks, reparsed.blocks));
+  QVERIFY(!document.toPlainText().contains("typed edit"));
 }
 
 void EditorSpike::writeFileAtomicallyOverwritesTarget() {

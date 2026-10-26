@@ -25,6 +25,11 @@ void buildDocument(const std::vector<typist::core::Block>& blocks, QTextDocument
 // | --- | divider, cells escape '|' as \| and line breaks as <br>.
 QString serializeDocument(const QTextDocument* document);
 
+// Parses Markdown and rebuilds the document in place, clearing undo history so a
+// switch or load never becomes an undo step. Returns false on a parse error and
+// leaves the document untouched.
+bool loadMarkdown(const QString& source, QTextDocument* document, QString* error);
+
 // Native table probe: inserts a rows x cols table and reports whether the cells
 // stayed addressable and readable through the document text.
 bool insertTableProbe(QTextDocument* document, int rows, int cols);

@@ -55,8 +55,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   editMenu->addAction(m_redoAction);
   connect(m_redoAction, &QAction::triggered, this, &MainWindow::redo);
 
+  QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("View"));
+  m_sourceAction = new QAction(QStringLiteral("Source View"), this);
+  m_sourceAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+/")));
+  viewMenu->addAction(m_sourceAction);
+  connect(m_sourceAction, &QAction::triggered, this, &MainWindow::toggleSourceView);
+
   connect(m_document, &QTextDocument::contentsChanged, this, [this] {
-    m_dirty = true;
+    m_dirty = currentMarkdown() != m_savedMarkdown;
     updateTitleAndStatus();
   });
   connect(m_document, &QTextDocument::undoAvailable, m_undoAction, &QAction::setEnabled);
@@ -79,17 +85,17 @@ void MainWindow::openFile(const QString& path) {
   }
 
   const QString source = QString::fromUtf8(file.readAll());
-  const auto parsed = typist::core::parseMarkdown(source.toStdString());
-  if (!parsed.ok) {
-    statusBar()->showMessage(QString::fromStdString(parsed.error));
+  QString error;
+  if (!typist::editor::loadMarkdown(source, m_document, &error)) {
+    statusBar()->showMessage(error);
     return;
   }
 
-  typist::editor::buildDocument(parsed.blocks, m_document);
-  // Undo must not reach across a load: the loaded text is the baseline.
-  m_document->clearUndoRedoStacks(QTextDocument::UndoAndRedoStacks);
   m_currentPath = path;
   m_savedMarkdown = source;
+  m_sourceMode = false;
+  m_editor->setAcceptRichText(true);
+  m_sourceAction->setText(QStringLiteral("Source View"));
   markClean();
 }
 
@@ -100,7 +106,7 @@ void MainWindow::save() {
   }
 
   QString error;
-  const QString markdown = typist::editor::serializeDocument(m_document);
+  const QString markdown = currentMarkdown();
   if (!typist::platform::writeAtomic(m_currentPath, markdown, &error)) {
     statusBar()->showMessage(error);
     return;
@@ -120,15 +126,39 @@ void MainWindow::saveAs() {
 
 void MainWindow::undo() {
   m_document->undo();
-  // Undo can land back on the saved bytes, so dirty is re-derived from content.
-  m_dirty = typist::editor::serializeDocument(m_document) != m_savedMarkdown;
+  m_dirty = currentMarkdown() != m_savedMarkdown;
   updateTitleAndStatus();
 }
 
 void MainWindow::redo() {
   m_document->redo();
-  m_dirty = typist::editor::serializeDocument(m_document) != m_savedMarkdown;
+  m_dirty = currentMarkdown() != m_savedMarkdown;
   updateTitleAndStatus();
+}
+
+void MainWindow::toggleSourceView() {
+  if (m_sourceMode) {
+    QString error;
+    if (!typist::editor::loadMarkdown(m_editor->toPlainText(), m_document, &error)) {
+      statusBar()->showMessage(error);
+      return;
+    }
+    m_editor->setAcceptRichText(true);
+    m_sourceMode = false;
+    m_sourceAction->setText(QStringLiteral("Source View"));
+  } else {
+    m_editor->setAcceptRichText(false);
+    m_editor->setPlainText(typist::editor::serializeDocument(m_document));
+    m_sourceMode = true;
+    m_sourceAction->setText(QStringLiteral("Rendered View"));
+  }
+  m_document->clearUndoRedoStacks(QTextDocument::UndoAndRedoStacks);
+  m_dirty = currentMarkdown() != m_savedMarkdown;
+  updateTitleAndStatus();
+}
+
+QString MainWindow::currentMarkdown() const {
+  return m_sourceMode ? m_editor->toPlainText() : typist::editor::serializeDocument(m_document);
 }
 
 void MainWindow::markClean() {

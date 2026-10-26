@@ -334,6 +334,18 @@ QString serializeDocument(const QTextDocument* document) {
   return out;
 }
 
+bool loadMarkdown(const QString& source, QTextDocument* document, QString* error) {
+  const auto parsed = typist::core::parseMarkdown(source.toStdString());
+  if (!parsed.ok) {
+    if (error != nullptr) *error = QString::fromStdString(parsed.error);
+    return false;
+  }
+  buildDocument(parsed.blocks, document);
+  // A rebuild is not an edit: undo must stop at this boundary.
+  document->clearUndoRedoStacks(QTextDocument::UndoAndRedoStacks);
+  return true;
+}
+
 bool insertTableProbe(QTextDocument* document, int rows, int cols) {
   QTextCursor cursor(document);
   cursor.movePosition(QTextCursor::End);
