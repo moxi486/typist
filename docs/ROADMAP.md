@@ -41,7 +41,8 @@
 - 主题层已实现：ui::Theme（Light/Dark）+ resolveTheme(preference, systemPrefersDark)，偏好 system/light/dark 存在 platform::Settings（QSettings("Typist","Typist")：Windows 走注册表，Linux/macOS 走 ini）；Ctrl+Shift+D 循环 system→light→dark 并写回配置。样式两份：QSS 给编辑器控件，QPalette 覆盖 Base/Text/Highlight（仅靠 QSS 不改文档内文本颜色），htmlStyle 贯穿到导出的 HTML，导出与编辑器观感一致。
 - system 判定是启发式：Qt 没有显式 dark-mode API，用 QGuiApplication::palette().color(QPalette::Window).lightness() < 128 判断，并监听 paletteChanged 重新解析。三平台的原生 dark 检测（Windows 注册表值、macOS AppleInterfaceStyle）属后续项。
 - 构造顺序教训：applyTheme() 会写 m_themeAction 的文字，必须在 action 创建之后调用（否则空指针崩溃）；保留 nullptr 守卫。
-- 性能基线已建立（本机 Windows、Release/NDEBUG、perf_baseline 走 ctest）：冷启动 295ms（原生 windows platform；offscreen 17ms 只作 proxy），常驻工作集 21.7MB，1MB Markdown 为 parse 53ms / buildDocument 4615ms / serialize 69ms 合计 4737ms。冷启动与常驻内存达标，打开 1MB 的 <250ms 预算未达标，缺口全在 buildDocument——Beta 的增量渲染是主要项。输入到重绘 <16ms 还没有测量通道。
-- perf_baseline 的测试门槛是 8000ms，只用于抓大回归；真实预算写在本文而非门槛，避免 CI 机器抖动造成假失败。基线数字由 bench 打印，回归时按打印值比对。
+- 性能基线已建立（本机 Windows、Release/NDEBUG）：冷启动 295ms（原生 windows platform；offscreen 17ms 只作 proxy），常驻工作集 21.7MB，1MB Markdown 两种形状——realistic parse 34 / build 67 / serialize 16 = 117ms，tableheavy parse 51 / build 111 / serialize 82 = 244ms，均进入 <250ms 预算。输入到重绘 <16ms 仍无测量通道。
+- buildDocument 曾为 4615ms，根因不是表格而是逐块变更通知与撤销命令（表格形状只多约 200ms）。批量构建改为单个 beginEditBlock/endEditBlock 并在构建期间关闭 undo（loadMarkdown 本来就在载入后清空撤销栈，语义不变），降到 67ms（realistic）/111ms（tableheavy）。增量渲染因此不再是预算缺口，退为后续优化项。
+- perf_baseline 跑两种形状并打印数字：realistic 断言 total < 250ms（就是验收预算），tableheavy 断言 total < 1500ms（只抓大回归，CI 机器抖动不定）。回归按打印值比对。
 - 表格与后续内容：Qt 6.12 的 QTextCursor 没有 StartOfTable/EndOfTable（qtextcursor.h 的 MoveOperation 里没有这两个枚举），填完单元格后必须 movePosition(End) 再 insertBlock，同时序列化器跳过表格时不能多推进一个 block；两处叠加曾把长文档塌成一片表格（18590 blocks 变成 4），现由 gfm/table_then_para.md 语料覆盖。
 - MSVC 路线仍未核实：windows-msvc preset 保留，本机与 CI 都未验证过。

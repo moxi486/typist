@@ -163,9 +163,20 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
 
 void buildDocument(const std::vector<typist::core::Block>& blocks, QTextDocument* document) {
   document->clear();
+
+  // A build is a bulk load. Undo commands and change notifications per block cost
+  // seconds on a large document, so the whole build is one edit block with undo off;
+  // loadMarkdown clears the stack afterwards anyway.
+  const bool undoWasEnabled = document->isUndoRedoEnabled();
+  document->setUndoRedoEnabled(false);
+
   QTextCursor cursor(document);
+  cursor.beginEditBlock();
   BuildContext ctx;
   for (const typist::core::Block& block : blocks) insertBlock(block, cursor, 0, ctx);
+  cursor.endEditBlock();
+
+  document->setUndoRedoEnabled(undoWasEnabled);
 }
 
 QString serializeDocument(const QTextDocument* document) {
