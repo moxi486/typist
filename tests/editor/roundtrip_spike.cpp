@@ -1,10 +1,13 @@
 #include "editor_document.h"
 #include "FileWriter.h"
 #include "PdfWriter.h"
+#include "Settings.h"
+#include "Theme.h"
 #include "markdown.h"
 
 #include <QtTest>
 #include <QDir>
+#include <QSettings>
 #include <QFile>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -29,6 +32,9 @@ class EditorSpike : public QObject {
   void sourceToggleRoundTripsWithoutUndoLeak();
   void undoHistoryStaysBounded();
   void pdfExportWritesPdfFile();
+  void themeResolvesPreferenceAndStyles();
+  void themePreferenceRoundTripsThroughSettings();
+  void htmlExportEmbedsThemeStylesheet();
 
  private:
   std::string m_corpus;
@@ -204,6 +210,42 @@ void EditorSpike::pdfExportWritesPdfFile() {
   QVERIFY(file.read(5) == QByteArray("%PDF-"));
   file.close();
   QFile::remove(path);
+}
+
+void EditorSpike::themeResolvesPreferenceAndStyles() {
+  QVERIFY(typist::ui::resolveTheme(QStringLiteral("light"), true) == typist::ui::Theme::Light);
+  QVERIFY(typist::ui::resolveTheme(QStringLiteral("dark"), false) == typist::ui::Theme::Dark);
+  QVERIFY(typist::ui::resolveTheme(QStringLiteral("system"), true) == typist::ui::Theme::Dark);
+  QVERIFY(typist::ui::resolveTheme(QStringLiteral("system"), false) == typist::ui::Theme::Light);
+  QVERIFY(typist::ui::resolveTheme(QStringLiteral("nonsense"), false) == typist::ui::Theme::Light);
+
+  QVERIFY(typist::ui::editorStyleSheet(typist::ui::Theme::Light) != typist::ui::editorStyleSheet(typist::ui::Theme::Dark));
+  QVERIFY(typist::ui::htmlStyle(typist::ui::Theme::Dark).contains("#1f2328"));
+  QVERIFY(typist::ui::htmlStyle(typist::ui::Theme::Light).contains("#ffffff"));
+  QVERIFY(typist::ui::themeName(typist::ui::Theme::Dark) == QStringLiteral("dark"));
+}
+
+void EditorSpike::themePreferenceRoundTripsThroughSettings() {
+  const QString storeDir = QDir::tempPath() + QStringLiteral("/typist_theme_settings_probe");
+  QDir().mkpath(storeDir);
+  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, storeDir);
+
+  typist::platform::setThemePreference(QStringLiteral("dark"));
+  QVERIFY(typist::platform::themePreference() == QStringLiteral("dark"));
+
+  typist::platform::setThemePreference(QStringLiteral("system"));
+  QVERIFY(typist::platform::themePreference() == QStringLiteral("system"));
+
+  QFile::remove(storeDir + QStringLiteral("/Typist.ini"));
+}
+
+void EditorSpike::htmlExportEmbedsThemeStylesheet() {
+  const std::string body = typist::core::toHtml(read("gfm/table.md"));
+  const QString css = typist::ui::htmlStyle(typist::ui::Theme::Dark);
+  const std::string page = typist::core::wrapHtmlDocument(body, "Doc", css.toStdString());
+  QVERIFY(QString::fromStdString(page).contains(css));
+  QVERIFY(QString::fromStdString(page).contains("#1f2328"));
+  QVERIFY(!QString::fromStdString(typist::core::wrapHtmlDocument(body, "Doc")).contains("#1f2328"));
 }
 
 void EditorSpike::writeFileAtomicallyOverwritesTarget() {

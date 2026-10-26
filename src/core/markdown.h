@@ -60,6 +60,9 @@ std::string toHtml(std::string_view source, const ParseOptions& options = {});
 // neutral default stylesheet.
 std::string wrapHtmlDocument(std::string_view body, std::string_view title);
 
+// As above, but embedding a caller-supplied stylesheet instead of the neutral default.
+std::string wrapHtmlDocument(std::string_view body, std::string_view title, std::string_view css);
+
 bool astEqual(const std::vector<Block>& lhs, const std::vector<Block>& rhs);
 
 }  // namespace typist::core

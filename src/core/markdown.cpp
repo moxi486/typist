@@ -352,19 +352,24 @@ std::string toHtml(std::string_view source, const ParseOptions& options) {
   return out;
 }
 
-std::string wrapHtmlDocument(std::string_view body, std::string_view title) {
+std::string wrapHtmlDocument(std::string_view body, std::string_view title, std::string_view css) {
   std::string out;
   out += "<!doctype html>\n<html lang=\"en\">\n<head>\n";
   out += "<meta charset=\"utf-8\">\n";
   out += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n";
   out += "<title>" + escapeHtml(title) + "</title>\n";
-  out += "<style>body{max-width:68ch;margin:2rem auto;padding:0 1rem;line-height:1.6}";
-  out += "code,pre{font-family:monospace}pre{overflow:auto}";
-  out += "table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:.4rem .6rem}</style>\n";
+  out += "<style>" + std::string(css) + "</style>\n";
   out += "</head>\n<body>\n";
   out += std::string(body);
   out += "</body>\n</html>\n";
   return out;
+}
+
+std::string wrapHtmlDocument(std::string_view body, std::string_view title) {
+  return wrapHtmlDocument(body, title,
+                          "body{max-width:68ch;margin:2rem auto;padding:0 1rem;line-height:1.6}"
+                          "code,pre{font-family:monospace}pre{overflow:auto}"
+                          "table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:.4rem .6rem}");
 }
 
 bool astEqual(const std::vector<Block>& lhs, const std::vector<Block>& rhs) {

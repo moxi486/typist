@@ -38,4 +38,7 @@
 - HTML 导出走 cmark-gfm 的 GFM 扩展：core::toHtml 用 cmark_render_html(root, CMARK_OPT_UNSAFE, extensions)，扩展列表要与解析侧一致（cmark_markdown_to_html 不带扩展，表格/任务列表会退化），CMARK_OPT_UNSAFE 让 raw inline html（表格里的 <br>）保留；core::wrapHtmlDocument 加 UTF-8 charset 与中性默认样式。导出的是作者本机文档的 HTML，保留的原始 HTML 会执行脚本——只用于本地打开，不做网络服务。
 - PDF 导出走 QPrinter 的 PdfFormat：platform::exportPdf(path, document, error) 打印传入的文档并校验 %PDF 头，失败时删除半成品；主窗口导出前用 editor::loadMarkdown 造一份 detached 渲染文档，因此 PDF 始终反映 Markdown 语义，不受当前视图模式影响。Qt 的 QTextDocument 排版不做分页控制（无页眉页脚、无自定义分页），要精细版式需换成 QPrintEngine 或自定义排版，列为后续项。
 - MSYS2 的 Qt6 包其实带 PrintSupport（headers、Qt6PrintSupport.dll、lib/cmake/Qt6PrintSupport 都有），缺的只是 PrintTest；find_package 的 found 变量名是 Qt6PrintSupport_FOUND（Qt6 与组件名之间没有下划线），写成 Qt6_PrintSupport_FOUND 会恒为 false 并把实现降级成 stub。
+- 主题层已实现：ui::Theme（Light/Dark）+ resolveTheme(preference, systemPrefersDark)，偏好 system/light/dark 存在 platform::Settings（QSettings("Typist","Typist")：Windows 走注册表，Linux/macOS 走 ini）；Ctrl+Shift+D 循环 system→light→dark 并写回配置。样式两份：QSS 给编辑器控件，QPalette 覆盖 Base/Text/Highlight（仅靠 QSS 不改文档内文本颜色），htmlStyle 贯穿到导出的 HTML，导出与编辑器观感一致。
+- system 判定是启发式：Qt 没有显式 dark-mode API，用 QGuiApplication::palette().color(QPalette::Window).lightness() < 128 判断，并监听 paletteChanged 重新解析。三平台的原生 dark 检测（Windows 注册表值、macOS AppleInterfaceStyle）属后续项。
+- 构造顺序教训：applyTheme() 会写 m_themeAction 的文字，必须在 action 创建之后调用（否则空指针崩溃）；保留 nullptr 守卫。
 - MSVC 路线仍未核实：windows-msvc preset 保留，本机与 CI 都未验证过。

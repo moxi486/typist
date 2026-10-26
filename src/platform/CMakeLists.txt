@@ -1,4 +1,4 @@
-add_library(typist_platform STATIC FileWriter.h FileWriter.cpp PdfWriter.h PdfWriter.cpp)
+add_library(typist_platform STATIC FileWriter.h FileWriter.cpp PdfWriter.h PdfWriter.cpp Settings.h Settings.cpp)
 add_library(typist::platform ALIAS typist_platform)
 target_include_directories(typist_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(typist_platform PUBLIC Qt6::Core)

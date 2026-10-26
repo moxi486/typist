@@ -11,6 +11,7 @@
 - 同一视图内源码与渲染切换（Ctrl+/）
 - 导出 HTML（Ctrl+Shift+E，走 cmark-gfm 的 GFM 扩展）
 - 导出 PDF（Ctrl+Shift+P，走 Qt QPrinter 的 PdfFormat）
+- 主题 light / dark / system（Ctrl+Shift+D 循环，偏好写入 QSettings；导出的 HTML 内嵌同一份主题样式）
 - 往返保真测试：parse → serialize → parse 产生相同 AST
 
 ## 性能预算（验收数字）

@@ -1,4 +1,10 @@
+add_library(typist_ui_theme STATIC Theme.h Theme.cpp)
+add_library(typist::ui_theme ALIAS typist_ui_theme)
+target_include_directories(typist_ui_theme PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(typist_ui_theme PUBLIC Qt6::Core)
+target_compile_options(typist_ui_theme PRIVATE -Wall -Wextra)
+
 qt_add_executable(typist main.cpp MainWindow.h MainWindow.cpp)
 set_target_properties(typist PROPERTIES AUTOMOC ON)
-target_link_libraries(typist PRIVATE typist::core typist::editor typist::platform Qt6::Core Qt6::Gui Qt6::Widgets)
+target_link_libraries(typist PRIVATE typist::core typist::editor typist::platform typist::ui_theme Qt6::Core Qt6::Gui Qt6::Widgets)
 target_compile_options(typist PRIVATE -Wall -Wextra)
