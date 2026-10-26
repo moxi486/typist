@@ -163,12 +163,45 @@ QString serializeDocument(const QTextDocument* document) {
   bool prevWasList = false;
 
   while (block.isValid()) {
-    const int objectType = block.charFormat().objectType();
-    if (objectType == QTextFormat::TableObject || objectType == QTextFormat::TableCellObject) {
-      // Table cells stay out of the Markdown stream; table fidelity lives in the
-      // block tree (docs/ROADMAP.md open item).
+    // A table is a frame: its start and end blocks carry no table object type, so the
+    // frame itself is what identifies the table. Emit once at the frame's first position.
+    QTextTable* table = QTextCursor(block).currentTable();
+    if (table != nullptr) {
       prevWasList = false;
-      block = block.next();
+      if (block.position() == table->firstPosition()) {
+        const int rows = table->rows();
+        const int cols = table->columns();
+        for (int row = 0; row < rows; ++row) {
+          out += QLatin1Char('|');
+          for (int col = 0; col < cols; ++col) {
+            // QTextTableCell exposes no text(); the content is read as a selection
+            // between the cell's own first and last position.
+            const QTextTableCell cell = table->cellAt(row, col);
+            QTextCursor cellCursor(cell.firstCursorPosition());
+            cellCursor.setPosition(cell.lastPosition(), QTextCursor::KeepAnchor);
+            QString cellText = cellCursor.selectedText();
+            cellText.remove(QChar::ObjectReplacementCharacter);
+            cellText = cellText.trimmed();
+            if (cellText.isEmpty()) cellText = QStringLiteral(" ");
+            out += QLatin1Char(' ');
+            out += cellText;
+            out += QStringLiteral(" |");
+          }
+          out += QLatin1Char('\n');
+          if (row == 0) {
+            out += QLatin1Char('|');
+            for (int col = 0; col < cols; ++col) out += QStringLiteral(" --- |");
+            out += QLatin1Char('\n');
+          }
+        }
+        out += QLatin1Char('\n');
+      }
+      QTextBlock current = block;
+      while (current.isValid() && current.position() < table->lastPosition()) {
+        current = current.next();
+      }
+      if (current.isValid()) current = current.next();
+      block = current;
       continue;
     }
 

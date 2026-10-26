@@ -4,8 +4,11 @@ target_link_libraries(editor_spike PRIVATE typist::core typist::editor typist::p
 add_test(NAME editor_roundtrip COMMAND editor_spike)
 
 if(WIN32)
+  get_filename_component(qt_prefix "${Qt6_DIR}/../../.." ABSOLUTE)
+  file(TO_NATIVE_PATH "${qt_prefix}/bin" qt_bin_native)
+  file(TO_NATIVE_PATH "${cmark-gfm_BIN_DIR}" cmark_bin_native)
   set_tests_properties(editor_roundtrip PROPERTIES
-    ENVIRONMENT "PATH=${cmark-gfm_BIN_DIR}\;$ENV{PATH};TYPIST_CORPUS_DIR=${CMAKE_SOURCE_DIR}/tests/corpus;QT_QPA_PLATFORM=offscreen")
+    ENVIRONMENT "PATH=${cmark_bin_native}\;${qt_bin_native};TYPIST_CORPUS_DIR=${CMAKE_SOURCE_DIR}/tests/corpus;QT_QPA_PLATFORM=offscreen")
 else()
   set_tests_properties(editor_roundtrip PROPERTIES
     ENVIRONMENT "TYPIST_CORPUS_DIR=${CMAKE_SOURCE_DIR}/tests/corpus;QT_QPA_PLATFORM=offscreen")

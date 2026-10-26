@@ -92,14 +92,19 @@ void EditorSpike::tableCapabilityProbe() {
 }
 
 void EditorSpike::tableSerializationStaysOnTheAst() {
-  // Known gap: document->Markdown drops tables; fidelity is held by the AST path.
+  // The document side now emits the table itself, so both paths must agree.
   const auto parsed = typist::core::parseMarkdown(read("gfm/table.md"));
   QVERIFY(parsed.ok);
 
   QTextDocument document;
   typist::editor::buildDocument(parsed.blocks, &document);
-  QVERIFY(!typist::editor::serializeDocument(&document).contains("|"));
+  QVERIFY(typist::editor::serializeDocument(&document).contains("| --- |"));
   QVERIFY(typist::core::serializeMarkdown(parsed.blocks).find("| --- |") != std::string::npos);
+
+  const auto reparsed =
+      typist::core::parseMarkdown(typist::editor::serializeDocument(&document).toStdString());
+  QVERIFY(reparsed.ok);
+  QVERIFY(typist::core::astEqual(parsed.blocks, reparsed.blocks));
 }
 
 void EditorSpike::writeFileAtomicallyOverwritesTarget() {
