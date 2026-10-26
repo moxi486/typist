@@ -1,6 +1,6 @@
 qt_add_executable(editor_spike roundtrip_spike.cpp)
 set_target_properties(editor_spike PROPERTIES AUTOMOC ON)
-target_link_libraries(editor_spike PRIVATE typist::core typist::editor typist::platform typist::ui_theme typist::ui_autosave Qt6::Test Qt6::Widgets)
+target_link_libraries(editor_spike PRIVATE typist::core typist::editor typist::platform typist::ui_theme typist::ui_autosave typist::ui_viewswitch Qt6::Test Qt6::Widgets)
 add_test(NAME editor_roundtrip COMMAND editor_spike)
 
 if(WIN32)

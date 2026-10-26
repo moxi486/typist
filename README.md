@@ -8,7 +8,7 @@
 
 - 打开 / 保存 Markdown（原子写入）
 - 撤销 / 重做，历史上限 200 步
-- 同一视图内源码与渲染切换（Ctrl+/）
+- 同一视图内源码与渲染切换（Ctrl+/），两种视图各留一份撤销历史；内容语义相同则切换不重建文档
 - 导出 HTML（Ctrl+Shift+E，走 cmark-gfm 的 GFM 扩展）
 - 导出 PDF（Ctrl+Shift+P，走 Qt QPrinter 的 PdfFormat）
 - 主题 light / dark / system（Ctrl+Shift+D 循环，偏好写入 QSettings；导出的 HTML 内嵌同一份主题样式）

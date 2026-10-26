@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include <QApplication>
+#include <QByteArray>
 #include <QElapsedTimer>
 #include <QString>
 #include <QStringList>
@@ -20,15 +21,19 @@ int main(int argc, char* argv[]) {
   const QStringList args = application.arguments();
   const bool benchStartup = args.contains(QStringLiteral("--bench-startup"));
   const bool benchRepaint = args.contains(QStringLiteral("--bench-repaint"));
+  const bool benchViewSwitch = args.contains(QStringLiteral("--bench-view-switch"));
 
   typist::MainWindow window;
+  window.setBenchMode(benchStartup || benchRepaint || benchViewSwitch);
   const QByteArray benchFile = qgetenv("TYPIST_BENCH_FILE");
   if (!benchFile.isEmpty()) window.openFile(QString::fromUtf8(benchFile));
   window.show();
 
   int repaintBudgetBreaches = 0;
-  if (benchStartup || benchRepaint) {
-    QTimer::singleShot(0, &application, [&startup, &application, &window, benchStartup, benchRepaint, &repaintBudgetBreaches] {
+  bool undoKept = false;
+  if (benchStartup || benchRepaint || benchViewSwitch) {
+    QTimer::singleShot(0, &application, [&startup, &application, &window, benchStartup, benchRepaint, benchViewSwitch,
+                                       &repaintBudgetBreaches, &undoKept] {
       if (benchStartup) {
         std::printf("startup_ms=%lld\n", static_cast<long long>(startup.elapsed()));
       }
@@ -42,11 +47,16 @@ int main(int argc, char* argv[]) {
           if (ms > 16) ++repaintBudgetBreaches;
         }
       }
+      if (benchViewSwitch) {
+        undoKept = window.viewSwitchKeepsUndoForBench();
+        std::printf("view_undo_kept=%d\n", undoKept ? 1 : 0);
+      }
       application.quit();
     });
   }
 
   const int code = application.exec();
   if (benchRepaint && repaintBudgetBreaches > 0) return 1;
+  if (benchViewSwitch && !undoKept) return 1;
   return code;
 }

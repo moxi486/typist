@@ -3,6 +3,7 @@
 #include "PdfWriter.h"
 #include "AutoSave.h"
 #include "Settings.h"
+#include "ViewSwitch.h"
 #include "Theme.h"
 #include "markdown.h"
 
@@ -33,6 +34,9 @@ class EditorSpike : public QObject {
   void sourceToggleRoundTripsWithoutUndoLeak();
   void undoHistoryStaysBounded();
   void pdfExportWritesPdfFile();
+  void viewSwitchKeepsRenderedHistoryAcrossRoundTrip();
+  void viewSwitchInjectionResetsTargetHistory();
+  void viewSwitchRebuildsRenderedFromEditedSource();
   void autoSaveDebouncesTypingBursts();
   void autoSaveFlushRunsImmediately();
   void autoSaveStaysIdleWithoutEdits();
@@ -215,6 +219,72 @@ void EditorSpike::pdfExportWritesPdfFile() {
   QVERIFY(file.read(5) == QByteArray("%PDF-"));
   file.close();
   QFile::remove(path);
+}
+
+void EditorSpike::viewSwitchKeepsRenderedHistoryAcrossRoundTrip() {
+  typist::ui::ViewSwitch view;
+  QString error;
+  QVERIFY(view.loadMarkdownIntoBoth(QStringLiteral("# Title\n\nBody text\n"), &error));
+  const QString baseline = typist::editor::serializeDocument(view.rendered());
+
+  QTextCursor cursor(view.rendered());
+  cursor.beginEditBlock();
+  cursor.movePosition(QTextCursor::End);
+  cursor.insertText(QStringLiteral(" extra"));
+  cursor.endEditBlock();
+  QVERIFY(view.rendered()->isUndoAvailable());
+
+  QVERIFY(view.switchView(&error));
+  QVERIFY(view.isSourceMode());
+  QCOMPARE(view.active(), view.source());
+  QVERIFY(view.switchView(&error));
+  QVERIFY(!view.isSourceMode());
+  QCOMPARE(view.active(), view.rendered());
+  QVERIFY(view.rendered()->isUndoAvailable());
+
+  view.rendered()->undo();
+  QCOMPARE(typist::editor::serializeDocument(view.rendered()), baseline);
+}
+
+void EditorSpike::viewSwitchInjectionResetsTargetHistory() {
+  typist::ui::ViewSwitch view;
+  QString error;
+  QVERIFY(view.loadMarkdownIntoBoth(QStringLiteral("# Title\n\nBody text\n"), &error));
+
+  QTextCursor cursor(view.rendered());
+  cursor.beginEditBlock();
+  cursor.movePosition(QTextCursor::End);
+  cursor.insertText(QStringLiteral(" extra"));
+  cursor.endEditBlock();
+
+  QVERIFY(view.switchView(&error));
+  QCOMPARE(view.source()->toPlainText(), typist::editor::serializeDocument(view.rendered()));
+  // Injected content is a new baseline, so the plain view starts with an empty stack.
+  QVERIFY(!view.source()->isUndoAvailable());
+  // The rendered view keeps the edit that was made while it was shown.
+  QVERIFY(view.rendered()->isUndoAvailable());
+}
+
+void EditorSpike::viewSwitchRebuildsRenderedFromEditedSource() {
+  typist::ui::ViewSwitch view;
+  QString error;
+  QVERIFY(view.loadMarkdownIntoBoth(QStringLiteral("# Title\n\nBody text\n"), &error));
+  QVERIFY(view.switchView(&error));
+
+  QTextCursor cursor(view.source());
+  cursor.beginEditBlock();
+  cursor.movePosition(QTextCursor::End);
+  cursor.insertText(QStringLiteral("\n## Added section\n"));
+  cursor.endEditBlock();
+
+  QVERIFY(view.switchView(&error));
+  // Blank-line differences are normalized by the serializer, so compare ASTs.
+  const auto fromRendered = typist::core::parseMarkdown(typist::editor::serializeDocument(view.rendered()).toStdString());
+  const auto fromSource = typist::core::parseMarkdown(view.source()->toPlainText().toStdString());
+  QVERIFY(fromRendered.ok);
+  QVERIFY(fromSource.ok);
+  QVERIFY(typist::core::astEqual(fromRendered.blocks, fromSource.blocks));
+  QVERIFY(!view.rendered()->isUndoAvailable());
 }
 
 void EditorSpike::autoSaveDebouncesTypingBursts() {

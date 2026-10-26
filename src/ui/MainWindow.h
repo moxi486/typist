@@ -11,6 +11,7 @@ class QTextEdit;
 
 namespace typist::ui {
 class AutoSave;
+class ViewSwitch;
 }
 
 namespace typist {
@@ -28,6 +29,12 @@ class MainWindow : public QMainWindow {
 
   // Lets the bench confirm a file actually loaded before timing keystrokes.
   int documentBlockCount() const;
+
+  // Bench seam: an edit, a switch to source and back must leave undo available.
+  bool viewSwitchKeepsUndoForBench();
+
+  // Synthetic keystrokes in bench mode must not be persisted to the file under test.
+  void setBenchMode(bool enabled);
 
  private slots:
   void openDialog();
@@ -57,6 +64,8 @@ class MainWindow : public QMainWindow {
   QAction* m_sourceAction = nullptr;
   QAction* m_themeAction = nullptr;
   ui::AutoSave* m_autoSave = nullptr;
+  ui::ViewSwitch* m_view = nullptr;
+  bool m_benchMode = false;
   QString m_currentPath;
   QString m_savedMarkdown;
   QString m_themePreference;

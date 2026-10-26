@@ -4,6 +4,7 @@
 #include "PdfWriter.h"
 #include "AutoSave.h"
 #include "Settings.h"
+#include "ViewSwitch.h"
 #include "Theme.h"
 #include "editor_document.h"
 #include "markdown.h"
@@ -57,11 +58,11 @@ QPalette themedPalette(ui::Theme theme) {
 }  // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
-  m_document = new QTextDocument(this);
-  m_document->setUndoRedoEnabled(true);
+  // Two documents over one buffer: each mode keeps its own undo history.
+  m_view = new ui::ViewSwitch(this);
+  m_document = m_view->active();
   m_editor = new QTextEdit(this);
-  m_editor->setDocument(m_document);
-  m_editor->setAcceptRichText(true);
+  m_view->showActiveIn(m_editor);
   setCentralWidget(m_editor);
 
   m_autoSave = new ui::AutoSave(this);
@@ -123,17 +124,25 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   // Applied after the actions exist: applyTheme labels the theme action.
   applyTheme();
 
-  connect(m_document, &QTextDocument::contentsChanged, this, [this] {
-    // A plain flag keeps typing cheap; the exact comparison against the saved
-    // snapshot happens at save, undo, redo and view switch instead.
-    typist::editor::boundUndoHistory(m_document);
-    m_dirty = true;
-    // An untitled buffer has no target file, so autosave only runs once a path exists.
-    if (!m_currentPath.isEmpty()) m_autoSave->notifyChanged();
-    updateTitleAndStatus();
-  });
-  connect(m_document, &QTextDocument::undoAvailable, m_undoAction, &QAction::setEnabled);
-  connect(m_document, &QTextDocument::redoAvailable, m_redoAction, &QAction::setEnabled);
+  // Both documents feed the same dirty flag and autosave window; only the active one
+  // drives the undo/redo actions.
+  for (QTextDocument* doc : {m_view->rendered(), m_view->source()}) {
+    connect(doc, &QTextDocument::contentsChanged, this, [this, doc] {
+      // A plain flag keeps typing cheap; the exact comparison against the saved
+      // snapshot happens at save, undo, redo and view switch instead.
+      typist::editor::boundUndoHistory(doc);
+      m_dirty = true;
+      // An untitled buffer has no target file, so autosave only runs once a path exists.
+      if (!m_currentPath.isEmpty() && !m_benchMode) m_autoSave->notifyChanged();
+      updateTitleAndStatus();
+    });
+    connect(doc, &QTextDocument::undoAvailable, this, [this, doc](bool available) {
+      if (doc == m_document) m_undoAction->setEnabled(available);
+    });
+    connect(doc, &QTextDocument::redoAvailable, this, [this, doc](bool available) {
+      if (doc == m_document) m_redoAction->setEnabled(available);
+    });
+  }
   connect(qGuiApp, &QGuiApplication::paletteChanged, this, [this] { applyTheme(); });
 
   updateTitleAndStatus();
@@ -154,15 +163,17 @@ void MainWindow::openFile(const QString& path) {
 
   const QString source = QString::fromUtf8(file.readAll());
   QString error;
-  if (!typist::editor::loadMarkdown(source, m_document, &error)) {
+  // A new file is a new baseline for both views, so both undo stacks start empty.
+  if (!m_view->loadMarkdownIntoBoth(source, &error)) {
     statusBar()->showMessage(error);
     return;
   }
 
+  m_document = m_view->active();
+  m_view->showActiveIn(m_editor);
+  m_sourceMode = m_view->isSourceMode();
   m_currentPath = path;
   m_savedMarkdown = source;
-  m_sourceMode = false;
-  m_editor->setAcceptRichText(true);
   m_sourceAction->setText(QStringLiteral("Source View"));
   markClean();
 }
@@ -270,25 +281,20 @@ void MainWindow::redo() {
 
 void MainWindow::toggleSourceView() {
   // Flush first so the file on disk matches whichever view is about to be shown.
-  m_autoSave->flushNow();
+  if (!m_benchMode) m_autoSave->flushNow();
 
-  if (m_sourceMode) {
-    QString error;
-    // A failed parse must not discard what the author typed in source mode.
-    if (!typist::editor::loadMarkdown(m_editor->toPlainText(), m_document, &error)) {
-      statusBar()->showMessage(error);
-      return;
-    }
-    m_editor->setAcceptRichText(true);
-    m_sourceMode = false;
-    m_sourceAction->setText(QStringLiteral("Source View"));
-  } else {
-    m_editor->setAcceptRichText(false);
-    m_editor->setPlainText(typist::editor::serializeDocument(m_document));
-    m_sourceMode = true;
-    m_sourceAction->setText(QStringLiteral("Rendered View"));
+  QString error;
+  if (!m_view->switchView(&error)) {
+    statusBar()->showMessage(error);
+    return;
   }
-  m_document->clearUndoRedoStacks(QTextDocument::UndoAndRedoStacks);
+
+  m_document = m_view->active();
+  m_view->showActiveIn(m_editor);
+  m_sourceMode = m_view->isSourceMode();
+  m_sourceAction->setText(m_sourceMode ? QStringLiteral("Rendered View") : QStringLiteral("Source View"));
+  m_undoAction->setEnabled(m_document->isUndoAvailable());
+  m_redoAction->setEnabled(m_document->isRedoAvailable());
   m_dirty = currentMarkdown() != m_savedMarkdown;
   updateTitleAndStatus();
 }
@@ -308,7 +314,7 @@ void MainWindow::cycleTheme() {
 
 void MainWindow::closeEvent(QCloseEvent* event) {
   // Closing is the last chance to persist edits; the debounce window may still be open.
-  m_autoSave->flushNow();
+  if (!m_benchMode) m_autoSave->flushNow();
   QMainWindow::closeEvent(event);
 }
 
@@ -324,6 +330,20 @@ void MainWindow::applyTheme() {
 void MainWindow::applyThemePalette(const QPalette& palette) {
   m_editor->setPalette(palette);
   setPalette(palette);
+}
+
+void MainWindow::setBenchMode(bool enabled) { m_benchMode = enabled; }
+
+bool MainWindow::viewSwitchKeepsUndoForBench() {
+  QTextCursor cursor(m_document);
+  cursor.beginEditBlock();
+  cursor.movePosition(QTextCursor::End);
+  cursor.insertText(QStringLiteral("x"));
+  cursor.endEditBlock();
+
+  toggleSourceView();
+  toggleSourceView();
+  return m_document->isUndoAvailable();
 }
 
 int MainWindow::documentBlockCount() const { return m_document->blockCount(); }
@@ -342,7 +362,7 @@ qint64 MainWindow::measureTypingRepaint() {
 QString MainWindow::themePreference() const { return m_themePreference; }
 
 QString MainWindow::currentMarkdown() const {
-  return m_sourceMode ? m_editor->toPlainText() : typist::editor::serializeDocument(m_document);
+  return m_view->isSourceMode() ? m_editor->toPlainText() : typist::editor::serializeDocument(m_document);
 }
 
 void MainWindow::markClean() {
