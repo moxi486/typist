@@ -3,6 +3,7 @@
 #include <QMainWindow>
 #include <QString>
 
+class QAction;
 class QTextDocument;
 class QTextEdit;
 
@@ -20,13 +21,19 @@ class MainWindow : public QMainWindow {
   void openDialog();
   void save();
   void saveAs();
+  void undo();
+  void redo();
 
  private:
   void updateTitleAndStatus();
+  void markClean();
 
   QTextEdit* m_editor = nullptr;
   QTextDocument* m_document = nullptr;
+  QAction* m_undoAction = nullptr;
+  QAction* m_redoAction = nullptr;
   QString m_currentPath;
+  QString m_savedMarkdown;
   bool m_dirty = false;
 };
 

@@ -19,6 +19,7 @@ namespace typist {
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_document = new QTextDocument(this);
+  m_document->setUndoRedoEnabled(true);
   m_editor = new QTextEdit(this);
   m_editor->setDocument(m_document);
   m_editor->setAcceptRichText(true);
@@ -41,10 +42,25 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   fileMenu->addAction(saveAsAction);
   connect(saveAsAction, &QAction::triggered, this, &MainWindow::saveAs);
 
+  QMenu* editMenu = menuBar()->addMenu(QStringLiteral("Edit"));
+  m_undoAction = new QAction(QStringLiteral("Undo"), this);
+  m_undoAction->setShortcut(QKeySequence::Undo);
+  m_undoAction->setEnabled(false);
+  editMenu->addAction(m_undoAction);
+  connect(m_undoAction, &QAction::triggered, this, &MainWindow::undo);
+
+  m_redoAction = new QAction(QStringLiteral("Redo"), this);
+  m_redoAction->setShortcut(QKeySequence::Redo);
+  m_redoAction->setEnabled(false);
+  editMenu->addAction(m_redoAction);
+  connect(m_redoAction, &QAction::triggered, this, &MainWindow::redo);
+
   connect(m_document, &QTextDocument::contentsChanged, this, [this] {
     m_dirty = true;
     updateTitleAndStatus();
   });
+  connect(m_document, &QTextDocument::undoAvailable, m_undoAction, &QAction::setEnabled);
+  connect(m_document, &QTextDocument::redoAvailable, m_redoAction, &QAction::setEnabled);
 
   updateTitleAndStatus();
 }
@@ -70,9 +86,11 @@ void MainWindow::openFile(const QString& path) {
   }
 
   typist::editor::buildDocument(parsed.blocks, m_document);
+  // Undo must not reach across a load: the loaded text is the baseline.
+  m_document->clearUndoRedoStacks(QTextDocument::UndoAndRedoStacks);
   m_currentPath = path;
-  m_dirty = false;
-  updateTitleAndStatus();
+  m_savedMarkdown = source;
+  markClean();
 }
 
 void MainWindow::save() {
@@ -88,8 +106,8 @@ void MainWindow::save() {
     return;
   }
 
-  m_dirty = false;
-  updateTitleAndStatus();
+  m_savedMarkdown = markdown;
+  markClean();
 }
 
 void MainWindow::saveAs() {
@@ -98,6 +116,24 @@ void MainWindow::saveAs() {
   if (path.isEmpty()) return;
   m_currentPath = path;
   save();
+}
+
+void MainWindow::undo() {
+  m_document->undo();
+  // Undo can land back on the saved bytes, so dirty is re-derived from content.
+  m_dirty = typist::editor::serializeDocument(m_document) != m_savedMarkdown;
+  updateTitleAndStatus();
+}
+
+void MainWindow::redo() {
+  m_document->redo();
+  m_dirty = typist::editor::serializeDocument(m_document) != m_savedMarkdown;
+  updateTitleAndStatus();
+}
+
+void MainWindow::markClean() {
+  m_dirty = false;
+  updateTitleAndStatus();
 }
 
 void MainWindow::updateTitleAndStatus() {

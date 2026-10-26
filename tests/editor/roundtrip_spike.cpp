@@ -5,6 +5,7 @@
 #include <QtTest>
 #include <QDir>
 #include <QFile>
+#include <QTextCursor>
 #include <QTextDocument>
 
 #include <filesystem>
@@ -23,6 +24,7 @@ class EditorSpike : public QObject {
   void tableSerializationStaysOnTheAst();
   void writeFileAtomicallyOverwritesTarget();
   void savedMarkdownMatchesParsedSource();
+  void undoRestoresSavedMarkdown();
 
  private:
   std::string m_corpus;
@@ -106,6 +108,32 @@ void EditorSpike::tableSerializationStaysOnTheAst() {
       typist::core::parseMarkdown(typist::editor::serializeDocument(&document).toStdString());
   QVERIFY(reparsed.ok);
   QVERIFY(typist::core::astEqual(parsed.blocks, reparsed.blocks));
+}
+
+void EditorSpike::undoRestoresSavedMarkdown() {
+  QTextDocument document;
+  document.setUndoRedoEnabled(true);
+  const auto parsed = typist::core::parseMarkdown(read("lists.md"));
+  QVERIFY(parsed.ok);
+  typist::editor::buildDocument(parsed.blocks, &document);
+  document.clearUndoRedoStacks(QTextDocument::UndoAndRedoStacks);
+
+  const QString saved = typist::editor::serializeDocument(&document);
+  QVERIFY(!document.isUndoAvailable());
+
+  QTextCursor cursor(&document);
+  cursor.movePosition(QTextCursor::End);
+  cursor.insertText(QStringLiteral(" extra words"));
+  const QString edited = typist::editor::serializeDocument(&document);
+  QVERIFY(edited != saved);
+  QVERIFY(document.isUndoAvailable());
+
+  document.undo();
+  QVERIFY(typist::editor::serializeDocument(&document) == saved);
+  QVERIFY(document.isRedoAvailable());
+
+  document.redo();
+  QVERIFY(typist::editor::serializeDocument(&document) == edited);
 }
 
 void EditorSpike::writeFileAtomicallyOverwritesTarget() {
