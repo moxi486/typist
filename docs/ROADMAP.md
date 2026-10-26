@@ -43,6 +43,7 @@
 - 构造顺序教训：applyTheme() 会写 m_themeAction 的文字，必须在 action 创建之后调用（否则空指针崩溃）；保留 nullptr 守卫。
 - 性能基线已建立（本机 Windows、Release/NDEBUG）：冷启动 295ms（原生 windows platform；offscreen 17ms 只作 proxy），常驻工作集 21.7MB，1MB Markdown 两种形状——realistic parse 34 / build 67 / serialize 16 = 117ms，tableheavy parse 51 / build 111 / serialize 82 = 244ms，均进入 <250ms 预算。
 - 输入到重绘已有测量通道：`typist --bench-repaint` 插入一个字符后同步 `repaint()` 计满三次，超过 16ms 即以退出码 1 失败；空文档形状作为 ctest 项 `repaint_baseline`，载入 1MB 文档的对照走 `TYPIST_BENCH_FILE`（本机实测 0–1ms）。
+- 自动保存节奏（按假设落地，待用户改值时回来确认）：最后一次编辑后 2 秒落盘（单次 QTimer 去抖，连续打字只产生一次写入），只在已知路径时触发——未命名缓冲区不会凭空建文件；切换源码/渲染视图与关闭窗口时 flushNow() 强制落盘。写入仍走 writeAtomic，脏标记在落盘点才做精确比较，打字路径不序列化。未提供开关（Typora 行为即始终自动保存），若后续要「关闭自动保存」需加配置键。
 - 给 Qt 传文件路径要用原生路径：MSYS2 的 /tmp 路径 Qt 打不开（openFile 失败但不会有明显报错），bench 用 E:/Typist/.deps/typist_1mb.md 并由 documentBlockCount 打印确认确实载入。
 - buildDocument 曾为 4615ms，根因不是表格而是逐块变更通知与撤销命令（表格形状只多约 200ms）。批量构建改为单个 beginEditBlock/endEditBlock 并在构建期间关闭 undo（loadMarkdown 本来就在载入后清空撤销栈，语义不变），降到 67ms（realistic）/111ms（tableheavy）。增量渲染因此不再是预算缺口，退为后续优化项。
 - perf_baseline 跑两种形状并打印数字：realistic 断言 total < 250ms（就是验收预算），tableheavy 断言 total < 1500ms（只抓大回归，CI 机器抖动不定）。回归按打印值比对。

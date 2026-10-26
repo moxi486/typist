@@ -2,6 +2,7 @@
 
 #include "FileWriter.h"
 #include "PdfWriter.h"
+#include "AutoSave.h"
 #include "Settings.h"
 #include "Theme.h"
 #include "editor_document.h"
@@ -9,6 +10,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QCloseEvent>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -61,6 +63,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_editor->setDocument(m_document);
   m_editor->setAcceptRichText(true);
   setCentralWidget(m_editor);
+
+  m_autoSave = new ui::AutoSave(this);
+  m_autoSave->setCallback([this] { autoSaveNow(); });
 
   m_themePreference = platform::themePreference();
 
@@ -123,6 +128,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // snapshot happens at save, undo, redo and view switch instead.
     typist::editor::boundUndoHistory(m_document);
     m_dirty = true;
+    // An untitled buffer has no target file, so autosave only runs once a path exists.
+    if (!m_currentPath.isEmpty()) m_autoSave->notifyChanged();
     updateTitleAndStatus();
   });
   connect(m_document, &QTextDocument::undoAvailable, m_undoAction, &QAction::setEnabled);
@@ -234,6 +241,21 @@ void MainWindow::exportPdf() {
   statusBar()->showMessage(QStringLiteral("Exported PDF"));
 }
 
+void MainWindow::autoSaveNow() {
+  if (!m_dirty || m_currentPath.isEmpty()) return;
+
+  const QString markdown = currentMarkdown();
+  QString error;
+  if (!typist::platform::writeAtomic(m_currentPath, markdown, &error)) {
+    statusBar()->showMessage(error);
+    return;
+  }
+
+  m_savedMarkdown = markdown;
+  markClean();
+  statusBar()->showMessage(QStringLiteral("Autosaved"));
+}
+
 void MainWindow::undo() {
   m_document->undo();
   m_dirty = currentMarkdown() != m_savedMarkdown;
@@ -247,6 +269,9 @@ void MainWindow::redo() {
 }
 
 void MainWindow::toggleSourceView() {
+  // Flush first so the file on disk matches whichever view is about to be shown.
+  m_autoSave->flushNow();
+
   if (m_sourceMode) {
     QString error;
     // A failed parse must not discard what the author typed in source mode.
@@ -279,6 +304,12 @@ void MainWindow::cycleTheme() {
   platform::setThemePreference(m_themePreference);
   applyTheme();
   statusBar()->showMessage(QStringLiteral("Theme: ") + m_themePreference);
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+  // Closing is the last chance to persist edits; the debounce window may still be open.
+  m_autoSave->flushNow();
+  QMainWindow::closeEvent(event);
 }
 
 void MainWindow::applyTheme() {

@@ -1,6 +1,7 @@
 #include "editor_document.h"
 #include "FileWriter.h"
 #include "PdfWriter.h"
+#include "AutoSave.h"
 #include "Settings.h"
 #include "Theme.h"
 #include "markdown.h"
@@ -32,6 +33,9 @@ class EditorSpike : public QObject {
   void sourceToggleRoundTripsWithoutUndoLeak();
   void undoHistoryStaysBounded();
   void pdfExportWritesPdfFile();
+  void autoSaveDebouncesTypingBursts();
+  void autoSaveFlushRunsImmediately();
+  void autoSaveStaysIdleWithoutEdits();
   void themeResolvesPreferenceAndStyles();
   void themePreferenceRoundTripsThroughSettings();
   void htmlExportEmbedsThemeStylesheet();
@@ -211,6 +215,46 @@ void EditorSpike::pdfExportWritesPdfFile() {
   QVERIFY(file.read(5) == QByteArray("%PDF-"));
   file.close();
   QFile::remove(path);
+}
+
+void EditorSpike::autoSaveDebouncesTypingBursts() {
+  typist::ui::AutoSave autoSave;
+  int flushes = 0;
+  autoSave.setInterval(60);
+  autoSave.setCallback([&flushes] { ++flushes; });
+
+  autoSave.notifyChanged();
+  autoSave.notifyChanged();
+  autoSave.notifyChanged();
+  QVERIFY(autoSave.isPending());
+  QTRY_COMPARE_WITH_TIMEOUT(flushes, 1, 2000);
+  QVERIFY(!autoSave.isPending());
+}
+
+void EditorSpike::autoSaveFlushRunsImmediately() {
+  typist::ui::AutoSave autoSave;
+  int flushes = 0;
+  autoSave.setInterval(200);
+  autoSave.setCallback([&flushes] { ++flushes; });
+
+  autoSave.notifyChanged();
+  autoSave.flushNow();
+  QCOMPARE(flushes, 1);
+  QVERIFY(!autoSave.isPending());
+  // The expired window must not fire a second write after an explicit flush.
+  QTest::qWait(250);
+  QCOMPARE(flushes, 1);
+}
+
+void EditorSpike::autoSaveStaysIdleWithoutEdits() {
+  typist::ui::AutoSave autoSave;
+  int flushes = 0;
+  autoSave.setInterval(60);
+  autoSave.setCallback([&flushes] { ++flushes; });
+
+  QTest::qWait(200);
+  QCOMPARE(flushes, 0);
+  QVERIFY(!autoSave.isPending());
 }
 
 void EditorSpike::themeResolvesPreferenceAndStyles() {

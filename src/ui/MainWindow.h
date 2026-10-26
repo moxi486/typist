@@ -5,8 +5,13 @@
 #include <QPalette>
 
 class QAction;
+class QCloseEvent;
 class QTextDocument;
 class QTextEdit;
+
+namespace typist::ui {
+class AutoSave;
+}
 
 namespace typist {
 
@@ -34,6 +39,7 @@ class MainWindow : public QMainWindow {
   void exportHtml();
   void exportPdf();
   void cycleTheme();
+  void autoSaveNow();
 
  private:
   void updateTitleAndStatus();
@@ -42,6 +48,7 @@ class MainWindow : public QMainWindow {
   QString themePreference() const;
   void applyTheme();
   void applyThemePalette(const QPalette& palette);
+  void closeEvent(QCloseEvent* event) override;
 
   QTextEdit* m_editor = nullptr;
   QTextDocument* m_document = nullptr;
@@ -49,6 +56,7 @@ class MainWindow : public QMainWindow {
   QAction* m_redoAction = nullptr;
   QAction* m_sourceAction = nullptr;
   QAction* m_themeAction = nullptr;
+  ui::AutoSave* m_autoSave = nullptr;
   QString m_currentPath;
   QString m_savedMarkdown;
   QString m_themePreference;
