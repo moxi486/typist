@@ -88,6 +88,13 @@ void insertTable(const typist::core::Block& table, QTextCursor& cursor) {
       cellCursor.insertText(QString::fromStdString(table.children[row].children[col].text));
     }
   }
+
+  // insertTable leaves the cursor inside the frame, so the next insertBlock would land
+  // in the last cell and swallow everything that follows the table. Moving to the end
+  // first lets Qt place the following block outside the frame; positioning at
+  // lastPosition instead grew the frame over the following blocks.
+  cursor.movePosition(QTextCursor::End);
+  cursor.insertBlock(QTextBlockFormat());
 }
 
 void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int depth,
@@ -211,11 +218,13 @@ QString serializeDocument(const QTextDocument* document) {
         }
         out += QLatin1Char('\n');
       }
+      // lastPosition is the start of the block after the table, so landing on it is
+      // already past the table. Advancing one more dropped every block that followed a
+      // table, which collapsed long documents to a run of tables.
       QTextBlock current = block;
       while (current.isValid() && current.position() < table->lastPosition()) {
         current = current.next();
       }
-      if (current.isValid()) current = current.next();
       block = current;
       continue;
     }

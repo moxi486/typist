@@ -13,6 +13,7 @@
 - 导出 PDF（Ctrl+Shift+P，走 Qt QPrinter 的 PdfFormat）
 - 主题 light / dark / system（Ctrl+Shift+D 循环，偏好写入 QSettings；导出的 HTML 内嵌同一份主题样式）
 - 往返保真测试：parse → serialize → parse 产生相同 AST
+- 性能基线：`perf_baseline`（ctest 项）打印冷启动与 1MB 文档的解析/构建/序列化耗时；本机 Windows Release 实测冷启动 295ms、常驻工作集 21.7MB、1MB 文档 parse 53ms + buildDocument 4615ms + serialize 69ms
 
 ## 性能预算（验收数字）
 

@@ -66,6 +66,7 @@ void EditorSpike::documentRoundTripMatchesSource() {
   const std::vector<std::string> files = {
       "headings.md", "paragraphs.md", "lists.md", "nested_ordered.md", "nested_wide.md",
       "thematic.md", "code.md", "code_info.md", "fences.md", "gfm/table.md",
+      "gfm/table_then_para.md",
       "gfm/table_escapes.md", "gfm/tasklist.md",
   };
   for (const std::string& name : files) {
