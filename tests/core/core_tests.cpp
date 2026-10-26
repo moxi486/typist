@@ -79,6 +79,25 @@ int main(int argc, char** argv) {
   }
   check(tasks.ok && checkedSeen && uncheckedSeen, "gfm task list parsed");
 
+  const std::string tableHtml = typist::core::toHtml(readFile(corpus / "gfm" / "table.md"));
+  check(tableHtml.find("<table>") != std::string::npos, "html table rendered");
+  check(tableHtml.find("<th>") != std::string::npos, "html table header rendered");
+
+  const std::string escapedHtml = typist::core::toHtml(readFile(corpus / "gfm" / "table_escapes.md"));
+  check(escapedHtml.find("a | b") != std::string::npos, "html escaped pipe becomes text");
+  check(escapedHtml.find("<br>") != std::string::npos, "html keeps br inside cell");
+
+  const std::string taskHtml = typist::core::toHtml(readFile(corpus / "gfm" / "tasklist.md"));
+  check(taskHtml.find("type=\"checkbox\"") != std::string::npos, "html checkbox rendered");
+  check(taskHtml.find("checked") != std::string::npos, "html checked box rendered");
+
+  const std::string codeHtml = typist::core::toHtml(readFile(corpus / "code_info.md"));
+  check(codeHtml.find("language-c") != std::string::npos, "html fence info becomes class");
+
+  const std::string page = typist::core::wrapHtmlDocument(tableHtml, "Doc <title>");
+  check(page.find("<meta charset=\"utf-8\">") != std::string::npos, "html page declares charset");
+  check(page.find("<title>Doc &lt;title&gt;</title>") != std::string::npos, "html page escapes title");
+
   std::cout << (g_failures == 0 ? "all tests passed\n"
                                 : "failed: " + std::to_string(g_failures) + "\n");
   return g_failures == 0 ? 0 : 1;

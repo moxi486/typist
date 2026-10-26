@@ -5,8 +5,10 @@
 #include "markdown.h"
 
 #include <QAction>
+#include <QDir>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QKeySequence>
 #include <QMenuBar>
 #include <QMenu>
@@ -41,6 +43,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   saveAsAction->setShortcut(QKeySequence::SaveAs);
   fileMenu->addAction(saveAsAction);
   connect(saveAsAction, &QAction::triggered, this, &MainWindow::saveAs);
+
+  QAction* exportHtmlAction = new QAction(QStringLiteral("Export HTML"), this);
+  exportHtmlAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+E")));
+  fileMenu->addAction(exportHtmlAction);
+  connect(exportHtmlAction, &QAction::triggered, this, &MainWindow::exportHtml);
 
   QMenu* editMenu = menuBar()->addMenu(QStringLiteral("Edit"));
   m_undoAction = new QAction(QStringLiteral("Undo"), this);
@@ -125,6 +132,25 @@ void MainWindow::saveAs() {
   if (path.isEmpty()) return;
   m_currentPath = path;
   save();
+}
+
+void MainWindow::exportHtml() {
+  const QString suggested = m_currentPath.isEmpty()
+      ? QDir::homePath() + QStringLiteral("/untitled.html")
+      : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
+            QFileInfo(m_currentPath).baseName() + QStringLiteral(".html");
+  const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Export HTML"), suggested,
+                                                    QStringLiteral("HTML (*.html)"));
+  if (path.isEmpty()) return;
+
+  const std::string body = typist::core::toHtml(currentMarkdown().toStdString());
+  const std::string page = typist::core::wrapHtmlDocument(body, QFileInfo(path).baseName().toStdString());
+  QString error;
+  if (!typist::platform::writeAtomic(path, QString::fromStdString(page), &error)) {
+    statusBar()->showMessage(error);
+    return;
+  }
+  statusBar()->showMessage(QStringLiteral("Exported HTML"));
 }
 
 void MainWindow::undo() {

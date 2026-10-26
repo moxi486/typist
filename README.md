@@ -4,6 +4,14 @@
 
 独立实现，与 Typora 官方无任何隶属关系，不使用 Typora 的资源、图标或名称混用。
 
+## 当前可用功能
+
+- 打开 / 保存 Markdown（原子写入）
+- 撤销 / 重做，历史上限 200 步
+- 同一视图内源码与渲染切换（Ctrl+/）
+- 导出 HTML（Ctrl+Shift+E，走 cmark-gfm 的 GFM 扩展）
+- 往返保真测试：parse → serialize → parse 产生相同 AST
+
 ## 性能预算（验收数字）
 
 - 冷启动 < 400ms

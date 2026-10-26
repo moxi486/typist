@@ -24,6 +24,7 @@ class MainWindow : public QMainWindow {
   void undo();
   void redo();
   void toggleSourceView();
+  void exportHtml();
 
  private:
   void updateTitleAndStatus();

@@ -252,6 +252,26 @@ std::string serializeBlock(const Block& block, int indent) {
   return out;
 }
 
+std::string escapeHtml(std::string_view text) {
+  std::string out;
+  for (char c : text) {
+    if (c == '&') out += "&amp;";
+    else if (c == '<') out += "&lt;";
+    else if (c == '>') out += "&gt;";
+    else out += c;
+  }
+  return out;
+}
+
+std::vector<const char*> enabledExtensions(const ParseOptions& options) {
+  std::vector<const char*> names;
+  if (options.gfmTables) names.push_back("table");
+  if (options.gfmTaskList) names.push_back("tasklist");
+  if (options.gfmStrikethrough) names.push_back("strikethrough");
+  if (options.autolink) names.push_back("autolink");
+  return names;
+}
+
 }  // namespace
 
 ParseResult parseMarkdown(std::string_view source, const ParseOptions& options) {
@@ -298,6 +318,52 @@ std::string serializeMarkdown(const std::vector<Block>& blocks) {
   std::string out;
   for (const Block& block : blocks) out += serializeBlock(block, 0);
   if (!out.empty() && out.back() != '\n') out += "\n";
+  return out;
+}
+
+std::string toHtml(std::string_view source, const ParseOptions& options) {
+  cmark_gfm_core_extensions_ensure_registered();
+  cmark_mem* mem = cmark_get_default_mem_allocator();
+
+  std::unique_ptr<cmark_parser, decltype(&cmark_parser_free)> parser(
+      cmark_parser_new(CMARK_OPT_UNSAFE), &cmark_parser_free);
+  if (!parser) return "";
+
+  cmark_llist* extensions = nullptr;
+  for (const char* name : enabledExtensions(options)) {
+    cmark_syntax_extension* extension = cmark_find_syntax_extension(name);
+    if (extension == nullptr) continue;
+    cmark_parser_attach_syntax_extension(parser.get(), extension);
+    extensions = cmark_llist_append(mem, extensions, extension);
+  }
+
+  cmark_parser_feed(parser.get(), source.data(), source.size());
+  std::unique_ptr<cmark_node, decltype(&cmark_node_free)> root(
+      cmark_parser_finish(parser.get()), &cmark_node_free);
+  if (!root) {
+    cmark_llist_free(mem, extensions);
+    return "";
+  }
+
+  char* html = cmark_render_html(root.get(), CMARK_OPT_UNSAFE, extensions);
+  std::string out = html != nullptr ? std::string(html) : std::string();
+  if (html != nullptr) mem->free(html);
+  cmark_llist_free(mem, extensions);
+  return out;
+}
+
+std::string wrapHtmlDocument(std::string_view body, std::string_view title) {
+  std::string out;
+  out += "<!doctype html>\n<html lang=\"en\">\n<head>\n";
+  out += "<meta charset=\"utf-8\">\n";
+  out += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n";
+  out += "<title>" + escapeHtml(title) + "</title>\n";
+  out += "<style>body{max-width:68ch;margin:2rem auto;padding:0 1rem;line-height:1.6}";
+  out += "code,pre{font-family:monospace}pre{overflow:auto}";
+  out += "table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:.4rem .6rem}</style>\n";
+  out += "</head>\n<body>\n";
+  out += std::string(body);
+  out += "</body>\n</html>\n";
   return out;
 }
 

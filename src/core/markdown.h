@@ -51,6 +51,15 @@ ParseResult parseMarkdown(std::string_view source, const ParseOptions& options =
 // Fidelity gaps are tracked in docs/ROADMAP.md.
 std::string serializeMarkdown(const std::vector<Block>& blocks);
 
+// Renders Markdown to an HTML fragment through cmark-gfm with the same GFM
+// extensions as parsing. CMARK_OPT_UNSAFE is set so raw inline HTML (such as the
+// <br> used inside table cells) survives; callers decide where the fragment goes.
+std::string toHtml(std::string_view source, const ParseOptions& options = {});
+
+// Wraps an HTML fragment in a standalone document with a UTF-8 charset and a
+// neutral default stylesheet.
+std::string wrapHtmlDocument(std::string_view body, std::string_view title);
+
 bool astEqual(const std::vector<Block>& lhs, const std::vector<Block>& rhs);
 
 }  // namespace typist::core
