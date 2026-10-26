@@ -182,6 +182,11 @@ QString serializeDocument(const QTextDocument* document) {
             QString cellText = cellCursor.selectedText();
             cellText.remove(QChar::ObjectReplacementCharacter);
             cellText = cellText.trimmed();
+            // A merged cell repeats its content across the span; Markdown has no
+            // merge, so only the origin cell keeps the text and the rest go empty.
+            if (cell.row() != row || cell.column() != col) cellText.clear();
+            cellText.replace(QLatin1Char('|'), QStringLiteral("\\|"));
+            cellText.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
             if (cellText.isEmpty()) cellText = QStringLiteral(" ");
             out += QLatin1Char(' ');
             out += cellText;

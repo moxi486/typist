@@ -30,6 +30,10 @@ std::string flattenInline(cmark_node* node) {
       out += " ";
     } else if (type == "linebreak") {
       out += "\n";
+    } else if (type == "html" && literal != nullptr) {
+      // Inline HTML such as <br> is carried verbatim; it is the only way a table
+      // cell can hold more than one line.
+      out += literal;
     } else {
       out += flattenInline(child);
     }
@@ -160,9 +164,21 @@ std::vector<std::string> splitLines(const std::string& text) {
   return lines;
 }
 
+// A Markdown table cell cannot hold a raw pipe or a line break: the pipe is escaped
+// as \| and a line break is written as <br>, which parses back as inline HTML.
+std::string escapeTableCell(const std::string& text) {
+  std::string out;
+  for (char c : text) {
+    if (c == '|') out += "\\|";
+    else if (c == '\n') out += "<br>";
+    else out += c;
+  }
+  return out;
+}
+
 std::string serializeRow(const Block& row) {
   std::string out = "|";
-  for (const Block& cell : row.children) out += " " + cell.text + " |";
+  for (const Block& cell : row.children) out += " " + escapeTableCell(cell.text) + " |";
   out += "\n";
   return out;
 }
