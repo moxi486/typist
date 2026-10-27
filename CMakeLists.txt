@@ -6,6 +6,27 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Packaging: CPack builds the distributable bundles. Platform generators are chosen
+# here; CI adds DEB/RPM explicitly where the tools exist on the runner.
+set(CPACK_PACKAGE_NAME "Typist")
+set(CPACK_PACKAGE_VENDOR "Typist project")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "WYSIWYG Markdown editor built on Qt 6")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "Typist")
+set(CPACK_PACKAGE_CONTACT "typist-project@example.org")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+set(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
+if(WIN32)
+  set(CPACK_GENERATOR "ZIP")
+elseif(APPLE)
+  set(CPACK_GENERATOR "TGZ;DMG")
+else()
+  set(CPACK_GENERATOR "TGZ")
+  set(CPACK_DEBIAN_PACKAGE_MAINTAINER "typist-project@example.org")
+  set(CPACK_DEBIAN_PACKAGE_SECTION "editors")
+  set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+endif()
+include(CPack)
+
 option(TYPIST_BUILD_APP "Build the Qt Widgets application" ON)
 option(TYPIST_BUILD_TESTS "Build tests" ON)
 

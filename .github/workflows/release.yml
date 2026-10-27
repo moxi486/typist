@@ -2,36 +2,150 @@ name: release
 
 on:
   push:
-    tags: ['v*']
+    tags:
+      - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, macos-14]
-    runs-on: ${{ matrix.os }}
+  windows:
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-      - if: matrix.os == 'ubuntu-24.04'
-        run: sudo apt-get update && sudo apt-get install -y libcmark-gfm-dev libcmark-gfm-extensions-dev qt6-base-dev
-      - if: matrix.os == 'macos-14'
-        run: brew install cmark-gfm qt@6
-      - run: cmake --preset linux-gcc
-      - run: cmake --build build/linux-gcc
+      - uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-qt6-base
+      - name: Build and install cmark-gfm
+        shell: msys2 {0}
+        run: |
+          curl -L -o cmark.tar.gz https://github.com/github/cmark-gfm/archive/refs/tags/0.29.0.gfm.13.tar.gz
+          tar xzf cmark.tar.gz
+          cmake -S cmark-gfm-0.29.0.gfm.13 -B cmark-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build cmark-build
+          cmake --install cmark-build
+      - name: Configure and build
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build/mingw -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=/mingw64;/usr/local"
+          cmake --build build/mingw
+      - name: Compile translation catalogs
+        shell: msys2 {0}
+        run: lrelease translations/*.ts || echo 'lrelease unavailable; catalogs stay out of the package'
+      - name: Stage the distribution tree
+        shell: msys2 {0}
+        run: |
+          cmake --install build/mingw --prefix "$PWD/stage"
+          windeployqt --no-translations stage/bin/typist.exe
+      - name: Sign the binary when a certificate is configured
+        shell: msys2 {0}
+        env:
+          SIGNTOOL: ${{ env.SIGNTOOL_PATH }}
+          PFX: ${{ secrets.WINDOWS_CODESIGN_PFX }}
+        run: |
+          if [ -n "$PFX" ] && [ -n "$SIGNTOOL" ]; then
+            "$SIGNTOOL" sign /fd SHA-256 /f "$PFX" stage/bin/typist.exe
+          else
+            echo 'no signing certificate configured; shipping unsigned'
+          fi
+      - name: Bundle and hash
+        shell: pwsh
+        run: |
+          Compress-Archive -Path stage\* -DestinationPath Typist-win64.zip -Force
+          Get-FileHash -Algorithm SHA256 Typist-win64.zip | ForEach-Object { "$($_.Hash.ToLower())  Typist-win64.zip" } | Set-Content checksums.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: typist-${{ matrix.os }}
-          path: build/linux-gcc
+          name: typist-windows
+          path: |
+            Typist-win64.zip
+            checksums.txt
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libcmark-gfm-dev libcmark-gfm-extensions-dev qt6-base-dev qt6-l10n-tools rpm
+      - name: Compile translation catalogs
+        run: lrelease translations/*.ts
+      - run: cmake -S . -B build/linux -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build/linux
+      - name: Package deb, rpm and portable tarball
+        run: cpack -G "DEB;RPM;TGZ" -C Release -b build/linux
+      - name: Hash
+        run: sha256sum Typist-*.deb Typist-*.rpm Typist-*.tar.gz > checksums.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: typist-linux
+          path: |
+            Typist-*.deb
+            Typist-*.rpm
+            Typist-*.tar.gz
+            checksums.txt
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Bahrdot/setup-qt6@v1
+        with:
+          qt_version: 6.12.0
+          qt_components: qtbase
+      - run: brew install cmark-gfm
+      - name: Compile translation catalogs
+        run: lrelease translations/*.ts || echo 'lrelease unavailable; catalogs stay out of the package'
+      - run: cmake --preset macos-clang -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build/macos-clang
+      - name: Package dmg and portable tarball
+        run: cpack -G "DMG;TGZ" -C Release -b build/macos-clang
+      - name: Hash
+        run: sha256sum Typist-*.dmg Typist-*.tar.gz > checksums.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: typist-macos
+          path: |
+            Typist-*.dmg
+            Typist-*.tar.gz
+            checksums.txt
 
   release:
-    needs: build
+    needs: [windows, linux, macos]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: Consolidate checksums and the update feed
+        run: |
+          mkdir -p out
+          find artifacts \( -name '*.zip' -o -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' -o -name '*.dmg' \) -type f | sort | tee out/assets.txt
+          ( cd artifacts && find . \( -name '*.zip' -o -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' -o -name '*.dmg' \) -type f -exec cp {} ../out/ \; )
+          ( cd out && sha256sum * | sort > checksums.txt )
+          version="${GITHUB_REF_NAME#v}"
+          {
+            printf "{\n  \"version\": \"%s\",\n  \"releasedAt\": \"%s\",\n  \"assets\": [\n" "$version" "$(date -u +%FT%TZ)"
+            first=1
+            while read -r asset; do
+              if [ $first -eq 0 ]; then printf ',\n'; fi
+              printf "    { \"name\": \"%s\", \"url\": \"https://github.com/%s/releases/download/%s/%s\" }" "$asset" "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$asset"
+              first=0
+            done < out/assets.txt
+            printf '\n  ]\n}\n'
+          } > out/latest.json
+          cat out/latest.json
       - uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*
+          files: |
+            out/*
+          body: |
+            Typist 桌面版发布包：Windows zip（含 Qt 运行时 DLL）、Linux deb/rpm/tar.gz、macOS dmg/tar.gz。
+            每个包都有 SHA-256（checksums.txt），下载后先核对哈希再安装。
+            未配置签名证书时二进制未签名（见 docs/Release.md）
