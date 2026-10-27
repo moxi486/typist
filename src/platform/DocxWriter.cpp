@@ -127,27 +127,54 @@ QString escapeXml(const QString& text) {
 }
 
 QString runXml(const QString& text, bool bold = false, bool italic = false, bool mono = false,
-               bool strike = false) {
+               bool strike = false, bool underline = false) {
   QString props;
-  if (bold || italic || mono || strike) {
+  if (bold || italic || mono || strike || underline) {
     props += QStringLiteral("<w:rPr>");
     if (mono) props += QStringLiteral("<w:rFonts w:ascii=\"Consolas\" w:hAnsi=\"Consolas\"/>");
     if (bold) props += QStringLiteral("<w:b/>");
     if (italic) props += QStringLiteral("<w:i/>");
     if (strike) props += QStringLiteral("<w:strike/>");
+    if (underline) props += QStringLiteral("<w:u w:val=\"single\"/>");
     props += QStringLiteral("</w:rPr>");
   }
   return QStringLiteral("<w:r>%1<w:t xml:space=\"preserve\">%2</w:t></w:r>").arg(props, escapeXml(text));
 }
 
 
-QString runsXml(const std::vector<typist::core::InlineRun>& runs, const QString& fallback, bool forceBold = false) {
-  if (runs.empty()) return runXml(fallback, forceBold);
+struct XmlContext {
+  QVector<QString> hyperlinkTargets;
+
+  int hyperlinkId(const QString& target) {
+    for (int i = 0; i < hyperlinkTargets.size(); ++i) {
+      if (hyperlinkTargets.at(i) == target) return i + 3;  // rId1 is styles, rId2 is numbering
+    }
+    hyperlinkTargets.append(target);
+    return hyperlinkTargets.size() + 2;
+  }
+};
+
+QString paragraphRun(const QString& text, bool forceBold, XmlContext& context);
+
+QString runsXml(const std::vector<typist::core::InlineRun>& runs, const QString& fallback, XmlContext& context, bool forceBold = false) {
+  if (runs.empty()) return paragraphRun(fallback, forceBold, context);
   QString out;
   for (const typist::core::InlineRun& run : runs) {
-    out += runXml(QString::fromStdString(run.text), run.bold || forceBold, run.italic, run.code, run.strike);
+    const QString text = QString::fromStdString(run.text);
+    const QString target = QString::fromStdString(run.url);
+    if ((run.link || run.image) && !target.isEmpty()) {
+      out += QStringLiteral("<w:hyperlink r:id=\"rId%1\">").arg(context.hyperlinkId(target));
+      out += runXml(text, run.bold || forceBold, run.italic, run.code, run.strike, true);
+      out += QStringLiteral("</w:hyperlink>");
+      continue;
+    }
+    out += runXml(text, run.bold || forceBold, run.italic, run.code, run.strike);
   }
   return out;
+}
+
+QString paragraphRun(const QString& text, bool forceBold, XmlContext& context) {
+  return runXml(text, forceBold, false, false, false, false);
 }
 
 QString paragraphXml(const QString& body) {
@@ -183,7 +210,7 @@ QString breakXml() {
   return paragraphXml(props);
 }
 
-QString listXml(const typist::core::Block& block, int depth, bool ordered) {
+QString listXml(const typist::core::Block& block, int depth, bool ordered, XmlContext& context) {
   QString out;
   const int numId = ordered ? 2 : 1;
   const int indent = 720 + depth * 720;
@@ -196,12 +223,14 @@ QString listXml(const typist::core::Block& block, int depth, bool ordered) {
       QString props = QStringLiteral("<w:pPr><w:pStyle w:val=\"ListParagraph\"/>");
       props += QStringLiteral("<w:numPr><w:ilvl w:val=\"%1\"/><w:numId w:val=\"%2\"/></w:numPr>").arg(depth).arg(numId);
       props += QStringLiteral("<w:ind w:left=\"%1\" w:hanging=\"360\"/></w:pPr>").arg(indent);
-      out += paragraphXml(props + runXml(prefix + QString::fromStdString(child.text)));
+      const QString body = prefix.isEmpty() ? runsXml(child.runs, QString::fromStdString(child.text), context)
+                                             : prefix + runsXml(child.runs, QString::fromStdString(child.text), context);
+      out += paragraphXml(props + body);
     } else if (child.type == typist::core::BlockType::List) {
-      out += listXml(child, depth + 1, child.ordered);
+      out += listXml(child, depth + 1, child.ordered, context);
     } else if (!child.text.empty()) {
       const QString props = QStringLiteral("<w:pPr><w:ind w:left=\"%1\"/></w:pPr>").arg(indent);
-      out += paragraphXml(props + runXml(QString::fromStdString(child.text)));
+      out += paragraphXml(props + runsXml(child.runs, QString::fromStdString(child.text), context));
     }
   }
   return out;
@@ -209,7 +238,7 @@ QString listXml(const typist::core::Block& block, int depth, bool ordered) {
 
 constexpr int kTableWidthTwips = 9638;  // A4 minus two 20mm margins
 
-QString tableXml(const typist::core::Block& table) {
+QString tableXml(const typist::core::Block& table, XmlContext& context) {
   int columns = 0;
   for (const typist::core::Block& row : table.children) {
     if (row.type != typist::core::BlockType::TableRow) continue;
@@ -263,7 +292,7 @@ QString tableXml(const typist::core::Block& table) {
       const int width = widths[qMin(columnIndex, columns - 1)];
       out += QStringLiteral("<w:tc><w:tcPr><w:tcW w:w=\"%1\" w:type=\"dxa\"/></w:tcPr>").arg(width);
       const QStringList lines = QString::fromStdString(cell.text).split(QChar(10));
-      for (const QString& line : lines) out += paragraphXml(runsXml(cell.runs, line, header));
+      for (const QString& line : lines) out += paragraphXml(runsXml(cell.runs, line, context, header));
       ++columnIndex;
       out += QStringLiteral("</w:tc>");
     }
@@ -274,7 +303,7 @@ QString tableXml(const typist::core::Block& table) {
   return out;
 }
 
-QString blocksXml(const std::vector<typist::core::Block>& blocks) {
+QString blocksXml(const std::vector<typist::core::Block>& blocks, XmlContext& context) {
   QString out;
   for (const typist::core::Block& block : blocks) {
     const QString text = QString::fromStdString(block.text);
@@ -283,7 +312,7 @@ QString blocksXml(const std::vector<typist::core::Block>& blocks) {
         out += headingXml(block.level, text);
         break;
       case typist::core::BlockType::Paragraph:
-        out += paragraphXml(runsXml(block.runs, text));
+        out += paragraphXml(runsXml(block.runs, text, context));
         break;
       case typist::core::BlockType::CodeBlock:
         out += codeXml(text);
@@ -292,17 +321,17 @@ QString blocksXml(const std::vector<typist::core::Block>& blocks) {
         out += breakXml();
         break;
       case typist::core::BlockType::BlockQuote:
-        if (!text.isEmpty()) out += quoteXml(text);
-        if (!block.children.empty()) out += blocksXml(block.children);
+        if (!text.isEmpty()) out += quoteXml(runsXml(block.runs, text, context));
+        if (!block.children.empty()) out += blocksXml(block.children, context);
         break;
       case typist::core::BlockType::List:
-        out += listXml(block, 0, block.ordered);
+        out += listXml(block, 0, block.ordered, context);
         break;
       case typist::core::BlockType::Table:
-        out += tableXml(block);
+        out += tableXml(block, context);
         break;
       default:
-        if (!text.isEmpty()) out += paragraphXml(runsXml(block.runs, text));
+        if (!text.isEmpty()) out += paragraphXml(runsXml(block.runs, text, context));
         break;
     }
   }
@@ -375,11 +404,16 @@ QString rootRelsXml() {
   return out;
 }
 
-QString documentRelsXml() {
+QString documentRelsXml(const QVector<QString>& hyperlinkTargets) {
   QString out = QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
   out += QStringLiteral("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">");
   out += QStringLiteral("<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>");
   out += QStringLiteral("<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering\" Target=\"numbering.xml\"/>");
+  for (int i = 0; i < hyperlinkTargets.size(); ++i) {
+    out += QStringLiteral("<Relationship Id=\"rId%1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" Target=\"%2\" TargetMode=\"External\"/>")
+               .arg(i + 3)
+               .arg(escapeXml(hyperlinkTargets.at(i)));
+  }
   out += QStringLiteral("</Relationships>");
   return out;
 }
@@ -394,9 +428,10 @@ bool exportDocx(const QString& path, const QString& markdown, QString* error) {
     return false;
   }
 
+  XmlContext context;
   QString document = QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
   document += QStringLiteral("<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>");
-  document += blocksXml(parsed.blocks);
+  document += blocksXml(parsed.blocks, context);
   document += QStringLiteral("<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/>");
   document += QStringLiteral("<w:pgMar w:top=\"1134\" w:right=\"1134\" w:bottom=\"1134\" w:left=\"1134\" w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/></w:sectPr>");
   document += QStringLiteral("</w:body></w:document>");
@@ -404,7 +439,7 @@ bool exportDocx(const QString& path, const QString& markdown, QString* error) {
   QVector<ZipEntry> entries;
   entries.append(ZipEntry{QByteArrayLiteral("[Content_Types].xml"), contentTypesXml().toUtf8()});
   entries.append(ZipEntry{QByteArrayLiteral("_rels/.rels"), rootRelsXml().toUtf8()});
-  entries.append(ZipEntry{QByteArrayLiteral("word/_rels/document.xml.rels"), documentRelsXml().toUtf8()});
+  entries.append(ZipEntry{QByteArrayLiteral("word/_rels/document.xml.rels"), documentRelsXml(context.hyperlinkTargets).toUtf8()});
   entries.append(ZipEntry{QByteArrayLiteral("word/styles.xml"), stylesXml().toUtf8()});
   entries.append(ZipEntry{QByteArrayLiteral("word/numbering.xml"), numberingXml().toUtf8()});
   entries.append(ZipEntry{QByteArrayLiteral("word/document.xml"), document.toUtf8()});

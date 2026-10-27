@@ -16,6 +16,7 @@ class QDragEnterEvent;
 class QDockWidget;
 class QDropEvent;
 class QListWidget;
+class QMouseEvent;
 class QTextDocument;
 class QTextEdit;
 
@@ -96,6 +97,7 @@ class MainWindow : public QMainWindow {
   void writeRecoveryDraft();
   void recoverLatestDraft();
   void pasteAsMarkdown();
+  void toggleTaskAtClick(const QMouseEvent* event);
   void insertImageLink(const QString& path);
   void openSearchHit();
   void toggleSidebar();
@@ -105,6 +107,7 @@ class MainWindow : public QMainWindow {
   void treeFileRemoved(const QString& path);
 
   protected:
+  bool eventFilter(QObject* watched, QEvent* event) override;
   void dragEnterEvent(QDragEnterEvent* event) override;
   void dropEvent(QDropEvent* event) override;
 

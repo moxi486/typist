@@ -90,6 +90,10 @@ class EditorSpike : public QObject {
   void docxExportFailsWhenPathUnwritable();
   void docxTableGridWidthsFollowContent();
   void pdfTallBlockSplitsAtLineBoundaries();
+  void toggleTaskCheckboxFlipsRenderedState();
+  void toggleTaskCheckboxIgnoresPlainBlocks();
+  void toggleTaskCheckboxIsOneUndoStep();
+  void docxExportWritesHyperlinkRelationships();
   void inlineRunsRoundTripThroughMarkdownSerialize();
   void inlineRunsRoundTripThroughDocument();
   void renderedDocumentCarriesInlineFormats();
@@ -1085,6 +1089,75 @@ void EditorSpike::pdfTallBlockSplitsAtLineBoundaries() {
   QFile::remove(path);
   QVERIFY2(pages >= 3, QStringLiteral("expected the tall block to span pages, got %1").arg(pages).toUtf8().constData());
   QVERIFY(pages <= 6);
+}
+
+void EditorSpike::toggleTaskCheckboxFlipsRenderedState() {
+  QTextDocument document;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("- [x] done\n- [ ] todo\n"), &document, nullptr));
+
+  int checkedBlock = -1;
+  int uncheckedBlock = -1;
+  for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
+    bool checked = false;
+    if (!typist::editor::taskCheckboxState(&document, block.blockNumber(), &checked)) continue;
+    if (checked) checkedBlock = block.blockNumber();
+    else uncheckedBlock = block.blockNumber();
+  }
+  QVERIFY(checkedBlock >= 0);
+  QVERIFY(uncheckedBlock >= 0);
+  QVERIFY(typist::editor::toggleTaskCheckbox(&document, checkedBlock));
+  QVERIFY(typist::editor::toggleTaskCheckbox(&document, uncheckedBlock));
+  const QString serialized = typist::editor::serializeDocument(&document);
+  QVERIFY(serialized.contains(QStringLiteral("- [ ] done")));
+  QVERIFY(serialized.contains(QStringLiteral("- [x] todo")));
+  QVERIFY(typist::editor::toggleTaskCheckbox(&document, checkedBlock));
+  QVERIFY(typist::editor::serializeDocument(&document).contains(QStringLiteral("- [x] done")));
+}
+
+void EditorSpike::toggleTaskCheckboxIgnoresPlainBlocks() {
+  QTextDocument document;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("para\n"), &document, nullptr));
+  const QString before = typist::editor::serializeDocument(&document);
+  QVERIFY(!typist::editor::toggleTaskCheckbox(&document, 0));
+  QVERIFY(!typist::editor::toggleTaskCheckbox(&document, 99));
+  QVERIFY(!typist::editor::toggleTaskCheckbox(nullptr, 0));
+  QCOMPARE(typist::editor::serializeDocument(&document), before);
+}
+
+void EditorSpike::toggleTaskCheckboxIsOneUndoStep() {
+  QTextDocument document;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("- [x] done\n"), &document, nullptr));
+  const QString before = typist::editor::serializeDocument(&document);
+  int taskBlock = -1;
+  for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
+    bool checked = false;
+    if (typist::editor::taskCheckboxState(&document, block.blockNumber(), &checked) && checked) taskBlock = block.blockNumber();
+  }
+  QVERIFY(typist::editor::toggleTaskCheckbox(&document, taskBlock));
+  QVERIFY(typist::editor::serializeDocument(&document).contains(QStringLiteral("- [ ] done")));
+  document.undo();
+  QCOMPARE(typist::editor::serializeDocument(&document), before);
+}
+
+void EditorSpike::docxExportWritesHyperlinkRelationships() {
+  const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_links.docx"));
+  QString error;
+  QVERIFY(typist::platform::exportDocx(path, QStringLiteral("see [docs](https://example.com/docs) and again [docs](https://example.com/docs) plus ![pic](E:/imgs/pic.png)\n"), &error));
+  const QByteArray data = readWholeFile(path);
+  QFile::remove(path);
+
+  int hyperlinks = 0;
+  int offset = 0;
+  while ((offset = data.indexOf("<w:hyperlink", offset)) != -1) { ++hyperlinks; offset += 12; }
+  QCOMPARE(hyperlinks, 3);
+
+  int external = 0;
+  offset = 0;
+  while ((offset = data.indexOf("TargetMode=\"External\"", offset)) != -1) { ++external; offset += 20; }
+  QCOMPARE(external, 2);  // the repeated URL shares one relationship
+  QVERIFY(data.contains("https://example.com/docs"));
+  QVERIFY(data.contains("E:/imgs/pic.png"));
+  QCOMPARE(localEntryNames(data).size(), 6);
 }
 
 void EditorSpike::docxExportFailsWhenPathUnwritable() {

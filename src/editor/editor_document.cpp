@@ -540,6 +540,28 @@ void boundUndoHistory(QTextDocument* document) {
   }
 }
 
+bool taskCheckboxState(const QTextDocument* document, int blockNumber, bool* checkedOut) {
+  if (document == nullptr) return false;
+  const QTextBlock block = document->findBlockByNumber(blockNumber);
+  if (!block.isValid()) return false;
+  const QVariant value = block.blockFormat().property(kTaskProperty);
+  if (!value.isValid()) return false;
+  if (checkedOut != nullptr) *checkedOut = value.toBool();
+  return true;
+}
+
+bool toggleTaskCheckbox(QTextDocument* document, int blockNumber) {
+  bool checked = false;
+  if (!taskCheckboxState(document, blockNumber, &checked)) return false;
+  QTextCursor cursor(document->findBlockByNumber(blockNumber));
+  QTextBlockFormat format = cursor.blockFormat();
+  format.setProperty(kTaskProperty, !checked);
+  cursor.beginEditBlock();
+  cursor.setBlockFormat(format);
+  cursor.endEditBlock();
+  return true;
+}
+
 bool insertTableProbe(QTextDocument* document, int rows, int cols) {
   QTextCursor cursor(document);
   cursor.movePosition(QTextCursor::End);

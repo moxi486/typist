@@ -21,6 +21,8 @@
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
+#include <QMouseEvent>
+#include <QTextBlock>
 #include <QCloseEvent>
 #include <QDir>
 #include <QDockWidget>
@@ -87,6 +89,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_document = m_view->active();
   m_editor = new QTextEdit(this);
   m_editor->setAccessibleName(tr("Markdown editor"));
+  m_editor->viewport()->installEventFilter(this);
   m_view->showActiveIn(m_editor);
   m_findBar = new ui::FindBar(this);
 
@@ -868,6 +871,26 @@ void MainWindow::insertImageLink(const QString& path) {
   }
   m_editor->setTextCursor(cursor);
   statusBar()->showMessage(tr("Inserted image link"));
+}
+
+bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+  if (m_editor != nullptr && watched == m_editor->viewport() && event->type() == QEvent::MouseButtonRelease) {
+    toggleTaskAtClick(static_cast<QMouseEvent*>(event));
+  }
+  return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::toggleTaskAtClick(const QMouseEvent* event) {
+  if (m_sourceMode || m_benchMode || event->button() != Qt::LeftButton) return;
+  QTextDocument* document = m_editor->document();
+  const int blockNumber = m_editor->cursorForPosition(event->pos()).blockNumber();
+  bool checked = false;
+  if (!typist::editor::taskCheckboxState(document, blockNumber, &checked)) return;
+  // Clicks left of the item text hit the marker area; clicks on the text stay ordinary edits.
+  QTextCursor probe(document->findBlockByNumber(blockNumber));
+  if (event->pos().x() > m_editor->cursorRect(probe).x()) return;
+  if (!typist::editor::toggleTaskCheckbox(document, blockNumber)) return;
+  statusBar()->showMessage(tr("Task toggled"));
 }
 
 void MainWindow::recoverLatestDraft() {

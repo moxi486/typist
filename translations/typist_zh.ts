@@ -247,5 +247,9 @@
         <source>Paste Markdown</source>
         <translation>粘贴为 Markdown</translation>
     </message>
+      <message>
+        <source>Task toggled</source>
+        <translation>任务项已切换</translation>
+    </message>
   </context>
 </TS>

@@ -19,6 +19,8 @@
 - PDF 分页：块高超过一页时按行边界拆到多页，不会把一行切成两半（单个超页高的块此前会被截断）
 - 导出 DOCX（Ctrl+Shift+X，由 platform::DocxWriter 直接写 OOXML 包：标题、段落、列表、任务列表、代码块、引用、分隔线、表格；A4 20mm 边距与 PDF 默认一致）
 - DOCX 表格列宽按每列最长内容分配（总宽约 9638 twips，等于 A4 减两侧 20mm），任务项用 ☑/☐ 字形（能否显示取决于阅读器字体）
+- DOCX 链接与图片写成 OOXML 超链接对象（w:hyperlink + 外部关系，同一 URL 共用一条关系；图片仍以文字形式给出目标路径，不内嵌图像）
+- 点击切换任务项：在渲染视图里点列表项文字左侧的标记区会翻转任务勾选状态（源码视图要点亮文本自己改标记）；渲染视图的任务标记是 Qt 列表圆点，勾选状态只保存在块格式属性里
 - 主题 light / dark / system（Ctrl+Shift+D 循环，偏好写入 QSettings；导出的 HTML 内嵌同一份主题样式）
 - system 主题的判定顺序：Windows 读注册表 AppsUseLightTheme、Linux 读 GTK_THEME 或 ~/.config/gtk-3.0/settings.ini、macOS 读 AppleInterfaceStyle，读不到时回退到窗口调色板亮度
 - 界面语言跟随系统 locale：按语言取 typist_<lang>.qm 目录（依次找当前目录 translations/、可执行文件旁 translations/、Qt 翻译目录、~/.typist/translations/），英语是源语言无需目录；仓库带 translations/typist_zh.ts，编译产物 .qm 由 CI 的 lrelease 生成（本机未装 Qt Linguist，所以本地跑的是英语源文案）

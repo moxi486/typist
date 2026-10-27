@@ -39,6 +39,13 @@ QString serializeDocument(const QTextDocument* document);
 // the document.
 bool insertMarkdownAtCursor(const QString& source, QTextCursor& cursor, QString* error);
 
+// Task state of a list item block lives on its block format; false when the block
+// is not a task item. checkedOut reports the current state.
+bool taskCheckboxState(const QTextDocument* document, int blockNumber, bool* checkedOut);
+
+// Flip the task state of the block at blockNumber; false when it is not a task item.
+bool toggleTaskCheckbox(QTextDocument* document, int blockNumber);
+
 // Parses Markdown and rebuilds the document in place, clearing undo history so a
 // switch or load never becomes an undo step. Returns false on a parse error and
 // leaves the document untouched.
