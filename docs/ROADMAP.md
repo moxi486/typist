@@ -106,6 +106,9 @@
 - Qt6/MinGW 下跨线程信号的类型注册：Q_DECLARE_METATYPE(SearchHit) 写在 namespace 里会报 explicit specialization of QMetaTypeId outside its namespace must use nested-name-specifier，写在 namespace 外同样不通过；改为在 FolderSearchRunner 构造函数里运行时 `qRegisterMetaType<QVector<SearchHit>>()`（0 参数重载），QSignalSpy 才能取到值。
 - PDF 输出的 /MediaBox 以 point 为单位（A4 595x842、Letter 612x792），断言纸张差异要按 point 比较而不是像素；解析时用 marker 长度偏移，硬编码偏移会读错数字（探针实测 offset+13 让宽高错位）。
 - 分页实测：单个高于页面内容高度的**段落**块按行边界拆页（QTextLine::rect() 块内坐标）；长**表格**按行块分页——60 行表格导出实测 pages>=2（slot pdfLongTablePaginatesRowByRow），表格跨页不重复表头，防孤行仍待做。
+- DOCX 表格分页事实：OOXML 的 `<w:tbl>` 行由阅读器（Word/WPS/LibreOffice）自动跨页分页，导出侧不需要特殊处理；本机没有这三个阅读器，渲染分页只能在装有 Word/WPS 的机器或 CI 上确认。
+- PDF 跨页重复表头（待做，设计已定）：Qt 的文档排版会把长表格按行拆页但不重复表头。可行做法是在构建 PDF 文档时把超长表格按实测行高切成多个 `<w:tbl>` 等价块，每块都带表头行——行高用单元格块的 blockBoundingRect 高度测得；本机只能验证页数与不崩溃，重复表头本身要靠阅读器或 PDF 文本抽取确认，因此未实现。
+- 防孤行（待做）：需要在分页时把"段落最后一行"与其上一行绑定，Qt 排版没有孤行控制 API，得在块内按行分组重新分页，风险高于收益，未实现。
 - 页码/边距配置走 QSettings 键 pdfPaper=a4|letter、pdfMarginMm（限 5–60mm，非法值回退 20mm）。
 - 构造顺序教训：applyTheme() 会写 m_themeAction 的文字，必须在 action 创建之后调用（否则空指针崩溃）；保留 nullptr 守卫。
 - 性能基线已建立（本机 Windows、Release/NDEBUG）：冷启动 295ms（原生 windows platform；offscreen 17ms 只作 proxy），常驻工作集 21.7MB，1MB Markdown 两种形状——realistic parse 34 / build 67 / serialize 16 = 117ms，tableheavy parse 51 / build 111 / serialize 82 = 244ms，均进入 <250ms 预算。
