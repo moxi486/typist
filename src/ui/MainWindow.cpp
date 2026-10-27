@@ -165,7 +165,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   connect(exportDocxAction, &QAction::triggered, this, &MainWindow::exportDocx);
 
   QAction* recoverAction = new QAction(tr("Recover Draft"), this);
-  recoverAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+E")));
+  recoverAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+R")));
   fileMenu->addAction(recoverAction);
   connect(recoverAction, &QAction::triggered, this, &MainWindow::recoverLatestDraft);
 
@@ -187,6 +187,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_redoAction->setEnabled(false);
   editMenu->addAction(m_redoAction);
   connect(m_redoAction, &QAction::triggered, this, &MainWindow::redo);
+
+  m_pasteMarkdownAction = new QAction(tr("Paste Markdown"), this);
+  m_pasteMarkdownAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+V")));
+  m_pasteMarkdownAction->setToolTip(tr("Paste Markdown"));
+  editMenu->addAction(m_pasteMarkdownAction);
+  connect(m_pasteMarkdownAction, &QAction::triggered, this, &MainWindow::pasteAsMarkdown);
 
   m_findAction = new QAction(tr("Find"), this);
   m_findAction->setToolTip(tr("Find"));

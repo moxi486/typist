@@ -243,5 +243,9 @@
         <source>Recovered draft into an unsaved buffer</source>
         <translation>已把草稿恢复到未保存的缓冲区</translation>
     </message>
-</context>
+    <message>
+        <source>Paste Markdown</source>
+        <translation>粘贴为 Markdown</translation>
+    </message>
+  </context>
 </TS>

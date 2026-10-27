@@ -1,0 +1,30 @@
+# Third-party notices (NOTICE)
+
+Typist is licensed under the MIT license (see `LICENSE`). The following third-party
+components are used, and their licenses apply to them, not to Typist source.
+
+## Qt 6 (Qt base)
+- License: LGPLv3, with the Qt Linking exception that lets a Typist build link Qt
+  dynamically without imposing LGPL on Typist.
+- Typist links Qt as shared libraries (Qt6Core, Qt6Gui, Qt6Widgets). Anyone who wants
+  to relink: build Typist from source (`cmake --preset <platform>` then
+  `cmake --build build/<preset>`), and replace the Qt shared libraries shipped next to
+  the executable. The Qt sources matching the linked binaries are available from
+  https://download.qt.io/official_releases/qt/.
+- Qt credits: "Powered by Qt" is not required for LGPLv3 dynamic linking.
+
+## cmark-gfm
+- License: BSD-2-Clause (github/cmark-gfm), plus its permissive extension licenses.
+- Typist builds it from source and links it statically; the upstream notice is kept in
+  the vendored build directory used by CI, and the version pinned in CI is 0.29.0.gfm.13.
+
+## Bundled fonts
+- Typist ships no fonts. UI text falls back to the platform font; the monospace runs
+  request the family names Consolas and Courier New, resolved by the OS.
+
+## Translation catalogs
+- `translations/typist_zh.ts` is authored in this repository under the MIT license.
+
+## Exported documents
+- DOCX and PDF output are the user's own documents; no third-party template or asset is
+  embedded. OOXML style definitions written by `platform::DocxWriter` are original.

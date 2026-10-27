@@ -22,7 +22,7 @@
 - 界面语言跟随系统 locale：按语言取 typist_<lang>.qm 目录（依次找当前目录 translations/、可执行文件旁 translations/、Qt 翻译目录、~/.typist/translations/），英语是源语言无需目录；仓库带 translations/typist_zh.ts，编译产物 .qm 由 CI 的 lrelease 生成（本机未装 Qt Linguist，所以本地跑的是英语源文案）
 - 自动保存（最后一次编辑后 2 秒落盘；未命名文件不自动保存；切换源码/渲染视图与关闭窗口时立即落盘）
 - 最近打开的文件（File > Recent Files，最多 8 条；菜单打开时剔除已不存在的路径）
-- 崩溃恢复草稿（有未保存编辑时写入草稿目录；File > Recover Draft（Ctrl+Shift+E）把最新草稿恢复到未保存缓冲区；启动时若存在草稿会在状态栏提示条数）
+- 崩溃恢复草稿（有未保存编辑时写入草稿目录；File > Recover Draft（Ctrl+Shift+R）把最新草稿恢复到未保存缓冲区；启动时若存在草稿会在状态栏提示条数）
 - 外部修改冲突（磁盘内容变化且缓冲区未保存时询问是否重新载入，默认保留你的编辑；无对话框场景与 bench 模式一律保留编辑）
 - 大纲面板（Ctrl+Shift+T 开关；按标题层级缩进，点击跳转；只在渲染视图生效，源码视图会提示）
 - 查找支持正则（查找栏 Regex 复选框；按块匹配，锚点 ^/$ 作用于每个文本块；无效表达式视为无匹配）
@@ -31,6 +31,7 @@
 - 粘贴为 Markdown（Ctrl+Shift+V）：把剪贴板里的 Markdown 解析成块插到光标处，整个粘贴是一步撤销；源码视图下按纯文本粘贴
 - 拖拽图片：把图片文件拖到窗口会在光标处插入 ![文件名](路径) 链接（源码视图直接插入该文本）
 - 往返保真测试：parse → serialize → parse 产生相同 AST
+- 文档：`docs/Build.md`（依赖与三平台构建）、`docs/Keyboard.md`（快捷键）、`docs/Themes.md`（主题与配置）、`docs/Translations.md`（翻译与 `.qm`）；第三方许可声明见仓库根目录的 `NOTICE`
 - 性能基线：`perf_baseline` 与 `repaint_baseline`（ctest 项）打印打开耗时与打字到重绘耗时；本机 Windows Release 实测冷启动 295ms、常驻工作集 21.7MB、1MB 文档 realistic 157ms、tableheavy 262ms、打字到重绘 0–1ms
 
 ## 性能预算（验收数字）

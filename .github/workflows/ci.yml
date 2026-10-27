@@ -80,3 +80,60 @@ jobs:
       - name: Test
         shell: msys2 {0}
         run: ctest --test-dir build/mingw --output-on-failure
+      - name: Performance gate
+        shell: msys2 {0}
+        run: |
+          QT_QPA_PLATFORM=offscreen ./build/mingw/tests/perf/perf_bench.exe | tee perf.log
+          grep -c 'fidelity=ok' perf.log
+          awk '/realistic/ { for (i = 1; i <= NF; ++i) if ($i ~ /^total_ms=/) { split($i, a, "="); if (a[2] + 0 > 250) { print "realistic over budget: " a[2]; exit 1 } } }' perf.log
+          awk '/tableheavy/ { for (i = 1; i <= NF; ++i) if ($i ~ /^total_ms=/) { split($i, a, "="); if (a[2] + 0 > 300) { print "tableheavy over budget: " a[2]; exit 1 } } }' perf.log
+      - name: Translation coverage
+        shell: msys2 {0}
+        run: |
+          if ! diff <(grep -o 'tr("[^"]*")' src/ui/MainWindow.cpp | sort -u | wc -l) <(grep -c '<source>' translations/typist_zh.ts); then
+            echo 'translations/typist_zh.ts must cover every tr() string in MainWindow.cpp'
+            exit 1
+          fi
+
+  i18n:
+    # .qm catalogs are built here because Qt Linguist is not installed on the
+    # development machine; the app loads typist_<lang>.qm at runtime.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y qt6-base-dev qt6-l10n-tools
+      - name: Refresh source strings
+        run: lupdate -tr strict src/ui/*.cpp -ts translations/typist_zh.ts
+      - name: Compile catalogs
+        run: lrelease translations/*.ts
+      - run: test -s translations/typist_zh.qm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: translations
+          path: translations/*.qm
+
+  windows-msvc:
+    # MSVC is exercised only in CI; the development machine has no cl.exe.
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Bahrdot/setup-qt6@v1
+        with:
+          qt_version: '6.12.0'
+          qt_components: 'qtbase'
+      - name: Build cmark-gfm
+        shell: bash
+        run: |
+          curl -L -o cmark.tar.gz https://github.com/github/cmark-gfm/archive/refs/tags/0.29.0.gfm.13.tar.gz
+          tar xzf cmark.tar.gz
+          cmake -S cmark-gfm-0.29.0.gfm.13 -B cmark-build -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=cmark-install -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build cmark-build --config Release
+          cmake --install cmark-build --config Release
+      - name: Configure
+        run: cmake --preset windows-msvc -DCMAKE_PREFIX_PATH="cmark-install"
+      - name: Build
+        run: cmake --build build/windows-msvc --config Release
+      - name: Test
+        run: ctest --test-dir build/windows-msvc --output-on-failure
+
