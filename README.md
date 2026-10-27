@@ -38,7 +38,8 @@
 - 粘贴为 Markdown（Ctrl+Shift+V）：把剪贴板里的 Markdown 解析成块插到光标处，整个粘贴是一步撤销；源码视图下按纯文本粘贴
 - 拖拽图片：把图片文件拖到窗口会在光标处插入 ![文件名](路径) 链接（源码视图直接插入该文本）
 - 往返保真测试：parse → serialize → parse 产生相同 AST
-- 文档：`docs/Build.md`（依赖与三平台构建）、`docs/Keyboard.md`（快捷键）、`docs/Themes.md`（主题与配置）、`docs/Translations.md`（翻译与 `.qm`）、`docs/Release.md`（发布打包、签名与更新通道）；第三方许可声明见仓库根目录的 `NOTICE`
+- 文档：`docs/index.md`（首页）、`docs/Build.md`（依赖与三平台构建）、`docs/Keyboard.md`（快捷键）、`docs/Themes.md`（主题与配置）、`docs/Translations.md`（翻译与 `.qm`）、`docs/Release.md`（发布打包、签名与更新通道）、`docs/ROADMAP.md`（路线图与实现事实）；第三方许可声明见仓库根目录的 `NOTICE`
+- 文档站：`docs/` 经 `pages.yml` 用 Jekyll 发布到 GitHub Pages（首页是 `docs/index.md`，主题 minimal）
 - 性能基线：`perf_baseline` 与 `repaint_baseline`（ctest 项）打印打开耗时与打字到重绘耗时；本机 Windows Release 实测冷启动 295ms、常驻工作集 21.7MB、1MB 文档 realistic 176ms、tableheavy 277ms、打字到重绘 0–1ms
 
 ## 性能预算（验收数字）

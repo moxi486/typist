@@ -8,5 +8,6 @@ node_modules/
 *.pdb
 .cache/
 dist/
+docs/_site/
 translations/*.qm
 
