@@ -10,6 +10,7 @@
 #include "Conflict.h"
 #include "FolderSearchRunner.h"
 #include "Localization.h"
+#include "Toc.h"
 #include "RecoveryStore.h"
 #include "Settings.h"
 #include "SystemTheme.h"
@@ -23,6 +24,7 @@
 #include <QFile>
 #include <QTextCursor>
 #include <QUrl>
+#include <QTextBlock>
 #include <QTextDocument>
 
 #include <filesystem>
@@ -85,6 +87,13 @@ class EditorSpike : public QObject {
   void docxExportWritesEachPackageMemberOnce();
   void docxExportReportsHeadingTableAndTaskItem();
   void docxExportFailsWhenPathUnwritable();
+  void outlineListsHeadingLevelsAndPositions();
+  void outlineCapsEntryCount();
+  void regexSearchCountsAnchoredHeadingLines();
+  void regexAnchorsMatchSourceViewLines();
+  void regexSearchIgnoresInvalidPatterns();
+  void regexSearchStepsAndWrapsAround();
+  void regexSearchHonoursCaseFlag();
   void recentFilesKeepNewestFirstAndCap();
   void recoveryStoreRoundTripsThroughEnvOverride();
   void recoveryStoreKeysSeparateUntitledAndPaths();
@@ -1022,6 +1031,91 @@ void EditorSpike::docxExportFailsWhenPathUnwritable() {
   QString error;
   QVERIFY(!typist::platform::exportDocx(path, QStringLiteral("# Title\n"), &error));
   QVERIFY(!error.isEmpty());
+}
+
+void EditorSpike::outlineListsHeadingLevelsAndPositions() {
+  QTextDocument doc;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("# One\n\n## Two\n\n### Three\n\nbody text\n"), &doc, nullptr));
+  const QVector<typist::ui::TocEntry> entries = typist::ui::outlineFromDocument(&doc);
+  QCOMPARE(entries.size(), 3);
+  QCOMPARE(entries.at(0).level, 1);
+  QCOMPARE(entries.at(1).level, 2);
+  QCOMPARE(entries.at(2).level, 3);
+  QCOMPARE(entries.at(1).text, QStringLiteral("Two"));
+  for (const typist::ui::TocEntry& entry : entries) {
+    QCOMPARE(entry.position, doc.findBlockByNumber(entry.blockNumber).position());
+  }
+}
+
+void EditorSpike::outlineCapsEntryCount() {
+  QString source;
+  for (int i = 0; i < 30; ++i) source += QStringLiteral("## Heading %1\n\n").arg(i);
+  QTextDocument doc;
+  QVERIFY(typist::editor::loadMarkdown(source, &doc, nullptr));
+  QCOMPARE(typist::ui::outlineFromDocument(&doc, 5).size(), 5);
+  QCOMPARE(typist::ui::outlineFromDocument(&doc).size(), 30);
+}
+
+void EditorSpike::regexSearchCountsAnchoredHeadingLines() {
+  QTextDocument doc;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("# A\n\n## B\n\nplain 12 words\n"), &doc, nullptr));
+  typist::ui::SearchController search;
+  search.setRegex(true);
+  // Anchors apply to each block of the rendered document, where heading markers are styling, not text.
+  QCOMPARE(search.countMatches(&doc, QStringLiteral("^A")), 1);
+  QCOMPARE(search.countMatches(&doc, QStringLiteral("^B")), 1);
+  QCOMPARE(search.countMatches(&doc, QStringLiteral("[0-9]+")), 1);
+  QCOMPARE(search.allMatches(&doc, QStringLiteral("^A")).size(), 1);
+}
+
+void EditorSpike::regexAnchorsMatchSourceViewLines() {
+  QTextDocument doc;
+  doc.setPlainText(QStringLiteral("# A\n\n## B\n\nplain 12 words\n"));
+  typist::ui::SearchController search;
+  search.setRegex(true);
+  QCOMPARE(search.countMatches(&doc, QStringLiteral("^#")), 2);
+  QCOMPARE(search.allMatches(&doc, QStringLiteral("^#")).size(), 2);
+}
+void EditorSpike::regexSearchIgnoresInvalidPatterns() {
+  QTextDocument doc;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("# A\n\nbody\n"), &doc, nullptr));
+  typist::ui::SearchController search;
+  search.setRegex(true);
+  QCOMPARE(search.countMatches(&doc, QStringLiteral("(")), 0);
+  QTextCursor cursor(&doc);
+  QVERIFY(!search.selectNext(cursor, QStringLiteral("(")));
+  QVERIFY(search.allMatches(&doc, QStringLiteral("(")).isEmpty());
+}
+
+void EditorSpike::regexSearchStepsAndWrapsAround() {
+  QTextDocument doc;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("## first\n\n## second\n\nbody\n"), &doc, nullptr));
+  typist::ui::SearchController search;
+  search.setRegex(true);
+  const QString pattern = QStringLiteral("first|second");
+  const QVector<typist::ui::TocEntry> headings = typist::ui::outlineFromDocument(&doc);
+  QCOMPARE(headings.size(), 2);
+  const int firstAt = headings.at(0).position;
+  const int secondAt = headings.at(1).position;
+  QVERIFY(firstAt < secondAt);
+  QTextCursor cursor(&doc);
+  QVERIFY(search.selectNext(cursor, pattern));
+  QCOMPARE(cursor.selectionStart(), firstAt);
+  QVERIFY(search.selectNext(cursor, pattern));
+  QCOMPARE(cursor.selectionStart(), secondAt);
+  QVERIFY(search.selectNext(cursor, pattern));
+  QCOMPARE(cursor.selectionStart(), firstAt);
+  QVERIFY(search.selectPrevious(cursor, pattern));
+  QCOMPARE(cursor.selectionStart(), secondAt);
+}
+void EditorSpike::regexSearchHonoursCaseFlag() {
+  QTextDocument doc;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("Hello\n\nhello again\n"), &doc, nullptr));
+  typist::ui::SearchController search;
+  search.setRegex(true);
+  QCOMPARE(search.countMatches(&doc, QStringLiteral("hello")), 2);
+  search.setCaseSensitive(true);
+  QCOMPARE(search.countMatches(&doc, QStringLiteral("hello")), 1);
 }
 
 void EditorSpike::recentFilesKeepNewestFirstAndCap() {

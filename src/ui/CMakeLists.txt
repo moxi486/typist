@@ -58,6 +58,13 @@ target_include_directories(typist_ui_conflict PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(typist_ui_conflict PUBLIC Qt6::Core)
 target_compile_options(typist_ui_conflict PRIVATE -Wall -Wextra)
 
+
+add_library(typist_ui_toc STATIC Toc.h Toc.cpp)
+add_library(typist::ui_toc ALIAS typist_ui_toc)
+target_include_directories(typist_ui_toc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(typist_ui_toc PUBLIC Qt6::Gui)
+target_compile_options(typist_ui_toc PRIVATE -Wall -Wextra)
+
 qt_add_executable(typist main.cpp MainWindow.h MainWindow.cpp)
-target_link_libraries(typist PRIVATE typist::core typist::editor typist::platform typist::ui_theme typist::ui_autosave typist::ui_viewswitch typist::ui_search typist::ui_findbar typist::ui_filetree typist::ui_locale typist::ui_recovery typist::ui_conflict Qt6::Core Qt6::Gui Qt6::Widgets)
+target_link_libraries(typist PRIVATE typist::core typist::editor typist::platform typist::ui_theme typist::ui_autosave typist::ui_viewswitch typist::ui_search typist::ui_findbar typist::ui_filetree typist::ui_locale typist::ui_recovery typist::ui_conflict typist::ui_toc Qt6::Core Qt6::Gui Qt6::Widgets)
 set_target_properties(typist PROPERTIES AUTOMOC ON)

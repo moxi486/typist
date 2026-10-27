@@ -18,6 +18,7 @@ class FindBar : public QWidget {
 
   QString pattern() const;
   bool caseSensitive() const;
+  bool regex() const;
   void setMatchCount(int count);
   void openFocused();
   void closeBar();
@@ -34,6 +35,7 @@ class FindBar : public QWidget {
  private:
   QLineEdit* m_edit = nullptr;
   QCheckBox* m_case = nullptr;
+  QCheckBox* m_regex = nullptr;
   QLabel* m_count = nullptr;
   QPushButton* m_next = nullptr;
   QPushButton* m_prev = nullptr;

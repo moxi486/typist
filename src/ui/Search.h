@@ -1,8 +1,10 @@
 #pragma once
 
+#include <QRegularExpression>
 #include <QString>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QPair>
 #include <QVector>
 
 namespace typist::ui {
@@ -14,6 +16,10 @@ class SearchController {
   void setCaseSensitive(bool enabled);
   bool caseSensitive() const;
 
+  // Treats the pattern as a regular expression; an invalid pattern matches nothing.
+  void setRegex(bool enabled);
+  bool regex() const;
+
   int countMatches(const QTextDocument* document, const QString& pattern) const;
 
   // Cursors for every match, capped so highlighting stays cheap on large documents.
@@ -23,8 +29,12 @@ class SearchController {
 
  private:
   QTextDocument::FindFlags flags() const;
+  QRegularExpression regexPattern(const QString& pattern) const;
+  // Absolute match ranges per block for the regex mode; an invalid pattern yields none.
+  QVector<QPair<int, int>> regexRanges(const QTextDocument* document, const QString& pattern) const;
 
   bool m_caseSensitive = false;
+  bool m_regex = false;
 };
 
 }  // namespace typist::ui

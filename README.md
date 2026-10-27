@@ -24,6 +24,9 @@
 - 最近打开的文件（File > Recent Files，最多 8 条；菜单打开时剔除已不存在的路径）
 - 崩溃恢复草稿（有未保存编辑时写入草稿目录；File > Recover Draft（Ctrl+Shift+E）把最新草稿恢复到未保存缓冲区；启动时若存在草稿会在状态栏提示条数）
 - 外部修改冲突（磁盘内容变化且缓冲区未保存时询问是否重新载入，默认保留你的编辑；无对话框场景与 bench 模式一律保留编辑）
+- 大纲面板（Ctrl+Shift+T 开关；按标题层级缩进，点击跳转；只在渲染视图生效，源码视图会提示）
+- 查找支持正则（查找栏 Regex 复选框；按块匹配，锚点 ^/$ 作用于每个文本块；无效表达式视为无匹配）
+- 无障碍标注（编辑器、文件列表、搜索结果、大纲与草稿 dock 提供 accessibleName，菜单动作提供含快捷键的 tooltip）
 - 往返保真测试：parse → serialize → parse 产生相同 AST
 - 性能基线：`perf_baseline` 与 `repaint_baseline`（ctest 项）打印打开耗时与打字到重绘耗时；本机 Windows Release 实测冷启动 295ms、常驻工作集 21.7MB、1MB 文档 realistic 117ms、tableheavy 244ms、打字到重绘 0–1ms
 

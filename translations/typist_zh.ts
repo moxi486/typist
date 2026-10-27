@@ -4,8 +4,16 @@
 <context>
     <name>MainWindow</name>
     <message>
+        <source>Markdown editor</source>
+        <translation>Markdown 编辑器</translation>
+    </message>
+    <message>
         <source>Files</source>
         <translation>文件</translation>
+    </message>
+    <message>
+        <source>Outline</source>
+        <translation>大纲</translation>
     </message>
     <message>
         <source>Search Results</source>
@@ -190,6 +198,14 @@
     <message>
         <source>File changed on disk; keeping your unsaved edits</source>
         <translation>磁盘上的文件已变化；保留你未保存的编辑</translation>
+    </message>
+    <message>
+        <source>No headings</source>
+        <translation>没有标题</translation>
+    </message>
+    <message>
+        <source>Outline jumps in rendered view</source>
+        <translation>大纲跳转仅在渲染视图生效</translation>
     </message>
     <message>
         <source>No drafts to recover</source>

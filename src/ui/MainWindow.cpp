@@ -13,6 +13,7 @@
 #include "PdfWriter.h"
 #include "Settings.h"
 #include "Theme.h"
+#include "Toc.h"
 #include "ViewSwitch.h"
 #include "editor_document.h"
 #include "markdown.h"
@@ -84,6 +85,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_view = new ui::ViewSwitch(this);
   m_document = m_view->active();
   m_editor = new QTextEdit(this);
+  m_editor->setAccessibleName(tr("Markdown editor"));
   m_view->showActiveIn(m_editor);
   m_findBar = new ui::FindBar(this);
 
@@ -95,11 +97,21 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   setCentralWidget(central);
 
   m_tree = new ui::FileTree(this);
+  m_tree->setAccessibleName(tr("Files"));
   m_sidebarDock = new QDockWidget(tr("Files"), this);
   m_sidebarDock->setWidget(m_tree);
   m_sidebarDock->hide();
   addDockWidget(Qt::LeftDockWidgetArea, m_sidebarDock);
   setAcceptDrops(true);
+  m_outlineDock = new QDockWidget(tr("Outline"), this);
+  m_outlineDock->setAccessibleName(tr("Outline"));
+  m_outlineList = new QListWidget(m_outlineDock);
+  m_outlineList->setAccessibleName(tr("Outline"));
+  m_outlineDock->setWidget(m_outlineList);
+  m_outlineDock->hide();
+  addDockWidget(Qt::LeftDockWidgetArea, m_outlineDock);
+  connect(m_outlineList, &QListWidget::itemClicked, this, &MainWindow::openOutlineEntry);
+
   connect(m_tree, &ui::FileTree::entryActivated, this, &MainWindow::openTreeEntry);
   connect(m_tree, &ui::FileTree::fileRenamed, this, &MainWindow::treeFileRenamed);
   connect(m_tree, &ui::FileTree::fileRemoved, this, &MainWindow::treeFileRemoved);
@@ -162,18 +174,21 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   QMenu* editMenu = menuBar()->addMenu(tr("Edit"));
   m_undoAction = new QAction(tr("Undo"), this);
+  m_undoAction->setToolTip(tr("Undo"));
   m_undoAction->setShortcut(QKeySequence::Undo);
   m_undoAction->setEnabled(false);
   editMenu->addAction(m_undoAction);
   connect(m_undoAction, &QAction::triggered, this, &MainWindow::undo);
 
   m_redoAction = new QAction(tr("Redo"), this);
+  m_redoAction->setToolTip(tr("Redo"));
   m_redoAction->setShortcut(QKeySequence::Redo);
   m_redoAction->setEnabled(false);
   editMenu->addAction(m_redoAction);
   connect(m_redoAction, &QAction::triggered, this, &MainWindow::redo);
 
   m_findAction = new QAction(tr("Find"), this);
+  m_findAction->setToolTip(tr("Find"));
   m_findAction->setShortcut(QKeySequence::Find);
   editMenu->addAction(m_findAction);
   connect(m_findAction, &QAction::triggered, this, &MainWindow::toggleFindBar);
@@ -189,6 +204,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   connect(findPreviousAction, &QAction::triggered, this, &MainWindow::searchPrevious);
 
   m_folderSearchAction = new QAction(tr("Search in Folder"), this);
+  m_folderSearchAction->setToolTip(tr("Search in Folder"));
   m_folderSearchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
   editMenu->addAction(m_folderSearchAction);
   connect(m_folderSearchAction, &QAction::triggered, this, &MainWindow::searchInFolder);
@@ -202,6 +218,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   QMenu* viewMenu = menuBar()->addMenu(tr("View"));
   m_sourceAction = new QAction(tr("Source View"), this);
+  m_sourceAction->setToolTip(tr("Source View"));
   m_sourceAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+/")));
   viewMenu->addAction(m_sourceAction);
   connect(m_sourceAction, &QAction::triggered, this, &MainWindow::toggleSourceView);
@@ -211,7 +228,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   viewMenu->addAction(m_themeAction);
   connect(m_themeAction, &QAction::triggered, this, &MainWindow::cycleTheme);
 
+  m_outlineAction = new QAction(tr("Outline"), this);
+  m_outlineAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+T")));
+  m_outlineAction->setToolTip(tr("Outline"));
+  viewMenu->addAction(m_outlineAction);
+  connect(m_outlineAction, &QAction::triggered, this, &MainWindow::toggleOutline);
+
   m_sidebarAction = new QAction(tr("Show Files"), this);
+  m_sidebarAction->setToolTip(tr("Show Files"));
   m_sidebarAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
   viewMenu->addAction(m_sidebarAction);
   connect(m_sidebarAction, &QAction::triggered, this, &MainWindow::toggleSidebar);
@@ -279,6 +303,10 @@ void MainWindow::openFile(const QString& path) {
   if (m_sidebarDock->isVisible()) {
     m_tree->setRoot(QFileInfo(path).absolutePath());
     m_tree->selectPath(path);
+  }
+  if (m_outlineDock->isVisible()) rebuildOutline();
+  if (m_sidebarDock->isVisible()) {
+    m_tree->setWatchEnabled(true);
   }
 }
 
@@ -463,6 +491,7 @@ void MainWindow::searchPrevious() {
 
 void MainWindow::refreshMatches() {
   m_search.setCaseSensitive(m_findBar->caseSensitive());
+  m_search.setRegex(m_findBar->regex());
   const QString pattern = m_findBar->pattern();
   m_findBar->setMatchCount(m_search.countMatches(m_document, pattern));
 
@@ -748,6 +777,45 @@ void MainWindow::checkCurrentFileConflict() {
 void MainWindow::writeRecoveryDraft() {
   if (m_benchMode || !m_dirty) return;
   typist::ui::writeDraft(m_currentPath, currentMarkdown());
+}
+
+void MainWindow::rebuildOutline() {
+  if (!m_outlineList) return;
+  m_outlineList->clear();
+  const QVector<ui::TocEntry> entries = ui::outlineFromDocument(m_document);
+  for (const ui::TocEntry& entry : entries) {
+    QListWidgetItem* item = new QListWidgetItem(QString(entry.level - 1, QLatin1Char(' ')) + entry.text);
+    item->setData(Qt::UserRole, entry.position);
+    m_outlineList->addItem(item);
+  }
+  if (entries.isEmpty()) {
+    QListWidgetItem* placeholder = new QListWidgetItem(tr("No headings"));
+    placeholder->setFlags(Qt::NoItemFlags);
+    m_outlineList->addItem(placeholder);
+  }
+}
+
+void MainWindow::toggleOutline() {
+  if (m_outlineDock->isVisible()) {
+    m_outlineDock->hide();
+    return;
+  }
+  rebuildOutline();
+  m_outlineDock->show();
+  statusBar()->showMessage(tr("Outline jumps in rendered view"));
+}
+
+void MainWindow::openOutlineEntry() {
+  const QListWidgetItem* item = m_outlineList->currentItem();
+  if (!item || !(item->flags() & Qt::ItemIsEnabled)) return;
+  if (m_sourceMode) {
+    statusBar()->showMessage(tr("Outline jumps in rendered view"));
+    return;
+  }
+  QTextCursor cursor(m_document);
+  cursor.setPosition(item->data(Qt::UserRole).toInt());
+  m_editor->setTextCursor(cursor);
+  m_editor->ensureCursorVisible();
 }
 
 void MainWindow::recoverLatestDraft() {

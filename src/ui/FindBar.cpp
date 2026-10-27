@@ -12,8 +12,12 @@ namespace typist::ui {
 FindBar::FindBar(QWidget* parent) : QWidget(parent) {
   m_edit = new QLineEdit(this);
   m_edit->setPlaceholderText(QStringLiteral("Find in document"));
+  m_edit->setAccessibleName(QStringLiteral("Find pattern"));
   m_edit->setClearButtonEnabled(true);
   m_case = new QCheckBox(QStringLiteral("Match case"), this);
+  m_case->setAccessibleName(QStringLiteral("Match case"));
+  m_regex = new QCheckBox(QStringLiteral("Regex"), this);
+  m_regex->setAccessibleName(QStringLiteral("Regular expression search"));
   m_prev = new QPushButton(QStringLiteral("Prev"), this);
   m_next = new QPushButton(QStringLiteral("Next"), this);
   m_count = new QLabel(QStringLiteral("0 matches"), this);
@@ -22,6 +26,7 @@ FindBar::FindBar(QWidget* parent) : QWidget(parent) {
   layout->setContentsMargins(8, 4, 8, 4);
   layout->addWidget(m_edit);
   layout->addWidget(m_case);
+  layout->addWidget(m_regex);
   layout->addWidget(m_prev);
   layout->addWidget(m_next);
   layout->addWidget(m_count);
@@ -29,6 +34,7 @@ FindBar::FindBar(QWidget* parent) : QWidget(parent) {
   connect(m_edit, &QLineEdit::textChanged, this, &FindBar::patternChanged);
   connect(m_edit, &QLineEdit::returnPressed, this, &FindBar::findNext);
   connect(m_case, &QCheckBox::toggled, this, &FindBar::patternChanged);
+  connect(m_regex, &QCheckBox::toggled, this, &FindBar::patternChanged);
   connect(m_next, &QPushButton::clicked, this, &FindBar::findNext);
   connect(m_prev, &QPushButton::clicked, this, &FindBar::findPrevious);
   m_edit->installEventFilter(this);
@@ -38,6 +44,8 @@ FindBar::FindBar(QWidget* parent) : QWidget(parent) {
 QString FindBar::pattern() const { return m_edit->text(); }
 
 bool FindBar::caseSensitive() const { return m_case->isChecked(); }
+
+bool FindBar::regex() const { return m_regex->isChecked(); }
 
 void FindBar::setMatchCount(int count) {
   m_count->setText(count == 0 ? QStringLiteral("No matches") : QStringLiteral("%1 matches").arg(count));

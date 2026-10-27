@@ -88,6 +88,9 @@ class MainWindow : public QMainWindow {
   void searchInFolder();
   void onFolderSearchResults(const QVector<typist::platform::SearchHit>& hits, bool cancelled, const QString& error);
   void rebuildRecentMenu();
+  void rebuildOutline();
+  void toggleOutline();
+  void openOutlineEntry();
   void openRecentEntry(QAction* action);
   void checkCurrentFileConflict();
   void writeRecoveryDraft();
@@ -132,6 +135,9 @@ class MainWindow : public QMainWindow {
   QAction* m_folderAction = nullptr;
   ui::AutoSave* m_autoSave = nullptr;
   QMenu* m_recentMenu = nullptr;
+  QDockWidget* m_outlineDock = nullptr;
+  QListWidget* m_outlineList = nullptr;
+  QAction* m_outlineAction = nullptr;
   ui::ViewSwitch* m_view = nullptr;
   bool m_benchMode = false;
   QString m_currentPath;
