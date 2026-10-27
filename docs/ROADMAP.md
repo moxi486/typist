@@ -101,7 +101,7 @@
 - spike_run.sh 只跑二进制不构建：改过测试源码后要先 cmake --build build/mingw，否则会看到旧断言的失败信息（这次表现为 QCOMPARE 报 stored.size()=3，而源码里已改成 QVERIFY2）。
 - Qt6/MinGW 下跨线程信号的类型注册：Q_DECLARE_METATYPE(SearchHit) 写在 namespace 里会报 explicit specialization of QMetaTypeId outside its namespace must use nested-name-specifier，写在 namespace 外同样不通过；改为在 FolderSearchRunner 构造函数里运行时 `qRegisterMetaType<QVector<SearchHit>>()`（0 参数重载），QSignalSpy 才能取到值。
 - PDF 输出的 /MediaBox 以 point 为单位（A4 595x842、Letter 612x792），断言纸张差异要按 point 比较而不是像素；解析时用 marker 长度偏移，硬编码偏移会读错数字（探针实测 offset+13 让宽高错位）。
-- 分页限制：单个高于页面内容高度的块会被截断（例如超长表格），后续页从下一个块继续；跨页表格与防孤行留待 Beta。
+- 分页实测：单个高于页面内容高度的**段落**块按行边界拆页（QTextLine::rect() 块内坐标）；长**表格**按行块分页——60 行表格导出实测 pages>=2（slot pdfLongTablePaginatesRowByRow），表格跨页不重复表头，防孤行仍待做。
 - 页码/边距配置走 QSettings 键 pdfPaper=a4|letter、pdfMarginMm（限 5–60mm，非法值回退 20mm）。
 - 构造顺序教训：applyTheme() 会写 m_themeAction 的文字，必须在 action 创建之后调用（否则空指针崩溃）；保留 nullptr 守卫。
 - 性能基线已建立（本机 Windows、Release/NDEBUG）：冷启动 295ms（原生 windows platform；offscreen 17ms 只作 proxy），常驻工作集 21.7MB，1MB Markdown 两种形状——realistic parse 34 / build 67 / serialize 16 = 117ms，tableheavy parse 51 / build 111 / serialize 82 = 244ms，均进入 <250ms 预算。

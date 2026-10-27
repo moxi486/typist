@@ -97,6 +97,7 @@ class EditorSpike : public QObject {
   void docxExportWritesHyperlinkRelationships();
   void inlineImageRendersAndRoundTrips();
   void nestedListsRoundTripAtDepthFour();
+  void pdfLongTablePaginatesRowByRow();
   void updateFeedParsesVersionAndAssets();
   void updateFeedRejectsMalformedOrIncompleteFeed();
   void versionComparisonAcrossMinorAndPatch();
@@ -1173,6 +1174,22 @@ void EditorSpike::versionComparisonAcrossMinorAndPatch() {
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("0.1.0")));
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("0.2.0")));
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.2.0-beta1"), QStringLiteral("0.2.0")));
+}
+
+void EditorSpike::pdfLongTablePaginatesRowByRow() {
+  QString source;
+  source += QStringLiteral("| col a | col b | col c |\n| --- | --- | --- |\n");
+  for (int row = 0; row < 60; ++row) {
+    source += QStringLiteral("| row %1 | value %1 | text %1 |\n").arg(row);
+  }
+  QTextDocument document;
+  QVERIFY(typist::editor::loadMarkdown(source, &document, nullptr));
+  const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_pdf_table_pages.pdf"));
+  QString error;
+  QVERIFY2(typist::platform::exportPdf(path, &document, &error), error.toUtf8().constData());
+  const int pages = pdfPageCount(path);
+  QFile::remove(path);
+  QVERIFY2(pages >= 2, QStringLiteral("pages=%1").arg(pages).toUtf8().constData());
 }
 
 void EditorSpike::nestedListsRoundTripAtDepthFour() {
