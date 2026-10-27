@@ -901,9 +901,12 @@ void MainWindow::toggleTaskAtClick(const QMouseEvent* event) {
   const int blockNumber = m_editor->cursorForPosition(event->pos()).blockNumber();
   bool checked = false;
   if (!typist::editor::taskCheckboxState(document, blockNumber, &checked)) return;
-  // Clicks left of the item text hit the marker area; clicks on the text stay ordinary edits.
-  QTextCursor probe(document->findBlockByNumber(blockNumber));
-  if (event->pos().x() > m_editor->cursorRect(probe).x()) return;
+  // The checkbox glyph is the first character of the item; clicks on it toggle,
+  // clicks on the item text stay ordinary edits.
+  QTextBlock block = document->findBlockByNumber(blockNumber);
+  QTextCursor probe(block);
+  probe.setPosition(block.position() + 1);
+  if (event->pos().x() > m_editor->cursorRect(probe).x() + 2.0) return;
   if (!typist::editor::toggleTaskCheckbox(document, blockNumber)) return;
   statusBar()->showMessage(tr("Task toggled"));
 }

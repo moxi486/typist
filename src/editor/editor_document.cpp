@@ -212,9 +212,15 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
     case typist::core::BlockType::List: {
       // Orderedness lives on the list node, not on its items, so the list drives
       // the marker style while each item contributes text and task state.
+      // A task list draws real checkbox glyphs instead of Qt's bullet, so the marker
+      // style is dropped only when every item in the list is a task item.
+      bool allTasks = !block.children.empty();
+      for (const typist::core::Block& item : block.children) {
+        if (!item.task) allTasks = false;
+      }
       QTextListFormat listFormat;
-      listFormat.setStyle(block.ordered ? QTextListFormat::ListDecimal
-                                          : QTextListFormat::ListDisc);
+      listFormat.setStyle(allTasks ? QTextListFormat::ListStyleUndefined
+                                   : (block.ordered ? QTextListFormat::ListDecimal : QTextListFormat::ListDisc));
       listFormat.setIndent(static_cast<uint>(depth + 1));
       for (const typist::core::Block& item : block.children) {
         cursor.insertList(listFormat);
@@ -222,6 +228,10 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
           QTextBlockFormat itemFormat = cursor.blockFormat();
           itemFormat.setProperty(kTaskProperty, QVariant(item.checked));
           cursor.setBlockFormat(itemFormat);
+          QTextCharFormat markFormat = cursor.charFormat();
+          markFormat.setProperty(kTaskMarkProperty, QVariant(item.checked));
+          cursor.insertText(item.checked ? QString(QChar(0x2611)) : QString(QChar(0x2610)), markFormat);
+          cursor.insertText(QStringLiteral(" "), markFormat);
         }
         insertInline(item.runs, QString::fromStdString(item.text), cursor);
         for (const typist::core::Block& child : item.children) {
@@ -499,8 +509,13 @@ QString serializeDocument(const QTextDocument* document) {
             (itemList->format().style() == QTextListFormat::ListDecimal) != ordered) {
           break;
         }
-        const QString itemText = inlineFromBlock(current);
-        if (itemText.isEmpty() && !itemFormat.property(kTaskProperty).isValid()) {
+        QString itemText = inlineFromBlock(current);
+        const bool isTaskItem = itemFormat.property(kTaskProperty).isValid();
+        if (isTaskItem && (itemText.startsWith(QChar(0x2611)) || itemText.startsWith(QChar(0x2610)))) {
+          // The checkbox glyph stands in for the Markdown marker and never goes back into the source.
+          itemText = itemText.mid(2);
+        }
+        if (itemText.isEmpty() && !isTaskItem) {
           // Qt keeps an empty block around when a list starts the document; it is
           // an artifact, not a list item.
           current = current.next();
@@ -508,7 +523,7 @@ QString serializeDocument(const QTextDocument* document) {
         }
         out += QString(indentSpaces, QLatin1Char(' '));
         out += ordered ? QString::number(index++) + QStringLiteral(". ") : QStringLiteral("- ");
-        if (itemFormat.property(kTaskProperty).isValid()) {
+        if (isTaskItem) {
           out += itemFormat.property(kTaskProperty).toBool() ? QStringLiteral("[x] ")
                                                                   : QStringLiteral("[ ] ");
         }
@@ -599,8 +614,17 @@ bool toggleTaskCheckbox(QTextDocument* document, int blockNumber) {
   QTextCursor cursor(document->findBlockByNumber(blockNumber));
   QTextBlockFormat format = cursor.blockFormat();
   format.setProperty(kTaskProperty, !checked);
+  const QTextBlock block = document->findBlockByNumber(blockNumber);
   cursor.beginEditBlock();
   cursor.setBlockFormat(format);
+  const QChar first = block.text().isEmpty() ? QChar() : block.text().at(0);
+  if (first == QChar(0x2611) || first == QChar(0x2610)) {
+    cursor.setPosition(block.position());
+    cursor.setPosition(block.position() + 1, QTextCursor::KeepAnchor);
+    QTextCharFormat markFormat = cursor.charFormat();
+    markFormat.setProperty(kTaskMarkProperty, QVariant(!checked));
+    cursor.insertText(QString(!checked ? QChar(0x2611) : QChar(0x2610)), markFormat);
+  }
   cursor.endEditBlock();
   return true;
 }

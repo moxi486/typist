@@ -24,6 +24,9 @@
 #include <QSettings>
 #include <QFile>
 #include <QTextCursor>
+#include <QImage>
+#include <QPainter>
+#include <QTextList>
 #include <QUrl>
 #include <QTextBlock>
 #include <QAbstractTextDocumentLayout>
@@ -99,6 +102,7 @@ class EditorSpike : public QObject {
   void nestedListsRoundTripAtDepthFour();
   void pdfLongTablePaginatesRowByRow();
   void headingInlineStylesRoundTrip();
+  void taskListRendersCheckboxGlyphs();
   void sidebarExpandStateSurvivesRebuild();
   void docxExportEmbedsImageDrawing();
   void docxExportFallsBackWhenImageMissing();
@@ -1179,6 +1183,42 @@ void EditorSpike::versionComparisonAcrossMinorAndPatch() {
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("0.2.0")));
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.2.0-beta1"), QStringLiteral("0.2.0")));
 }
+
+void EditorSpike::taskListRendersCheckboxGlyphs() {
+  const QString source = QStringLiteral("- [x] done\n- [ ] todo\n");
+  QTextDocument document;
+  QVERIFY(typist::editor::loadMarkdown(source, &document, nullptr));
+
+  int checkedBlock = -1;
+  int uncheckedBlock = -1;
+  bool checked = false;
+  for (int i = 0; i < document.blockCount(); ++i) {
+    if (!typist::editor::taskCheckboxState(&document, i, &checked)) continue;
+    if (checked) checkedBlock = i; else uncheckedBlock = i;
+  }
+  QVERIFY(checkedBlock >= 0);
+  QVERIFY(uncheckedBlock >= 0);
+  const QString checkedText = document.findBlockByNumber(checkedBlock).text();
+  const QString uncheckedText = document.findBlockByNumber(uncheckedBlock).text();
+  QVERIFY2(checkedText.startsWith(QChar(0x2611)), qPrintable(QStringLiteral("checked glyph=%1").arg(checkedText.at(0).unicode())));
+  QVERIFY2(uncheckedText.startsWith(QChar(0x2610)), qPrintable(QStringLiteral("unchecked glyph=%1").arg(uncheckedText.at(0).unicode())));
+  QVERIFY2(document.findBlockByNumber(checkedBlock).textList()->format().style() == QTextListFormat::ListStyleUndefined,
+           "task list still carries a bullet style");
+
+  const QString serialized = typist::editor::serializeDocument(&document);
+  QVERIFY2(serialized.contains(QStringLiteral("- [x] done")) && serialized.contains(QStringLiteral("- [ ] todo")),
+           qPrintable(serialized));
+  QVERIFY(!serialized.contains(QChar(0x2611)) && !serialized.contains(QChar(0x2610)));
+  QVERIFY(typist::core::astEqual(typist::core::parseMarkdown(source.toStdString()).blocks,
+                             typist::core::parseMarkdown(serialized.toStdString()).blocks));
+
+  QVERIFY(typist::editor::toggleTaskCheckbox(&document, checkedBlock));
+  const QString flipped = document.findBlockByNumber(checkedBlock).text();
+  QVERIFY2(flipped.startsWith(QChar(0x2610)), qPrintable(QStringLiteral("glyph after toggle=%1").arg(flipped.at(0).unicode())));
+  const QString afterToggle = typist::editor::serializeDocument(&document);
+  QVERIFY2(afterToggle.contains(QStringLiteral("- [ ] done")), qPrintable(afterToggle));
+}
+
 
 void EditorSpike::sidebarExpandStateSurvivesRebuild() {
   QDir root(QDir::tempPath());

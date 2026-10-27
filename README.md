@@ -22,7 +22,7 @@
 - DOCX 链接写成 OOXML 超链接对象（w:hyperlink + 外部关系，同一 URL 共用一条关系）；图片内嵌为 OOXML drawing 对象（图像本体写进 `word/media/imageN.png`，内部关系从 rId1001 起，超过 640×480 按比例缩小，EMU 尺寸 = 像素 × 9525）；图文件读不到时退回带下划线的文字链接
 - 深嵌套列表：五级嵌套（每级缩进两空格）在 Markdown 往返与富文本往返两侧都保真，深度不是上限
 - 检查更新（Ctrl+Shift+U，Help > Check for Updates）：抓取更新源的 `latest.json`，比对版本号后在状态栏提示新版本；只提示，下载与安装仍手动
-- 点击切换任务项：在渲染视图里点列表项文字左侧的标记区会翻转任务勾选状态（源码视图要点亮文本自己改标记）；渲染视图的任务标记是 Qt 列表圆点，勾选状态只保存在块格式属性里
+- 任务项显示真实勾选字形：渲染视图里任务列表不再画 Qt 圆点，条目开头直接画 ☑/☐（勾选状态存在块格式属性里，字形只是呈现）；点字形区域翻转状态，序列化时剥掉字形前缀，源码仍是 `- [x]` / `- [ ]`（往返保真不变）
 - 渲染视图内联显示图片本体：`![alt](path)` 指向的本地图会直接画在文档里（超过 640×480 按比例缩小），序列化时仍还原成原来的 Markdown 链接（alt 与目标存在对象运行格式的属性里）；图不存在时退回带下划线的文字链接
 - 主题 light / dark / system（Ctrl+Shift+D 循环，偏好写入 QSettings；导出的 HTML 内嵌同一份主题样式）
 - system 主题的判定顺序：Windows 读注册表 AppsUseLightTheme、Linux 读 GTK_THEME 或 ~/.config/gtk-3.0/settings.ini、macOS 读 AppleInterfaceStyle，读不到时回退到窗口调色板亮度

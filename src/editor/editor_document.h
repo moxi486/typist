@@ -20,6 +20,7 @@ constexpr uint kTaskProperty = 0x100004;       // value: bool checked
 constexpr uint kCodeInfoProperty = 0x100005;   // value: fence info string, first block of a group
 constexpr uint kImageProperty = 0x100006;       // value: image target
 constexpr uint kImageAltProperty = 0x100007;    // value: image alt text        // value: image destination, on an anchored run
+constexpr uint kTaskMarkProperty = 0x100008;    // value: checked state of the rendered checkbox glyph
 
 // Qt exposes no undo history cap, so the step count is checked against this limit
 // and the undo stack dropped when it is exceeded.
