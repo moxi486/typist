@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QByteArray>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QString>
 #include <QStringList>
@@ -23,9 +24,10 @@ int main(int argc, char* argv[]) {
   const bool benchRepaint = args.contains(QStringLiteral("--bench-repaint"));
   const bool benchViewSwitch = args.contains(QStringLiteral("--bench-view-switch"));
   const bool benchSearch = args.contains(QStringLiteral("--bench-search"));
+  const bool benchFolderSearch = args.contains(QStringLiteral("--bench-file-search"));
 
   typist::MainWindow window;
-  window.setBenchMode(benchStartup || benchRepaint || benchViewSwitch || benchSearch);
+  window.setBenchMode(benchStartup || benchRepaint || benchViewSwitch || benchSearch || benchFolderSearch);
   const QByteArray benchFile = qgetenv("TYPIST_BENCH_FILE");
   if (!benchFile.isEmpty()) window.openFile(QString::fromUtf8(benchFile));
   window.show();
@@ -33,10 +35,13 @@ int main(int argc, char* argv[]) {
   int repaintBudgetBreaches = 0;
   bool undoKept = false;
   int searchMatches = 0;
+  int folderHits = 0;
+  qint64 folderScanMs = 0;
 
-  if (benchStartup || benchRepaint || benchViewSwitch || benchSearch) {
+  if (benchStartup || benchRepaint || benchViewSwitch || benchSearch || benchFolderSearch) {
     QTimer::singleShot(0, &application, [&startup, &application, &window, benchStartup, benchRepaint, benchViewSwitch,
-                                       benchSearch, &repaintBudgetBreaches, &undoKept, &searchMatches] {
+                                       benchSearch, benchFolderSearch, &repaintBudgetBreaches, &undoKept, &searchMatches,
+                                       &folderHits, &folderScanMs] {
       if (benchStartup) {
         std::printf("startup_ms=%lld\n", static_cast<long long>(startup.elapsed()));
       }
@@ -59,6 +64,13 @@ int main(int argc, char* argv[]) {
         searchMatches = window.searchMatchesForBench(pattern.isEmpty() ? QStringLiteral("item") : pattern);
         std::printf("search_matches=%d\n", searchMatches);
       }
+      if (benchFolderSearch) {
+        const QString root = QString::fromUtf8(qgetenv("TYPIST_SEARCH_ROOT"));
+        const QString pattern = QString::fromUtf8(qgetenv("TYPIST_SEARCH_PATTERN"));
+        folderScanMs = window.searchFolderForBench(root.isEmpty() ? QDir::homePath() : root,
+                                                  pattern.isEmpty() ? QStringLiteral("item") : pattern, &folderHits);
+        std::printf("file_search_ms=%lld file_search_hits=%d\n", static_cast<long long>(folderScanMs), folderHits);
+      }
       application.quit();
     });
   }
@@ -67,5 +79,6 @@ int main(int argc, char* argv[]) {
   if (benchRepaint && repaintBudgetBreaches > 0) return 1;
   if (benchViewSwitch && !undoKept) return 1;
   if (benchSearch && searchMatches == 0) return 1;
+  if (benchFolderSearch && (folderHits == 0 || folderScanMs > 250)) return 1;
   return code;
 }

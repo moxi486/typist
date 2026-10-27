@@ -3,6 +3,8 @@
 #include "FileWriter.h"
 #include "PdfWriter.h"
 #include "AutoSave.h"
+#include "FileSearch.h"
+#include "FileWriter.h"
 #include "FindBar.h"
 #include "Settings.h"
 #include "ViewSwitch.h"
@@ -14,6 +16,8 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDir>
+#include <QDockWidget>
+#include <QListWidget>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
@@ -75,6 +79,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   centralLayout->addWidget(m_editor);
   centralLayout->addWidget(m_findBar);
   setCentralWidget(central);
+
+  m_results = new QListWidget(this);
+  m_resultsDock = new QDockWidget(QStringLiteral("Search Results"), this);
+  m_resultsDock->setWidget(m_results);
+  m_resultsDock->hide();
+  addDockWidget(Qt::BottomDockWidgetArea, m_resultsDock);
+  connect(m_results, &QListWidget::itemDoubleClicked, this, &MainWindow::openSearchHit);
 
   connect(m_findBar, &ui::FindBar::patternChanged, this, &MainWindow::refreshMatches);
   connect(m_findBar, &ui::FindBar::findNext, this, &MainWindow::searchNext);
@@ -139,6 +150,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   findPreviousAction->setShortcut(QKeySequence(QStringLiteral("Shift+F3")));
   editMenu->addAction(findPreviousAction);
   connect(findPreviousAction, &QAction::triggered, this, &MainWindow::searchPrevious);
+
+  m_folderSearchAction = new QAction(QStringLiteral("Search in Folder"), this);
+  m_folderSearchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
+  editMenu->addAction(m_folderSearchAction);
+  connect(m_folderSearchAction, &QAction::triggered, this, &MainWindow::searchInFolder);
 
   QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("View"));
   m_sourceAction = new QAction(QStringLiteral("Source View"), this);
@@ -373,6 +389,53 @@ void MainWindow::refreshMatches() {
 
 int MainWindow::searchMatchesForBench(const QString& pattern) const {
   return m_search.countMatches(m_document, pattern);
+}
+
+qint64 MainWindow::searchFolderForBench(const QString& rootDir, const QString& pattern, int* hitsOut) {
+  platform::SearchRequest request;
+  request.rootDir = rootDir;
+  request.pattern = pattern;
+  request.maxHits = 0;
+  QElapsedTimer timer;
+  timer.start();
+  QString error;
+  const QVector<platform::SearchHit> hits = platform::searchFiles(request, &error);
+  if (hitsOut) *hitsOut = hits.size();
+  return timer.elapsed();
+}
+
+void MainWindow::searchInFolder() {
+  const QString pattern = m_findBar->pattern();
+  if (pattern.isEmpty()) {
+    statusBar()->showMessage(QStringLiteral("Enter a pattern in the find bar first."));
+    m_findBar->openFocused();
+    return;
+  }
+
+  const QString root = m_currentPath.isEmpty() ? QDir::homePath() : QFileInfo(m_currentPath).absolutePath();
+  platform::SearchRequest request;
+  request.rootDir = root;
+  request.pattern = pattern;
+  request.caseSensitive = m_findBar->caseSensitive();
+
+  QString error;
+  const QVector<platform::SearchHit> hits = platform::searchFiles(request, &error);
+
+  m_results->clear();
+  for (const platform::SearchHit& hit : hits) {
+    QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1:%2  %3").arg(QFileInfo(hit.path).fileName()).arg(hit.line).arg(hit.preview));
+    item->setData(Qt::UserRole, hit.path);
+    m_results->addItem(item);
+  }
+  m_resultsDock->show();
+  statusBar()->showMessage(error.isEmpty() ? QStringLiteral("%1 matches in %2").arg(hits.size()).arg(root)
+                                                : QStringLiteral("%1 matches in %2 (%3)").arg(hits.size()).arg(root).arg(error));
+}
+
+void MainWindow::openSearchHit() {
+  QListWidgetItem* item = m_results->currentItem();
+  if (item == nullptr) return;
+  openFile(item->data(Qt::UserRole).toString());
 }
 
 void MainWindow::cycleTheme() {

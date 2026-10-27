@@ -8,6 +8,8 @@
 
 class QAction;
 class QCloseEvent;
+class QDockWidget;
+class QListWidget;
 class QTextDocument;
 class QTextEdit;
 
@@ -42,6 +44,9 @@ class MainWindow : public QMainWindow {
   // Bench seam: match count over the document the editor is showing.
   int searchMatchesForBench(const QString& pattern) const;
 
+  // Bench seam: folder scan latency; *hitsOut receives the hit count.
+  qint64 searchFolderForBench(const QString& rootDir, const QString& pattern, int* hitsOut);
+
  private slots:
   void openDialog();
   void save();
@@ -57,6 +62,8 @@ class MainWindow : public QMainWindow {
   void searchNext();
   void searchPrevious();
   void refreshMatches();
+  void searchInFolder();
+  void openSearchHit();
 
  private:
   void updateTitleAndStatus();
@@ -70,12 +77,15 @@ class MainWindow : public QMainWindow {
   QTextEdit* m_editor = nullptr;
   QTextDocument* m_document = nullptr;
   ui::FindBar* m_findBar = nullptr;
+  QDockWidget* m_resultsDock = nullptr;
+  QListWidget* m_results = nullptr;
   ui::SearchController m_search;
   QAction* m_undoAction = nullptr;
   QAction* m_redoAction = nullptr;
   QAction* m_sourceAction = nullptr;
   QAction* m_themeAction = nullptr;
   QAction* m_findAction = nullptr;
+  QAction* m_folderSearchAction = nullptr;
   ui::AutoSave* m_autoSave = nullptr;
   ui::ViewSwitch* m_view = nullptr;
   bool m_benchMode = false;

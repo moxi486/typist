@@ -1,4 +1,5 @@
 #include "editor_document.h"
+#include "FileSearch.h"
 #include "FileWriter.h"
 #include "PdfWriter.h"
 #include "AutoSave.h"
@@ -51,6 +52,11 @@ class EditorSpike : public QObject {
   void searchWrapsAroundAtBothEnds();
   void searchRespectsCaseSensitivity();
   void searchReachesTableCells();
+  void fileSearchReportsPathsAndLineNumbers();
+  void fileSearchSkipsHiddenDirectories();
+  void fileSearchRespectsCaseSensitivity();
+  void fileSearchHonorsMaxHits();
+  void fileSearchStaysWithinBudgetOnLargeFile();
 
  private:
   std::string m_corpus;
@@ -550,6 +556,111 @@ void EditorSpike::searchReachesTableCells() {
   typist::ui::SearchController search;
   QVERIFY(search.countMatches(&document, QStringLiteral("aaa")) == 1);
   QVERIFY(search.countMatches(&document, QStringLiteral("value")) == 1);
+}
+
+namespace {
+
+QString writeSearchFixture(const QString& dir, const QString& name, const QString& content) {
+  const QString path = QDir(dir).filePath(name);
+  QFile file(path);
+  if (!file.open(QIODevice::WriteOnly)) return QString();
+  file.write(content.toUtf8());
+  file.close();
+  return path;
+}
+
+}  // namespace
+
+void EditorSpike::fileSearchReportsPathsAndLineNumbers() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_search_a"));
+  QDir().mkpath(dir);
+  writeSearchFixture(dir, QStringLiteral("alpha.md"), QStringLiteral("# Alpha\n\nneedle here\n"));
+  writeSearchFixture(dir, QStringLiteral("beta.md"), QStringLiteral("needle first line\n"));
+
+  typist::platform::SearchRequest request;
+  request.rootDir = dir;
+  request.pattern = QStringLiteral("needle");
+  QString error;
+  const QVector<typist::platform::SearchHit> hits = typist::platform::searchFiles(request, &error);
+  QVERIFY2(hits.size() == 2, error.toLatin1().constData());
+
+  int alphaLine = -1;
+  int betaLine = -1;
+  for (const typist::platform::SearchHit& hit : hits) {
+    if (hit.path.endsWith(QStringLiteral("alpha.md"))) alphaLine = hit.line;
+    if (hit.path.endsWith(QStringLiteral("beta.md"))) betaLine = hit.line;
+  }
+  QCOMPARE(alphaLine, 3);
+  QCOMPARE(betaLine, 1);
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::fileSearchSkipsHiddenDirectories() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_search_b"));
+  QDir().mkpath(dir);
+  writeSearchFixture(dir, QStringLiteral("visible.md"), QStringLiteral("needle visible\n"));
+  QDir().mkpath(QDir(dir).filePath(QStringLiteral(".git")));
+  writeSearchFixture(QDir(dir).filePath(QStringLiteral(".git")), QStringLiteral("hook.md"), QStringLiteral("needle hidden\n"));
+
+  typist::platform::SearchRequest request;
+  request.rootDir = dir;
+  request.pattern = QStringLiteral("needle");
+  QString error;
+  const QVector<typist::platform::SearchHit> hits = typist::platform::searchFiles(request, &error);
+  QVERIFY(hits.size() == 1);
+  QVERIFY(hits.at(0).path.endsWith(QStringLiteral("visible.md")));
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::fileSearchRespectsCaseSensitivity() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_search_c"));
+  QDir().mkpath(dir);
+  writeSearchFixture(dir, QStringLiteral("case.md"), QStringLiteral("Needle once\n"));
+
+  typist::platform::SearchRequest request;
+  request.rootDir = dir;
+  request.pattern = QStringLiteral("needle");
+  QString error;
+  QVERIFY(typist::platform::searchFiles(request, &error).size() == 1);
+  request.caseSensitive = true;
+  QVERIFY(typist::platform::searchFiles(request, &error).isEmpty());
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::fileSearchHonorsMaxHits() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_search_d"));
+  QDir().mkpath(dir);
+  QString body;
+  for (int i = 0; i < 60; ++i) body += QStringLiteral("needle line %1\n").arg(i);
+  writeSearchFixture(dir, QStringLiteral("many.md"), body);
+
+  typist::platform::SearchRequest request;
+  request.rootDir = dir;
+  request.pattern = QStringLiteral("needle");
+  request.maxHits = 10;
+  QString error;
+  QVERIFY(typist::platform::searchFiles(request, &error).size() == 10);
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::fileSearchStaysWithinBudgetOnLargeFile() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_search_e"));
+  QDir().mkpath(dir);
+  QString body;
+  for (int i = 0; i < 12000; ++i) body += QStringLiteral("filler paragraph %1 with prose\n").arg(i);
+  writeSearchFixture(dir, QStringLiteral("big.md"), body);
+
+  typist::platform::SearchRequest request;
+  request.rootDir = dir;
+  request.pattern = QStringLiteral("filler paragraph 11999");
+  QString error;
+  QElapsedTimer timer;
+  timer.start();
+  const QVector<typist::platform::SearchHit> hits = typist::platform::searchFiles(request, &error);
+  const qint64 elapsed = timer.elapsed();
+  QVERIFY(hits.size() == 1);
+  QVERIFY(elapsed < 400);
+  QDir(dir).removeRecursively();
 }
 
 QTEST_MAIN(EditorSpike)

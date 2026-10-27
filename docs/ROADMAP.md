@@ -44,6 +44,10 @@
 - 查找两端循环语义：向前步进越过最后一个匹配回到第一个；向后步进在第一个匹配之前回到最后一个（QTextCursor::End 位置处向前搜索返回 null，因此需要显式 wrap）。匹配计数用 selectionEnd 递增游标避免重叠匹配死循环。
 - 表格单元格可被查找命中（QTextDocument::find 会遍历 frame 树，探针 countMatches("aaa")=1），无需额外处理表格 frame。
 - 查找条是内联控件 ui::FindBar（QLineEdit + 区分大小写 + 匹配数 + Prev/Next），Ctrl+F 开关、Esc 关闭；bench 入口 --bench-search 打印 search_matches，环境变量 TYPIST_BENCH_FILE 与 TYPIST_SEARCH_PATTERN 控制被测文件与模式，ctest 项 search_baseline 用它。
+- 目录内搜索走 platform::searchFiles（QDirIterator 递归 + *.md，按行给出 path:line 与 120 字符预览，maxHits 默认 200、maxFileBytes 4MB）：QDir 没有 pathParts，要用 root.relativeFilePath(path).split('/') 逐段判断是否以 . 开头或属于 build/node_modules，才能跳过 .git 这类目录。
+- Qt6 里不能把 Qt::Case 当类型名写（'Case' in namespace 'Qt' does not name a type），大小写模式要内联传给 contains(pattern, caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive)。
+- 前向声明 QAction 的类里不能把它当值成员（需要完整类型且 connect 会收到 QAction 而非指针），成员一律用 QAction* 并在构造函数里 new。
+- 目录扫描实测：1MB 单文件根目录 file_search_ms=5–6（命中 5000），tests/corpus 根目录 0ms 命中 4；bench 门槛 --bench-file-search 要求 hits>0 且 file_search_ms <= 250，无命中或超预算返回 1（已实测两种失败路径都返回 1）。
 - PDF 输出的 /MediaBox 以 point 为单位（A4 595x842、Letter 612x792），断言纸张差异要按 point 比较而不是像素；解析时用 marker 长度偏移，硬编码偏移会读错数字（探针实测 offset+13 让宽高错位）。
 - 分页限制：单个高于页面内容高度的块会被截断（例如超长表格），后续页从下一个块继续；跨页表格与防孤行留待 Beta。
 - 页码/边距配置走 QSettings 键 pdfPaper=a4|letter、pdfMarginMm（限 5–60mm，非法值回退 20mm）。
