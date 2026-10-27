@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "AutoSave.h"
+#include "DocxWriter.h"
 #include "FileOps.h"
 #include "FileSearch.h"
 #include "FileTree.h"
@@ -138,6 +139,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   exportPdfAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+P")));
   fileMenu->addAction(exportPdfAction);
   connect(exportPdfAction, &QAction::triggered, this, &MainWindow::exportPdf);
+  QAction* exportDocxAction = fileMenu->addAction(QStringLiteral("Export DOCX"));
+  exportDocxAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+X")));
+  connect(exportDocxAction, &QAction::triggered, this, &MainWindow::exportDocx);
 
   QMenu* editMenu = menuBar()->addMenu(QStringLiteral("Edit"));
   m_undoAction = new QAction(QStringLiteral("Undo"), this);
@@ -337,6 +341,24 @@ void MainWindow::exportPdf() {
   statusBar()->showMessage(QStringLiteral("Exported PDF"));
 }
 
+void MainWindow::exportDocx() {
+  const QString suggested = m_currentPath.isEmpty()
+      ? QDir::homePath() + QStringLiteral("/untitled.docx")
+      : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
+            QFileInfo(m_currentPath).baseName() + QStringLiteral(".docx");
+  const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Export DOCX"), suggested,
+                                                    QStringLiteral("Word document (*.docx)"));
+  if (path.isEmpty()) return;
+
+  // DOCX reflects Markdown semantics directly, so it renders from the source text.
+  QString error;
+  if (!typist::platform::exportDocx(path, currentMarkdown(), &error)) {
+    statusBar()->showMessage(error);
+    return;
+  }
+  statusBar()->showMessage(QStringLiteral("Exported DOCX"));
+}
+
 void MainWindow::autoSaveNow() {
   if (!m_dirty || m_currentPath.isEmpty()) return;
 
@@ -439,6 +461,10 @@ void MainWindow::refreshMatches() {
 int MainWindow::highlightCountForBench(const QString& pattern) const {
   typist::ui::SearchController search = m_search;
   return search.allMatches(m_document, pattern).size();
+}
+
+qint64 MainWindow::exportDocxForBench(const QString& path) const {
+  return typist::platform::docxSizeForBench(path, currentMarkdown());
 }
 
 int MainWindow::searchMatchesForBench(const QString& pattern) const {

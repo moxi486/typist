@@ -3,6 +3,7 @@
 #include "FileWriter.h"
 #include "PdfWriter.h"
 #include "AutoSave.h"
+#include "DocxWriter.h"
 #include "FileOps.h"
 #include "FileTree.h"
 #include "Search.h"
@@ -76,6 +77,9 @@ class EditorSpike : public QObject {
   void dropTargetPicksMarkdownFile();
   void searchHighlightsEveryMatch();
   void searchHighlightRespectsCaseSensitivity();
+  void docxExportWritesEachPackageMemberOnce();
+  void docxExportReportsHeadingTableAndTaskItem();
+  void docxExportFailsWhenPathUnwritable();
 
  private:
   std::string m_corpus;
@@ -923,6 +927,85 @@ void EditorSpike::searchHighlightRespectsCaseSensitivity() {
   QVERIFY(search.allMatches(&document, QStringLiteral("item")).size() == 3);
   search.setCaseSensitive(true);
   QVERIFY(search.allMatches(&document, QStringLiteral("item")).size() == 1);
+}
+
+namespace {
+
+QByteArray readWholeFile(const QString& path) {
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly)) return QByteArray();
+  const QByteArray data = file.readAll();
+  file.close();
+  return data;
+}
+
+int centralEntryCount(const QByteArray& data) {
+  const int eocd = data.size() - 22;
+  if (eocd < 0 || data.mid(eocd, 4) != QByteArrayLiteral("PK\x05\x06")) return -1;
+  // EOCD: this-disk entry count is a 2-byte field at +8; total count at +10.
+  return static_cast<int>(static_cast<unsigned char>(data.at(eocd + 8)) |
+                          (static_cast<unsigned char>(data.at(eocd + 9)) << 8));
+}
+QStringList localEntryNames(const QByteArray& data) {
+  QStringList names;
+  int from = 0;
+  while (true) {
+    const int at = data.indexOf(QByteArrayLiteral("PK\x03\x04"), from);
+    if (at < 0 || at + 30 > data.size()) break;
+    const int nameLength = static_cast<unsigned char>(data.at(at + 26)) |
+                           (static_cast<unsigned char>(data.at(at + 27)) << 8);
+    const int extraLength = static_cast<unsigned char>(data.at(at + 28)) |
+                            (static_cast<unsigned char>(data.at(at + 29)) << 8);
+    // Local header layout: sizes sit at +18 (compressed) and +22 (uncompressed); names at +26/+28 lengths.
+    const quint32 compressedSize = static_cast<quint32>(
+        static_cast<unsigned char>(data.at(at + 18)) | (static_cast<unsigned char>(data.at(at + 19)) << 8) |
+        (static_cast<unsigned char>(data.at(at + 20)) << 16) | (static_cast<unsigned char>(data.at(at + 21)) << 24));
+    names.append(QString::fromUtf8(data.mid(at + 30, nameLength)));
+    from = at + 30 + nameLength + extraLength + compressedSize;
+  }
+  return names;
+}
+
+}  // namespace
+
+void EditorSpike::docxExportWritesEachPackageMemberOnce() {
+  const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_once.docx"));
+  QString error;
+  QVERIFY(typist::platform::exportDocx(path, QStringLiteral("# Title\n\n- alpha\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n"), &error));
+
+  const QByteArray data = readWholeFile(path);
+  QVERIFY(data.size() > 400);
+  QVERIFY(data.startsWith("PK\x03\x04"));
+  // A duplicated member name corrupts the package: walk local headers and require unique names.
+  const QStringList names = localEntryNames(data);
+  QCOMPARE(names.size(), 6);
+  QStringList expected;
+  expected << QStringLiteral("[Content_Types].xml") << QStringLiteral("_rels/.rels")
+           << QStringLiteral("word/_rels/document.xml.rels") << QStringLiteral("word/styles.xml")
+           << QStringLiteral("word/numbering.xml") << QStringLiteral("word/document.xml");
+  QCOMPARE(names, expected);
+  QCOMPARE(centralEntryCount(data), 6);
+  QFile::remove(path);
+}
+
+void EditorSpike::docxExportReportsHeadingTableAndTaskItem() {
+  const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_parts.docx"));
+  QString error;
+  QVERIFY(typist::platform::exportDocx(path, QStringLiteral("# Title\n\n- [x] done\n\n| col |\n| --- |\n| v |\n"), &error));
+
+  const QByteArray document = readWholeFile(path);
+  QVERIFY(document.contains("Heading1"));
+  QVERIFY(document.contains("<w:tbl>"));
+  QVERIFY(document.contains("[x] done"));
+  QVERIFY(typist::platform::docxSizeForBench(path, QStringLiteral("# Title\n")) > 400);
+  QFile::remove(path);
+}
+
+void EditorSpike::docxExportFailsWhenPathUnwritable() {
+  const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_missing_dir/out.docx"));
+  QString error;
+  QVERIFY(!typist::platform::exportDocx(path, QStringLiteral("# Title\n"), &error));
+  QVERIFY(!error.isEmpty());
 }
 
 QTEST_MAIN(EditorSpike)

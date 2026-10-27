@@ -51,6 +51,9 @@ class MainWindow : public QMainWindow {
   // Bench seam: number of highlighted matches for the current case mode.
   int highlightCountForBench(const QString& pattern) const;
 
+  // Bench seam: write the current buffer as DOCX and report bytes written, or -1.
+  qint64 exportDocxForBench(const QString& path) const;
+
   // Bench seam: folder scan latency; *hitsOut receives the hit count.
   qint64 searchFolderForBench(const QString& rootDir, const QString& pattern, int* hitsOut);
 
@@ -72,6 +75,7 @@ class MainWindow : public QMainWindow {
   void toggleSourceView();
   void exportHtml();
   void exportPdf();
+  void exportDocx();
   void cycleTheme();
   void autoSaveNow();
   void toggleFindBar();

@@ -15,6 +15,7 @@
 - 目录内搜索（Ctrl+Shift+F 搜索当前文件所在目录，结果落在底部 dock，双击打开命中文件；跳过隐藏目录与 .git/node_modules）
 - 导出 HTML（Ctrl+Shift+E，走 cmark-gfm 的 GFM 扩展）
 - 导出 PDF（Ctrl+Shift+P，走 QtGui 的 QPdfWriter；纸张 a4/letter、页边距 mm、页眉与页脚（页脚里的 # 替换为页码）可从配置控制，默认 a4 + 20mm + 页眉文件名 + 页脚 Page #）
+- 导出 DOCX（Ctrl+Shift+X，由 platform::DocxWriter 直接写 OOXML 包：标题、段落、列表、任务列表、代码块、引用、分隔线、表格；A4 20mm 边距与 PDF 默认一致）
 - 主题 light / dark / system（Ctrl+Shift+D 循环，偏好写入 QSettings；导出的 HTML 内嵌同一份主题样式）
 - 自动保存（最后一次编辑后 2 秒落盘；未命名文件不自动保存；切换源码/渲染视图与关闭窗口时立即落盘）
 - 往返保真测试：parse → serialize → parse 产生相同 AST

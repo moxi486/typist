@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include <QApplication>
+#include <QFile>
 #include <QByteArray>
 #include <QDir>
 #include <QElapsedTimer>
@@ -26,9 +27,11 @@ int main(int argc, char* argv[]) {
   const bool benchSearch = args.contains(QStringLiteral("--bench-search"));
   const bool benchFolderSearch = args.contains(QStringLiteral("--bench-file-search"));
   const bool benchTree = args.contains(QStringLiteral("--bench-tree"));
+  const bool benchDocx = args.contains(QStringLiteral("--bench-docx"));
 
   typist::MainWindow window;
-  window.setBenchMode(benchStartup || benchRepaint || benchViewSwitch || benchSearch || benchFolderSearch || benchTree);
+  window.setBenchMode(benchStartup || benchRepaint || benchViewSwitch || benchSearch || benchFolderSearch || benchTree ||
+                     benchDocx);
   const QByteArray benchFile = qgetenv("TYPIST_BENCH_FILE");
   if (!benchFile.isEmpty()) window.openFile(QString::fromUtf8(benchFile));
   window.show();
@@ -40,11 +43,13 @@ int main(int argc, char* argv[]) {
   qint64 folderScanMs = 0;
   int treeEntries = 0;
   int treeDirectories = 0;
+  qint64 docxBytes = 0;
 
-  if (benchStartup || benchRepaint || benchViewSwitch || benchSearch || benchFolderSearch || benchTree) {
+  if (benchStartup || benchRepaint || benchViewSwitch || benchSearch || benchFolderSearch || benchTree || benchDocx) {
     QTimer::singleShot(0, &application, [&startup, &application, &window, benchStartup, benchRepaint, benchViewSwitch,
-                                       benchSearch, benchFolderSearch, benchTree, &repaintBudgetBreaches, &undoKept,
-                                       &searchMatches, &folderHits, &folderScanMs, &treeEntries, &treeDirectories] {
+                                       benchSearch, benchFolderSearch, benchTree, benchDocx, &repaintBudgetBreaches,
+                                       &undoKept, &searchMatches, &folderHits, &folderScanMs, &treeEntries,
+                                       &treeDirectories, &docxBytes] {
       if (benchStartup) {
         std::printf("startup_ms=%lld\n", static_cast<long long>(startup.elapsed()));
       }
@@ -80,6 +85,12 @@ int main(int argc, char* argv[]) {
         treeDirectories = window.fileTreeDirectoriesForBench(root);
         std::printf("tree_entries=%d tree_dirs=%d\n", treeEntries, treeDirectories);
       }
+      if (benchDocx) {
+        const QString target = QDir::tempPath() + QStringLiteral("/typist_bench.docx");
+        docxBytes = window.exportDocxForBench(target);
+        QFile::remove(target);
+        std::printf("docx_bytes=%lld\n", static_cast<long long>(docxBytes));
+      }
       application.quit();
     });
   }
@@ -90,5 +101,6 @@ int main(int argc, char* argv[]) {
   if (benchSearch && searchMatches == 0) return 1;
   if (benchFolderSearch && (folderHits == 0 || folderScanMs > 250)) return 1;
   if (benchTree && treeEntries == 0) return 1;
+  if (benchDocx && docxBytes < 400) return 1;
   return code;
 }

@@ -61,6 +61,10 @@
 - MainWindow 里用 event->mimeData()->hasUrls() 需要 #include <QMimeData>，否则 invalid use of incomplete type 'const class QMimeData'；拖拽判定逻辑抽到 platform::firstMarkdownPath（取第一个本地 .md URL，https URL 与 .txt 都返回空）以便 headless 测试。
 - 监听只在侧栏可见时开启（toggleSidebar 显示时 setWatchEnabled(true)、隐藏时 false），bench 与 headless 测试不启用 watcher；QFileSystemWatcher 与拖拽的 UI 路径不在测试覆盖内，已在 README/ROADMAP 标注。
 - 全部匹配高亮走 SearchController::allMatches（上限 1000）+ QTextEdit::ExtraSelection 的 format.setBackground（取 QPalette::Highlight 加 alpha 110），关闭查找条时把 pattern 置空以清掉高亮；const 的 bench seam 不能调 setCaseSensitive（discards qualifiers），要拷贝一份 SearchController 再用。
+- DOCX 导出用 platform::DocxWriter 自己写 ZIP（store 不压缩）+ OOXML：ZIP 的 central directory size 必须在追加 end-of-central-directory 记录之前算出（先写 EOCD 头再算会把 EOCD 自身算进 size，zipfile 报 Bad magic number for central directory）；EOCD 总记录数是 2 字节字段（不是 4 字节）；crc32 必须是 table[(crc ^ byte) & 0xff] ^ (crc >> 8)（写成 table[crc & 0xff] 会让 python 报 Bad CRC-32）。
+- OOXML 的样式名是子元素 <w:name w:val="heading 1"/>，不是属性 w:name=（用属性时 python-docx 的 paragraph.style.name 为 None）；页面尺寸用 twips（A4 = 11906x16838，20mm 边距 = 1134 twips）。
+- DOCX 包的外部验证：用捆绑 python 的 python-docx 重新打开 .deps/probe.docx（段落 9、表格 1、样式 Heading 1 / List Paragraph、页面 210x297mm、边距 20mm）；ctest 侧只测 zip 本地头遍历（localEntryNames + EOCD 条目数）与 docx_baseline（docx_bytes >= 400）。
+- 独立探针链项目静态库时，改过 src/platform 后必须先 cmake --build --target typist_platform 再重新链接探针，否则探针会链到旧的 .a 并给出与源码不符的字节数。
 - PDF 输出的 /MediaBox 以 point 为单位（A4 595x842、Letter 612x792），断言纸张差异要按 point 比较而不是像素；解析时用 marker 长度偏移，硬编码偏移会读错数字（探针实测 offset+13 让宽高错位）。
 - 分页限制：单个高于页面内容高度的块会被截断（例如超长表格），后续页从下一个块继续；跨页表格与防孤行留待 Beta。
 - 页码/边距配置走 QSettings 键 pdfPaper=a4|letter、pdfMarginMm（限 5–60mm，非法值回退 20mm）。
