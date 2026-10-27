@@ -9,13 +9,37 @@
 #include <QTextBlock>
 #include <QTextLayout>
 #include <QTextDocument>
+#include <QTextTable>
 #include <QtGui>
 
 namespace typist::platform {
 
+QRectF tableHeaderRectFor(QTextDocument* document, const QTextBlock& block) {
+  if (document == nullptr || !block.isValid()) return QRectF();
+  QTextCursor cursor(block);
+  QTextTable* table = cursor.currentTable();
+  if (table == nullptr || table->columns() == 0) return QRectF();
+  const QTextTableCell own = table->cellAt(block.position());
+  if (!own.isValid() || own.row() <= 0) return QRectF();
+  QRectF rect;
+  for (int column = 0; column < table->columns(); ++column) {
+    const QTextBlock cell = table->cellAt(0, column).firstCursorPosition().block();
+    if (!cell.isValid()) continue;
+    const QRectF cellRect = document->documentLayout()->blockBoundingRect(cell);
+    if (rect.isNull()) {
+      rect = cellRect;
+    } else {
+      rect.setRight(qMax(rect.right(), cellRect.right()));
+      rect.setBottom(qMax(rect.bottom(), cellRect.bottom()));
+    }
+  }
+  return rect;
+}
+
 namespace {
 
 constexpr double kBandHeightPx = 18.0;
+constexpr double kTableHeaderGapPx = 4.0;
 
 QPageSize paperFor(const QString& paper) {
   return paper == QStringLiteral("letter") ? QPageSize(QPageSize::Letter) : QPageSize(QPageSize::A4);
@@ -105,20 +129,33 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
 
     if (!tall) {
       const double base = blockRect.y();
+      // A page that starts inside a table is a continuation: the first row is redrawn
+      // at the top and the row it occupies is reserved out of the content height.
+      const QRectF headerRect = options.repeatTableHeader ? tableHeaderRectFor(&laidOut, block) : QRectF();
+      const double reserved = headerRect.isNull() ? 0.0 : headerRect.height() + kTableHeaderGapPx;
+      const double room = contentHeight - reserved;
       int nextBlock = blockNumber;
       QTextBlock scan = block;
       while (scan.isValid()) {
         const QRectF rect = layout->blockBoundingRect(scan);
-        if (nextBlock > blockNumber && (rect.y() - base) + rect.height() > contentHeight) break;
+        if (nextBlock > blockNumber && (rect.y() - base) + rect.height() > room) break;
         ++nextBlock;
         scan = scan.next();
       }
       blockNumber = nextBlock;
       if (page > 1) writer.newPage();
+      if (!headerRect.isNull()) {
+        painter.save();
+        painter.translate(pageRect.left(), pageRect.top() + headerBand - headerRect.y());
+        QAbstractTextDocumentLayout::PaintContext headerContext;
+        headerContext.clip = headerRect;
+        layout->draw(&painter, headerContext);
+        painter.restore();
+      }
       painter.save();
-      painter.translate(pageRect.left(), pageRect.top() + headerBand - base);
+      painter.translate(pageRect.left(), pageRect.top() + headerBand + reserved - base);
       QAbstractTextDocumentLayout::PaintContext context;
-      context.clip = QRectF(0.0, base, pageRect.width(), contentHeight);
+      context.clip = QRectF(0.0, base, pageRect.width(), room);
       layout->draw(&painter, context);
       painter.restore();
       drawBands(painter, pageRect, page, options, headerBand, footerBand);

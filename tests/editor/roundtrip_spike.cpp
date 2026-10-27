@@ -27,6 +27,7 @@
 #include <QImage>
 #include <QPainter>
 #include <QTextList>
+#include <QTextTable>
 #include <QUrl>
 #include <QTextBlock>
 #include <QAbstractTextDocumentLayout>
@@ -102,6 +103,9 @@ class EditorSpike : public QObject {
   void nestedListsRoundTripAtDepthFour();
   void pdfLongTablePaginatesRowByRow();
   void headingInlineStylesRoundTrip();
+  void pdfPageStartBlockProbe();
+  void pdfHeaderRowForContinuationPages();
+  void pdfContinuationPagesRepeatTableHeader();
   void taskListRendersCheckboxGlyphs();
   void sidebarExpandStateSurvivesRebuild();
   void docxExportEmbedsImageDrawing();
@@ -1182,6 +1186,109 @@ void EditorSpike::versionComparisonAcrossMinorAndPatch() {
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("0.1.0")));
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("0.2.0")));
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.2.0-beta1"), QStringLiteral("0.2.0")));
+}
+
+void EditorSpike::pdfContinuationPagesRepeatTableHeader() {
+  if (!typist::platform::pdfExportAvailable()) {
+    QSKIP("PDF export is not available in this build");
+  }
+  QString source;
+  source += QStringLiteral("| col a | col b |\n|---|---|\n");
+  for (int i = 0; i < 100; ++i) {
+    source += QStringLiteral("| row %1 | value %1 |\n").arg(i);
+  }
+  QTextDocument document;
+  QVERIFY(typist::editor::loadMarkdown(source, &document, nullptr));
+
+  const QString offPath = QDir::tempPath() + QStringLiteral("/typist_header_off.pdf");
+  const QString onPath = QDir::tempPath() + QStringLiteral("/typist_header_on.pdf");
+  typist::platform::PdfPageOptions off;
+  off.repeatTableHeader = false;
+  QString error;
+  QVERIFY(typist::platform::exportPdf(offPath, &document, off, &error));
+  QVERIFY(typist::platform::exportPdf(onPath, &document, typist::platform::PdfPageOptions(), &error));
+  const int offPages = pdfPageCount(offPath);
+  const int onPages = pdfPageCount(onPath);
+  QVERIFY2(offPages >= 2, qPrintable(QStringLiteral("off pages=%1").arg(offPages)));
+  QVERIFY2(onPages >= offPages, qPrintable(QStringLiteral("off=%1 on=%2").arg(offPages).arg(onPages)));
+  const qint64 offBytes = QFile(offPath).size();
+  const qint64 onBytes = QFile(onPath).size();
+  QVERIFY2(onBytes > offBytes,
+           qPrintable(QStringLiteral("off bytes=%1 on bytes=%2").arg(offBytes).arg(onBytes)));
+  QFile::remove(offPath);
+  QFile::remove(onPath);
+}
+
+void EditorSpike::pdfPageStartBlockProbe() {
+  QString source;
+  source += QStringLiteral("| col a | col b |\n|---|---|\n");
+  for (int i = 0; i < 100; ++i) {
+    source += QStringLiteral("| row %1 | value %1 |\n").arg(i);
+  }
+  QTextDocument document;
+  QVERIFY(typist::editor::loadMarkdown(source, &document, nullptr));
+  const double contentHeight = 974.0;
+  document.setPageSize(QSizeF(595.0, contentHeight));
+  document.documentLayout()->documentSize();
+  int blockNumber = 0;
+  int page = 1;
+  QString report;
+  while (blockNumber < document.blockCount()) {
+    QTextBlock block = document.findBlockByNumber(blockNumber);
+    const QRectF blockRect = document.documentLayout()->blockBoundingRect(block);
+    const double base = blockRect.y();
+    const bool inTable = QTextCursor(block).currentTable() != nullptr;
+    const bool hasHeader = !typist::platform::tableHeaderRectFor(&document, block).isNull();
+    report += QStringLiteral("p%1 inTable=%2 header=%3\n").arg(page).arg(inTable ? 1 : 0).arg(hasHeader ? 1 : 0);
+    if (page > 1 && inTable) {
+      QVERIFY2(hasHeader, qPrintable(report));
+    }
+    int nextBlock = blockNumber;
+    QTextBlock scan = block;
+    while (scan.isValid()) {
+      const QRectF rect = document.documentLayout()->blockBoundingRect(scan);
+      if (nextBlock > blockNumber && (rect.y() - base) + rect.height() > contentHeight) break;
+      ++nextBlock;
+      scan = scan.next();
+    }
+    blockNumber = nextBlock;
+    ++page;
+  }
+  QVERIFY(page > 2);
+}
+
+void EditorSpike::pdfHeaderRowForContinuationPages() {
+  QString source;
+  source += QStringLiteral("| col a | col b |\n|---|---|\n");
+  for (int i = 0; i < 60; ++i) {
+    source += QStringLiteral("| row %1 | value %1 |\n").arg(i);
+  }
+  QTextDocument document;
+  QVERIFY(typist::editor::loadMarkdown(source, &document, nullptr));
+  document.setPageSize(QSizeF(595.0, 300.0));
+  document.documentLayout()->documentSize();
+
+  int headerCell = -1;
+  int deepCell = -1;
+  for (int i = 0; i < document.blockCount(); ++i) {
+    QTextBlock block = document.findBlockByNumber(i);
+    QTextTable* table = QTextCursor(block).currentTable();
+    if (table == nullptr) continue;
+    if (headerCell < 0) headerCell = i;
+    if (block.blockNumber() > table->cellAt(0, 0).firstCursorPosition().block().blockNumber() + 4) deepCell = i;
+  }
+  QVERIFY(headerCell >= 0);
+  QVERIFY(deepCell >= 0);
+
+  const QRectF headerRect = typist::platform::tableHeaderRectFor(&document, document.findBlockByNumber(deepCell));
+  QVERIFY2(!headerRect.isNull(), "continuation blocks report no header row");
+  QVERIFY2(headerRect.height() > 0.0 && headerRect.height() < 300.0,
+           qPrintable(QStringLiteral("header height=%1").arg(headerRect.height())));
+  const QRectF headerCellRect = document.documentLayout()->blockBoundingRect(document.findBlockByNumber(headerCell));
+  QVERIFY2(qAbs(headerRect.y() - headerCellRect.y()) < 1.0,
+           qPrintable(QStringLiteral("header rect y=%1 cell y=%2").arg(headerRect.y()).arg(headerCellRect.y())));
+  QVERIFY2(typist::platform::tableHeaderRectFor(&document, document.findBlockByNumber(headerCell)).isNull(),
+           "first row reported a header to repeat");
 }
 
 void EditorSpike::taskListRendersCheckboxGlyphs() {
