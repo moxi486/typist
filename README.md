@@ -16,7 +16,7 @@
 - 目录搜索在后台线程扫描并可取消（新的搜索会取消上一轮，关闭窗口时取消），扫描提前结束时会给出已找到的部分结果
 - 导出 HTML（Ctrl+Shift+E，走 cmark-gfm 的 GFM 扩展）
 - 导出 PDF（Ctrl+Shift+P，走 QtGui 的 QPdfWriter；纸张 a4/letter、页边距 mm、页眉与页脚（页脚里的 # 替换为页码）可从配置控制，默认 a4 + 20mm + 页眉文件名 + 页脚 Page #）
-- PDF 分页：长段落按行边界拆页（不会把一行切成两半），长表格按行分页（跨页不重复表头）
+- PDF 分页：长段落按行边界拆页（不会把一行切成两半），长表格按行分页（跨页不重复表头；重复表头的设计与验证限制见 docs/ROADMAP.md）
 - 导出 DOCX（Ctrl+Shift+X，由 platform::DocxWriter 直接写 OOXML 包：标题、段落、列表、任务列表、代码块、引用、分隔线、表格；A4 20mm 边距与 PDF 默认一致）
 - DOCX 表格列宽按每列最长内容分配（总宽约 9638 twips，等于 A4 减两侧 20mm），任务项用 ☑/☐ 字形（能否显示取决于阅读器字体）
 - DOCX 链接写成 OOXML 超链接对象（w:hyperlink + 外部关系，同一 URL 共用一条关系）；图片内嵌为 OOXML drawing 对象（图像本体写进 `word/media/imageN.png`，内部关系从 rId1001 起，超过 640×480 按比例缩小，EMU 尺寸 = 像素 × 9525）；图文件读不到时退回带下划线的文字链接
