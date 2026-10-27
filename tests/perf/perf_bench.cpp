@@ -3,6 +3,7 @@
 
 #include <QApplication>
 #include <QElapsedTimer>
+#include <QAbstractTextDocumentLayout>
 #include <algorithm>
 #include <limits>
 #include <QString>
@@ -34,6 +35,7 @@ struct ShapeResult {
   long long parseMs = 0;
   long long buildMs = 0;
   long long serializeMs = 0;
+  long long layoutMs = 0;
   bool fidelity = false;
 };
 
@@ -57,6 +59,12 @@ ShapeResult measureShape(bool withTables) {
   timer.restart();
   typist::editor::buildDocument(parsed.blocks, &document);
   result.buildMs = static_cast<long long>(timer.elapsed());
+
+  // Forced full layout is what a document-wide operation costs; the edit view
+  // never asks for it and relies on lazy per-viewport layout.
+  timer.restart();
+  document.documentLayout()->documentSize();
+  result.layoutMs = static_cast<long long>(timer.elapsed());
 
   timer.restart();
   const QString serialized = typist::editor::serializeDocument(&document);
@@ -86,13 +94,14 @@ ShapeResult measureBestOfThree(bool withTables) {
     best.parseMs = std::min(best.parseMs, attemptResult.parseMs);
     best.buildMs = std::min(best.buildMs, attemptResult.buildMs);
     best.serializeMs = std::min(best.serializeMs, attemptResult.serializeMs);
+    best.layoutMs = std::min(best.layoutMs, attemptResult.layoutMs);
   }
   return best;
 }
 
 void report(const char* label, const ShapeResult& result) {
-  std::printf("%s bytes=%zu blocks=%zu tables=%zu parse_ms=%lld build_ms=%lld serialize_ms=%lld total_ms=%lld fidelity=%s attempts=3\n",
-              label, result.bytes, result.blocks, result.tables, result.parseMs, result.buildMs, result.serializeMs,
+  std::printf("%s bytes=%zu blocks=%zu tables=%zu parse_ms=%lld build_ms=%lld serialize_ms=%lld layout_full_ms=%lld total_ms=%lld fidelity=%s attempts=3\n",
+              label, result.bytes, result.blocks, result.tables, result.parseMs, result.buildMs, result.serializeMs, result.layoutMs,
               result.parseMs + result.buildMs + result.serializeMs, result.fidelity ? "ok" : "fail");
 }
 

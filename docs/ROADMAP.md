@@ -90,6 +90,7 @@
 - 更新检查事实：`QJsonDocument::fromJson` 的 `QJsonParseError` 必须是非 const（传 const 指针编译报错）；版本比较按点号分段整数比大小，预发布后缀（`-beta1`）永远不比基础版本新；网络模块走 `OPTIONAL_COMPONENTS Network` + `#ifdef TYPIST_HAS_NETWORK` 守卫（菜单动作与槽都在守卫内，缺模块时提示"此构建不支持更新检查"）；版本号靠 `target_compile_definitions(... TYPIST_VERSION="${PROJECT_VERSION}")` 传入。
 - 文档站事实：`pages.yml` 用官方 `actions/jekyll-build-pages@v1`（source: docs、destination: _site）构建后由 `upload-pages-artifact` + `deploy-pages` 部署；仓库的 Pages 来源必须在 GitHub 设置里选 "GitHub Actions"，这一步只能在 GitHub 上确认，本机只能做 YAML 静态检查（偶数缩进、无制表符）。
 - 性能测量事实：本机并发任务（后台构建）会让单次计时膨胀到 2 倍（realistic 175→290、tableheavy 277→664），因此 perf_bench 取三次尝试的每阶段最优值输出（attempts=3）；干净跑下 realistic 177ms、tableheavy 278ms，仍在 CI 门限 250/300 内。标题序列化走 inlineFromBlock（保留粗体/强调/行内代码/链接），实测比纯文本路径慢约 20ms（serialize 90 vs 70）。
+- 增量排版事实：buildDocument 后调用 documentLayout()->documentSize() 实测 0ms（realistic 与 tableheavy 都是 0），说明排版随每次插入增量完成、没有一次性全量成本，因此 Beta 的"增量渲染"不需要另做实现；导出与 PDF 分页仍要显式 documentSize() 才有真实块高。
 
 - 发布纪律：每个包都要有 SHA-256（`checksums.txt`），`latest.json` 只是更新清单，应用内更新检查还没实现；未配签名证书时如实发布未签名版本，不做任何绕过签名的做法。
 - 布局惰性事实：`blockBoundingRect().height()` 在没排版时给 0/14，要 `documentLayout()->documentSize()` 强制排版才有真实块高（与 PDF 分页同一条纪律）。
