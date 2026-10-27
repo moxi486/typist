@@ -68,4 +68,19 @@ QString firstMarkdownPath(const QList<QUrl>& urls) {
   return QString();
 }
 
+QString firstImagePath(const QList<QUrl>& urls) {
+  static const QStringList suffixes = {QStringLiteral(".png"), QStringLiteral(".jpg"),
+                                       QStringLiteral(".jpeg"), QStringLiteral(".gif"),
+                                       QStringLiteral(".webp"), QStringLiteral(".svg"),
+                                       QStringLiteral(".bmp")};
+  for (const QUrl& url : urls) {
+    const QString path = url.toLocalFile();
+    if (path.isEmpty()) continue;
+    for (const QString& suffix : suffixes) {
+      if (path.endsWith(suffix, Qt::CaseInsensitive)) return path;
+    }
+  }
+  return QString();
+}
+
 }  // namespace typist::platform

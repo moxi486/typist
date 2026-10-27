@@ -208,6 +208,30 @@
         <translation>大纲跳转仅在渲染视图生效</translation>
     </message>
     <message>
+        <source>Nothing to paste</source>
+        <translation>剪贴板里没有可粘贴的内容</translation>
+    </message>
+    <message>
+        <source>Pasted Markdown as text</source>
+        <translation>已按纯文本粘贴 Markdown</translation>
+    </message>
+    <message>
+        <source>Cannot paste Markdown</source>
+        <translation>无法粘贴 Markdown</translation>
+    </message>
+    <message>
+        <source>Pasted Markdown</source>
+        <translation>已粘贴 Markdown</translation>
+    </message>
+    <message>
+        <source>Inserted image link</source>
+        <translation>已插入图片链接</translation>
+    </message>
+    <message>
+        <source>Cannot insert image link</source>
+        <translation>无法插入图片链接</translation>
+    </message>
+    <message>
         <source>No drafts to recover</source>
         <translation>没有可恢复的草稿</translation>
     </message>

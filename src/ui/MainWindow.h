@@ -95,6 +95,8 @@ class MainWindow : public QMainWindow {
   void checkCurrentFileConflict();
   void writeRecoveryDraft();
   void recoverLatestDraft();
+  void pasteAsMarkdown();
+  void insertImageLink(const QString& path);
   void openSearchHit();
   void toggleSidebar();
   void openFolder();
@@ -138,6 +140,7 @@ class MainWindow : public QMainWindow {
   QDockWidget* m_outlineDock = nullptr;
   QListWidget* m_outlineList = nullptr;
   QAction* m_outlineAction = nullptr;
+  QAction* m_pasteMarkdownAction = nullptr;
   ui::ViewSwitch* m_view = nullptr;
   bool m_benchMode = false;
   QString m_currentPath;

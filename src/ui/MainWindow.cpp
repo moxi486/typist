@@ -20,6 +20,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QClipboard>
 #include <QCloseEvent>
 #include <QDir>
 #include <QDockWidget>
@@ -567,6 +568,12 @@ void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
 }
 
 void MainWindow::dropEvent(QDropEvent* event) {
+  const QString image = typist::platform::firstImagePath(event->mimeData()->urls());
+  if (!image.isEmpty()) {
+    insertImageLink(image);
+    event->acceptProposedAction();
+    return;
+  }
   if (openDroppedFiles(event->mimeData()->urls())) event->acceptProposedAction();
 }
 
@@ -816,6 +823,45 @@ void MainWindow::openOutlineEntry() {
   cursor.setPosition(item->data(Qt::UserRole).toInt());
   m_editor->setTextCursor(cursor);
   m_editor->ensureCursorVisible();
+}
+
+void MainWindow::pasteAsMarkdown() {
+  const QString text = QApplication::clipboard()->text();
+  if (text.trimmed().isEmpty()) {
+    statusBar()->showMessage(tr("Nothing to paste"));
+    return;
+  }
+  if (m_sourceMode) {
+    // The source view is plain text, so the Markdown markers stay verbatim.
+    m_editor->paste();
+    statusBar()->showMessage(tr("Pasted Markdown as text"));
+    return;
+  }
+  QTextCursor cursor = m_editor->textCursor();
+  QString error;
+  if (!typist::editor::insertMarkdownAtCursor(text, cursor, &error)) {
+    statusBar()->showMessage(error.isEmpty() ? tr("Cannot paste Markdown") : error);
+    return;
+  }
+  m_editor->setTextCursor(cursor);
+  statusBar()->showMessage(tr("Pasted Markdown"));
+}
+
+void MainWindow::insertImageLink(const QString& path) {
+  const QString markdown = QStringLiteral("![%1](%2)").arg(QFileInfo(path).fileName(), path);
+  if (m_sourceMode) {
+    m_editor->insertPlainText(markdown);
+    statusBar()->showMessage(tr("Inserted image link"));
+    return;
+  }
+  QTextCursor cursor = m_editor->textCursor();
+  QString error;
+  if (!typist::editor::insertMarkdownAtCursor(markdown, cursor, &error)) {
+    statusBar()->showMessage(tr("Cannot insert image link"));
+    return;
+  }
+  m_editor->setTextCursor(cursor);
+  statusBar()->showMessage(tr("Inserted image link"));
 }
 
 void MainWindow::recoverLatestDraft() {

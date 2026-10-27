@@ -5,39 +5,128 @@
 #include <cmark-gfm-extension_api.h>
 
 #include <memory>
+#include <algorithm>
 #include <string>
 #include <vector>
 
 namespace typist::core {
 namespace {
 
-std::string flattenInline(cmark_node* node) {
-  std::string out;
+void pushRun(std::vector<InlineRun>& runs, const InlineRun& run) {
+  if (run.text.empty()) return;
+  if (!runs.empty() && runs.back().bold == run.bold && runs.back().italic == run.italic &&
+      runs.back().strike == run.strike && runs.back().code == run.code &&
+      runs.back().link == run.link && runs.back().image == run.image && runs.back().url == run.url) {
+    runs.back().text += run.text;
+    return;
+  }
+  runs.push_back(run);
+}
+
+// Inline children become styled runs; structural children stay blocks.
+void collectInline(cmark_node* node, const InlineRun& base, std::vector<InlineRun>& runs) {
   for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
        child = cmark_node_next(child)) {
     const std::string type = cmark_node_get_type_string(child);
     if (type == "list" || type == "item" || type == "tasklist" || type == "table" ||
         type == "table_row" || type == "table_header" || type == "table_cell") {
-      // Structural children are modelled as blocks, never folded into text.
       continue;
     }
     const char* literal = cmark_node_get_literal(child);
     if (type == "text" && literal != nullptr) {
-      out += literal;
+      InlineRun run = base;
+      run.text = literal;
+      pushRun(runs, run);
     } else if (type == "code" && literal != nullptr) {
-      out += literal;
+      InlineRun run = base;
+      run.code = true;
+      run.text = literal;
+      pushRun(runs, run);
     } else if (type == "softbreak") {
-      out += " ";
+      InlineRun run = base;
+      run.text = " ";
+      pushRun(runs, run);
     } else if (type == "linebreak") {
-      out += "\n";
+      InlineRun run = base;
+      run.text = "\n";
+      pushRun(runs, run);
     } else if (type == "html" && literal != nullptr) {
-      // Inline HTML such as <br> is carried verbatim; it is the only way a table
-      // cell can hold more than one line.
-      out += literal;
+      InlineRun run = base;
+      run.text = literal;
+      pushRun(runs, run);
+    } else if (type == "emph" || type == "emphasis") {  // cmark-gfm reports emph, not emphasis
+      InlineRun run = base;
+      run.italic = true;
+      collectInline(child, run, runs);
+    } else if (type == "strong") {
+      InlineRun run = base;
+      run.bold = true;
+      collectInline(child, run, runs);
+    } else if (type == "strikethrough" || type == "strikespan") {
+      InlineRun run = base;
+      run.strike = true;
+      collectInline(child, run, runs);
+    } else if (type == "link") {
+      InlineRun run = base;
+      run.link = true;
+      const char* url = cmark_node_get_url(child);
+      if (url != nullptr) run.url = url;
+      collectInline(child, run, runs);
+    } else if (type == "image") {
+      InlineRun run = base;
+      run.image = true;
+      const char* url = cmark_node_get_url(child);
+      if (url != nullptr) run.url = url;
+      collectInline(child, run, runs);
     } else {
-      out += flattenInline(child);
+      collectInline(child, base, runs);
     }
   }
+}
+
+std::vector<InlineRun> inlineRuns(cmark_node* node) {
+  std::vector<InlineRun> runs;
+  collectInline(node, InlineRun(), runs);
+  return runs;
+}
+
+std::string flattenRuns(const std::vector<InlineRun>& runs) {
+  std::string out;
+  for (const InlineRun& run : runs) out += run.text;
+  return out;
+}
+
+// Inline code is fenced with one more backtick than the longest run inside it.
+std::string wrapCode(const std::string& text) {
+  std::size_t longest = 0;
+  std::size_t current = 0;
+  for (const char ch : text) {
+    if (ch == '`') ++current; else current = 0;
+    longest = std::max(longest, current);
+  }
+  const std::size_t fence = longest + 1;
+  const std::string marker(fence, '`');
+  const bool pad = !text.empty() && (text.front() == '`' || text.back() == '`');
+  if (pad) return marker + " " + text + " " + marker;
+  return marker + text + marker;
+}
+
+std::string renderRun(const InlineRun& run) {
+  std::string body = run.text;
+  if (run.code) body = wrapCode(body);
+  if (run.bold) body = "**" + body + "**";
+  if (run.italic) body = "*" + body + "*";
+  if (run.strike) body = "~~" + body + "~~";
+  if (run.link) body = "[" + body + "](" + run.url + ")";
+  if (run.image) body = "![" + body + "](" + run.url + ")";
+  return body;
+}
+
+// Runs carry the styling; the flattened text is the fallback when there are none.
+std::string renderInline(const std::vector<InlineRun>& runs, const std::string& fallback) {
+  if (runs.empty()) return fallback;
+  std::string out;
+  for (const InlineRun& run : runs) out += renderRun(run);
   return out;
 }
 
@@ -78,10 +167,12 @@ Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
   if (type == "heading") {
     block.type = BlockType::Heading;
     block.level = cmark_node_get_heading_level(node);
-    block.text = flattenInline(node);
+    block.runs = inlineRuns(node);
+    block.text = flattenRuns(block.runs);
   } else if (type == "paragraph") {
     block.type = BlockType::Paragraph;
-    block.text = flattenInline(node);
+    block.runs = inlineRuns(node);
+    block.text = flattenRuns(block.runs);
   } else if (type == "list") {
     block.type = BlockType::List;
     block.ordered = cmark_node_get_list_type(node) == CMARK_ORDERED_LIST;
@@ -91,6 +182,7 @@ Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
     }
   } else if (type == "item") {
     block.type = BlockType::ListItem;
+    // fallthrough below collects inline runs from every child
     for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
          child = cmark_node_next(child)) {
       const std::string childType = cmark_node_get_type_string(child);
@@ -102,8 +194,9 @@ Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
         block.task = true;
         block.checked = cmark_gfm_extensions_get_tasklist_item_checked(child);
       }
-      block.text += flattenInline(child);
+      collectInline(child, InlineRun(), block.runs);
     }
+    block.text = flattenRuns(block.runs);
   } else if (type == "tasklist") {
     // The GFM tasklist extension replaces the item node itself, so the checked
     // flag comes from the extension accessor rather than the text prefix.
@@ -117,8 +210,9 @@ Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
         block.children.push_back(buildBlock(child, lines));
         continue;
       }
-      block.text += flattenInline(child);
+      collectInline(child, InlineRun(), block.runs);
     }
+    block.text = flattenRuns(block.runs);
   } else if (type == "code_block") {
     block.type = BlockType::CodeBlock;
     const char* literal = cmark_node_get_literal(node);
@@ -140,7 +234,8 @@ Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
     }
   } else if (type == "table_cell") {
     block.type = BlockType::TableCell;
-    block.text = flattenInline(node);
+    block.runs = inlineRuns(node);
+    block.text = flattenRuns(block.runs);
   } else {
     block.type = BlockType::Unsupported;
     block.text = type;
@@ -178,7 +273,7 @@ std::string escapeTableCell(const std::string& text) {
 
 std::string serializeRow(const Block& row) {
   std::string out = "|";
-  for (const Block& cell : row.children) out += " " + escapeTableCell(cell.text) + " |";
+  for (const Block& cell : row.children) out += " " + escapeTableCell(renderInline(cell.runs, cell.text)) + " |";
   out += "\n";
   return out;
 }
@@ -201,10 +296,10 @@ std::string serializeBlock(const Block& block, int indent) {
   switch (block.type) {
     case BlockType::Heading:
       out += prefix + std::string(static_cast<std::size_t>(block.level), '#');
-      out += " " + block.text + "\n\n";
+      out += " " + renderInline(block.runs, block.text) + "\n\n";
       break;
     case BlockType::Paragraph:
-      out += block.text.empty() ? "\n" : prefix + block.text + "\n\n";
+      out += block.text.empty() ? "\n" : prefix + renderInline(block.runs, block.text) + "\n\n";
       break;
     case BlockType::CodeBlock:
       out += prefix + "```" + block.info + "\n";
@@ -235,7 +330,7 @@ std::string serializeBlock(const Block& block, int indent) {
         const std::string marker = block.ordered ? std::to_string(index++) + ". " : "- ";
         out += prefix + marker;
         if (item.task) out += item.checked ? "[x] " : "[ ] ";
-        out += item.text + "\n";
+        out += renderInline(item.runs, item.text) + "\n";
         const int childIndent = indent + static_cast<int>(marker.size());
         for (const Block& child : item.children) out += serializeBlock(child, childIndent);
       }
@@ -372,6 +467,19 @@ std::string wrapHtmlDocument(std::string_view body, std::string_view title) {
                           "table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:.4rem .6rem}");
 }
 
+bool runsEqual(const std::vector<InlineRun>& lhs, const std::vector<InlineRun>& rhs) {
+  if (lhs.size() != rhs.size()) return false;
+  for (std::size_t i = 0; i < lhs.size(); ++i) {
+    const InlineRun& a = lhs[i];
+    const InlineRun& b = rhs[i];
+    if (a.text != b.text || a.url != b.url || a.bold != b.bold || a.italic != b.italic ||
+        a.strike != b.strike || a.code != b.code || a.link != b.link || a.image != b.image) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool astEqual(const std::vector<Block>& lhs, const std::vector<Block>& rhs) {
   if (lhs.size() != rhs.size()) return false;
   for (std::size_t i = 0; i < lhs.size(); ++i) {
@@ -379,7 +487,7 @@ bool astEqual(const std::vector<Block>& lhs, const std::vector<Block>& rhs) {
     const Block& b = rhs[i];
     if (a.type != b.type || a.level != b.level || a.ordered != b.ordered ||
         a.task != b.task || a.checked != b.checked || a.text != b.text ||
-        a.info != b.info) {
+        a.info != b.info || !runsEqual(a.runs, b.runs)) {
       return false;
     }
     if (!astEqual(a.children, b.children)) return false;

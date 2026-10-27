@@ -13,4 +13,7 @@ bool deleteFile(const QString& path, QString* error);
 // First local .md path among dropped URLs; empty when none applies.
 QString firstMarkdownPath(const QList<QUrl>& urls);
 
+// First local image path among dropped URLs; empty when none applies.
+QString firstImagePath(const QList<QUrl>& urls);
+
 }  // namespace typist::platform

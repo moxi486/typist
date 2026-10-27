@@ -126,16 +126,28 @@ QString escapeXml(const QString& text) {
   return out;
 }
 
-QString runXml(const QString& text, bool bold = false, bool italic = false, bool mono = false) {
+QString runXml(const QString& text, bool bold = false, bool italic = false, bool mono = false,
+               bool strike = false) {
   QString props;
-  if (bold || italic || mono) {
+  if (bold || italic || mono || strike) {
     props += QStringLiteral("<w:rPr>");
     if (mono) props += QStringLiteral("<w:rFonts w:ascii=\"Consolas\" w:hAnsi=\"Consolas\"/>");
     if (bold) props += QStringLiteral("<w:b/>");
     if (italic) props += QStringLiteral("<w:i/>");
+    if (strike) props += QStringLiteral("<w:strike/>");
     props += QStringLiteral("</w:rPr>");
   }
   return QStringLiteral("<w:r>%1<w:t xml:space=\"preserve\">%2</w:t></w:r>").arg(props, escapeXml(text));
+}
+
+
+QString runsXml(const std::vector<typist::core::InlineRun>& runs, const QString& fallback) {
+  if (runs.empty()) return runXml(fallback);
+  QString out;
+  for (const typist::core::InlineRun& run : runs) {
+    out += runXml(QString::fromStdString(run.text), run.bold, run.italic, run.code, run.strike);
+  }
+  return out;
 }
 
 QString paragraphXml(const QString& body) {
@@ -243,7 +255,7 @@ QString blocksXml(const std::vector<typist::core::Block>& blocks) {
         out += headingXml(block.level, text);
         break;
       case typist::core::BlockType::Paragraph:
-        out += paragraphXml(runXml(text));
+        out += paragraphXml(runsXml(block.runs, text));
         break;
       case typist::core::BlockType::CodeBlock:
         out += codeXml(text);
@@ -262,7 +274,7 @@ QString blocksXml(const std::vector<typist::core::Block>& blocks) {
         out += tableXml(block);
         break;
       default:
-        if (!text.isEmpty()) out += paragraphXml(runXml(text));
+        if (!text.isEmpty()) out += paragraphXml(runsXml(block.runs, text));
         break;
     }
   }

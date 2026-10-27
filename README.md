@@ -27,14 +27,17 @@
 - 大纲面板（Ctrl+Shift+T 开关；按标题层级缩进，点击跳转；只在渲染视图生效，源码视图会提示）
 - 查找支持正则（查找栏 Regex 复选框；按块匹配，锚点 ^/$ 作用于每个文本块；无效表达式视为无匹配）
 - 无障碍标注（编辑器、文件列表、搜索结果、大纲与草稿 dock 提供 accessibleName，菜单动作提供含快捷键的 tooltip）
+- 行内样式保真：粗体、斜体、删除线、行内代码、链接、图片在 parse → serialize → parse 里完整往返；渲染视图用字重/斜体/删除线/等宽字体/锚点呈现，链接与图片在渲染里显示为带下划线的锚点文本（图片不内嵌渲染）
+- 粘贴为 Markdown（Ctrl+Shift+V）：把剪贴板里的 Markdown 解析成块插到光标处，整个粘贴是一步撤销；源码视图下按纯文本粘贴
+- 拖拽图片：把图片文件拖到窗口会在光标处插入 ![文件名](路径) 链接（源码视图直接插入该文本）
 - 往返保真测试：parse → serialize → parse 产生相同 AST
-- 性能基线：`perf_baseline` 与 `repaint_baseline`（ctest 项）打印打开耗时与打字到重绘耗时；本机 Windows Release 实测冷启动 295ms、常驻工作集 21.7MB、1MB 文档 realistic 117ms、tableheavy 244ms、打字到重绘 0–1ms
+- 性能基线：`perf_baseline` 与 `repaint_baseline`（ctest 项）打印打开耗时与打字到重绘耗时；本机 Windows Release 实测冷启动 295ms、常驻工作集 21.7MB、1MB 文档 realistic 157ms、tableheavy 262ms、打字到重绘 0–1ms
 
 ## 性能预算（验收数字）
 
 - 冷启动 < 400ms（本机 Windows Release 实测 295ms；offscreen 的 17ms 只作 proxy）
 - 常驻内存 < 80MB（本机实测工作集 21.7MB）
-- 打开 1MB Markdown < 250ms（本机实测 realistic 117ms、tableheavy 244ms）
+- 打开 1MB Markdown < 250ms（本机实测 realistic 157ms、tableheavy 262ms）
 - 输入到重绘 < 16ms（本机实测 0–1ms，含载入 1MB 文档后；由 `typist --bench-repaint` 测量，空文档形状进 ctest）
 
 ## 技术栈

@@ -87,6 +87,13 @@ class EditorSpike : public QObject {
   void docxExportWritesEachPackageMemberOnce();
   void docxExportReportsHeadingTableAndTaskItem();
   void docxExportFailsWhenPathUnwritable();
+  void inlineRunsRoundTripThroughMarkdownSerialize();
+  void inlineRunsRoundTripThroughDocument();
+  void renderedDocumentCarriesInlineFormats();
+  void pasteMarkdownInsertsBlocksAsOneUndoStep();
+  void pasteMarkdownKeepsTableAndTaskItem();
+  void imageLinkSurvivesDocumentRoundTrip();
+  void docxInlineEmphasisWritesRunProperties();
   void outlineListsHeadingLevelsAndPositions();
   void outlineCapsEntryCount();
   void regexSearchCountsAnchoredHeadingLines();
@@ -1031,6 +1038,167 @@ void EditorSpike::docxExportFailsWhenPathUnwritable() {
   QString error;
   QVERIFY(!typist::platform::exportDocx(path, QStringLiteral("# Title\n"), &error));
   QVERIFY(!error.isEmpty());
+}
+
+static QString runDump(const std::vector<typist::core::InlineRun>& runs) {
+  QString out;
+  for (const typist::core::InlineRun& run : runs) {
+    QString flags;
+    if (run.bold) flags += QLatin1Char('B');
+    if (run.italic) flags += QLatin1Char('I');
+    if (run.strike) flags += QLatin1Char('S');
+    if (run.code) flags += QLatin1Char('C');
+    if (run.link) flags += QLatin1Char('L');
+    if (run.image) flags += QLatin1Char('G');
+    out += QStringLiteral("[") + flags + QStringLiteral("]") + QString::fromStdString(run.text) + QStringLiteral(" ");
+  }
+  return out;
+}
+
+void EditorSpike::inlineRunsRoundTripThroughMarkdownSerialize() {
+  const std::string source = "**bold** and *em* ~~gone~~ `code` [link](http://example.com) ![pic](p.png)\n";
+  const typist::core::ParseResult first = typist::core::parseMarkdown(source);
+  QVERIFY(first.ok);
+  int styled = 0;
+  bool bold = false;
+  bool italic = false;
+  bool strike = false;
+  bool code = false;
+  bool link = false;
+  bool image = false;
+  QString linkUrl;
+  QString imageUrl;
+  for (const typist::core::InlineRun& run : first.blocks.front().runs) {
+    if (run.bold || run.italic || run.strike || run.code || run.link || run.image) ++styled;
+    if (run.bold) bold = true;
+    if (run.italic) italic = true;
+    if (run.strike) strike = true;
+    if (run.code) code = true;
+    if (run.link) {
+      link = true;
+      linkUrl = QString::fromStdString(run.url);
+    }
+    if (run.image) {
+      image = true;
+      imageUrl = QString::fromStdString(run.url);
+    }
+  }
+  QCOMPARE(styled, 6);
+  QVERIFY2(bold && italic && strike && code && link && image, qPrintable(runDump(first.blocks.front().runs)));
+  QCOMPARE(linkUrl, QStringLiteral("http://example.com"));
+  QCOMPARE(imageUrl, QStringLiteral("p.png"));
+
+  const std::string serialized = typist::core::serializeMarkdown(first.blocks);
+  QVERIFY(serialized.find("**bold**") != std::string::npos);
+  QVERIFY(serialized.find("*em*") != std::string::npos);
+  QVERIFY(serialized.find("~~gone~~") != std::string::npos);
+  QVERIFY(serialized.find("`code`") != std::string::npos);
+  QVERIFY(serialized.find("[link](http://example.com)") != std::string::npos);
+  QVERIFY(serialized.find("![pic](p.png)") != std::string::npos);
+
+  const typist::core::ParseResult again = typist::core::parseMarkdown(serialized);
+  QVERIFY(typist::core::astEqual(first.blocks, again.blocks));
+}
+
+void EditorSpike::inlineRunsRoundTripThroughDocument() {
+  const QString source = QStringLiteral("**bold** and *em* ~~gone~~ `code` [link](http://example.com)\n");
+  QTextDocument doc;
+  QVERIFY(typist::editor::loadMarkdown(source, &doc, nullptr));
+  const QString serialized = typist::editor::serializeDocument(&doc);
+  QVERIFY(serialized.contains(QStringLiteral("**bold**")));
+  QVERIFY(serialized.contains(QStringLiteral("*em*")));
+  QVERIFY(serialized.contains(QStringLiteral("~~gone~~")));
+  QVERIFY(serialized.contains(QStringLiteral("`code`")));
+  QVERIFY(serialized.contains(QStringLiteral("[link](http://example.com)")));
+  QVERIFY(typist::core::astEqual(typist::core::parseMarkdown(source.toStdString()).blocks,
+                                 typist::core::parseMarkdown(serialized.toStdString()).blocks));
+}
+
+void EditorSpike::renderedDocumentCarriesInlineFormats() {
+  QTextDocument doc;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("plain **bold** *em* ~~gone~~ `code` [link](http://example.com) ![pic](p.png)\n"), &doc, nullptr));
+  bool bold = false;
+  bool italic = false;
+  bool strike = false;
+  bool mono = false;
+  bool link = false;
+  bool image = false;
+  for (QTextBlock block = doc.firstBlock(); block.isValid(); block = block.next()) {
+    for (const QTextLayout::FormatRange& range : block.textFormats()) {
+      if (range.format.fontWeight() >= QFont::Bold) bold = true;
+      if (range.format.fontItalic()) italic = true;
+      if (range.format.fontStrikeOut()) strike = true;
+      if (range.format.fontFamilies().toStringList().contains(QStringLiteral("Consolas"))) mono = true;
+      if (range.format.hasProperty(typist::editor::kImageProperty)) image = true;
+      if (range.format.isAnchor() && range.format.anchorHref() == QStringLiteral("http://example.com")) link = true;
+    }
+  }
+  QVERIFY(bold);
+  QVERIFY(italic);
+  QVERIFY(strike);
+  QVERIFY(mono);
+  QVERIFY(link);
+  QVERIFY(image);
+}
+
+void EditorSpike::pasteMarkdownInsertsBlocksAsOneUndoStep() {
+  QTextDocument doc;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("para\n"), &doc, nullptr));
+  const QString before = typist::editor::serializeDocument(&doc);
+  QTextCursor cursor(&doc);
+  cursor.movePosition(QTextCursor::End);
+  QString error;
+  QVERIFY(typist::editor::insertMarkdownAtCursor(QStringLiteral("## Title\n\n**em** body\n"), cursor, &error));
+  const QString after = typist::editor::serializeDocument(&doc);
+  QVERIFY(after.contains(QStringLiteral("para")));
+  QVERIFY(after.contains(QStringLiteral("## Title")));
+  QVERIFY(after.contains(QStringLiteral("**em** body")));
+  doc.undo();
+  QCOMPARE(typist::editor::serializeDocument(&doc), before);
+}
+
+void EditorSpike::pasteMarkdownKeepsTableAndTaskItem() {
+  QTextDocument doc;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("para\n"), &doc, nullptr));
+  QTextCursor cursor(&doc);
+  cursor.movePosition(QTextCursor::End);
+  QString error;
+  QVERIFY(typist::editor::insertMarkdownAtCursor(QStringLiteral("| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [x] done\n"), cursor, &error));
+  const QString serialized = typist::editor::serializeDocument(&doc);
+  const QString expected = QStringLiteral("para\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [x] done\n");
+  QVERIFY(!serialized.contains(QStringLiteral("<w:tbl>")));
+  QVERIFY(typist::core::astEqual(typist::core::parseMarkdown(expected.toStdString()).blocks,
+                                 typist::core::parseMarkdown(serialized.toStdString()).blocks));
+}
+
+void EditorSpike::imageLinkSurvivesDocumentRoundTrip() {
+  QTextDocument doc;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("body\n"), &doc, nullptr));
+  QTextCursor cursor(&doc);
+  cursor.movePosition(QTextCursor::End);
+  QString error;
+  QVERIFY(typist::editor::insertMarkdownAtCursor(QStringLiteral("![dog](E:/imgs/dog.png)\n"), cursor, &error));
+  const QString serialized = typist::editor::serializeDocument(&doc);
+  QVERIFY(serialized.contains(QStringLiteral("![dog](E:/imgs/dog.png)")));
+  const typist::core::ParseResult parsed = typist::core::parseMarkdown(serialized.toStdString());
+  QVERIFY(parsed.ok);
+  bool image = false;
+  for (const typist::core::Block& block : parsed.blocks) {
+    for (const typist::core::InlineRun& run : block.runs) if (run.image) image = true;
+  }
+  QVERIFY(image);
+}
+
+void EditorSpike::docxInlineEmphasisWritesRunProperties() {
+  const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_inline.docx"));
+  QString error;
+  QVERIFY(typist::platform::exportDocx(path, QStringLiteral("**bold** *em* ~~gone~~ `code`\n"), &error));
+  const QByteArray data = readWholeFile(path);
+  QVERIFY(data.contains("<w:b/>"));
+  QVERIFY(data.contains("<w:i/>"));
+  QVERIFY(data.contains("<w:strike/>"));
+  QVERIFY(data.contains("Consolas"));
+  QFile::remove(path);
 }
 
 void EditorSpike::outlineListsHeadingLevelsAndPositions() {

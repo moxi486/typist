@@ -1,16 +1,20 @@
 #include "editor_document.h"
 
 #include <QFont>
+#include <QFont>
 #include <QString>
+#include <QStringList>
 #include <QTextBlock>
 #include <QTextBlockFormat>
 #include <QTextCharFormat>
 #include <QTextCursor>
+#include <QTextLayout>
 #include <QTextList>
 #include <QTextListFormat>
 #include <QTextTable>
 #include <QTextTableFormat>
 #include <QVariant>
+#include <QVector>
 
 #include <algorithm>
 #include <string>
@@ -31,6 +35,46 @@ void insertTaggedBlock(QTextCursor& cursor, const QString& text, uint property,
   cursor.insertText(text, charFormat);
 }
 
+
+// Inline runs carry styling that Qt models as character formats: weight, slant,
+// strike, a monospace family for code, and an anchor for links and images.
+QTextCharFormat formatForRun(const typist::core::InlineRun& run) {
+  QTextCharFormat fmt;
+  if (run.bold) fmt.setFontWeight(QFont::Bold);
+  if (run.italic) fmt.setFontItalic(true);
+  if (run.strike) fmt.setFontStrikeOut(true);
+  if (run.code) fmt.setFontFamilies({QStringLiteral("Consolas"), QStringLiteral("Courier New")});
+  if (run.image) {
+    fmt.setProperty(kImageProperty, QVariant(QString::fromStdString(run.url)));
+    fmt.setAnchor(true);
+    fmt.setAnchorHref(QString::fromStdString(run.url));
+    fmt.setProperty(QTextFormat::TextUnderlineStyle, QVariant::fromValue(QTextCharFormat::SingleUnderline));
+  } else if (run.link) {
+    fmt.setAnchor(true);
+    fmt.setAnchorHref(QString::fromStdString(run.url));
+    fmt.setProperty(QTextFormat::TextUnderlineStyle, QVariant::fromValue(QTextCharFormat::SingleUnderline));
+  }
+  return fmt;
+}
+
+void insertInline(const std::vector<typist::core::InlineRun>& runs, const QString& fallback,
+                  QTextCursor& cursor) {
+  if (runs.empty()) {
+    cursor.insertText(fallback);
+    return;
+  }
+  for (const typist::core::InlineRun& run : runs) {
+    cursor.insertText(QString::fromStdString(run.text), formatForRun(run));
+  }
+}
+
+void insertTaggedInline(QTextCursor& cursor, const std::vector<typist::core::InlineRun>& runs,
+                        const QString& text, uint property, const QVariant& value) {
+  QTextBlockFormat blockFormat;
+  if (property != 0) blockFormat.setProperty(property, value);
+  cursor.insertBlock(blockFormat);
+  insertInline(runs, text, cursor);
+}
 void insertCodeBlock(const std::string& code, const std::string& info, QTextCursor& cursor,
                      BuildContext& ctx) {
   QTextCharFormat codeFormat;
@@ -85,7 +129,8 @@ void insertTable(const typist::core::Block& table, QTextCursor& cursor) {
     const int cellCount = static_cast<int>(table.children[row].children.size());
     for (int col = 0; col < cellCount; ++col) {
       QTextCursor cellCursor = qtTable->cellAt(row, col).firstCursorPosition();
-      cellCursor.insertText(QString::fromStdString(table.children[row].children[col].text));
+      const typist::core::Block& cell = table.children[row].children[col];
+      insertInline(cell.runs, QString::fromStdString(cell.text), cellCursor);
     }
   }
 
@@ -106,7 +151,7 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
       QTextBlockFormat headingFormat;
       headingFormat.setHeadingLevel(block.level);
       cursor.insertBlock(headingFormat);
-      cursor.insertText(QString::fromStdString(block.text));
+      insertInline(block.runs, QString::fromStdString(block.text), cursor);
       break;
     }
     case typist::core::BlockType::CodeBlock:
@@ -118,8 +163,8 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
     case typist::core::BlockType::BlockQuote:
       ++ctx.groupCounter;
       for (const typist::core::Block& child : block.children) {
-        insertTaggedBlock(cursor, QString::fromStdString(child.text), kQuoteProperty,
-                          QVariant(ctx.groupCounter), plain);
+        insertTaggedInline(cursor, child.runs, QString::fromStdString(child.text), kQuoteProperty,
+                            QVariant(ctx.groupCounter));
       }
       break;
     case typist::core::BlockType::Table:
@@ -139,7 +184,7 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
           itemFormat.setProperty(kTaskProperty, QVariant(item.checked));
           cursor.setBlockFormat(itemFormat);
         }
-        cursor.insertText(QString::fromStdString(item.text));
+        insertInline(item.runs, QString::fromStdString(item.text), cursor);
         for (const typist::core::Block& child : item.children) {
           insertBlock(child, cursor, depth + 1, ctx);
         }
@@ -154,11 +199,113 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
     case typist::core::BlockType::Unsupported:
       break;
     default:
-      insertTaggedBlock(cursor, QString::fromStdString(block.text), 0, QVariant(), plain);
+      insertTaggedInline(cursor, block.runs, QString::fromStdString(block.text), 0, QVariant());
       break;
   }
 }
 
+
+struct MarkdownRun {
+  QString text;
+  QString url;
+  bool bold = false;
+  bool italic = false;
+  bool strike = false;
+  bool code = false;
+  bool link = false;
+  bool image = false;
+};
+
+void pushMarkdownRun(QVector<MarkdownRun>& runs, const MarkdownRun& run) {
+  if (run.text.isEmpty()) return;
+  if (!runs.empty() && runs.back().bold == run.bold && runs.back().italic == run.italic &&
+      runs.back().strike == run.strike && runs.back().code == run.code &&
+      runs.back().link == run.link && runs.back().image == run.image && runs.back().url == run.url) {
+    runs.back().text += run.text;
+    return;
+  }
+  runs.push_back(run);
+}
+
+QString wrapCodeText(const QString& text) {
+  int longest = 0;
+  int current = 0;
+  for (const QChar ch : text) {
+    if (ch == QLatin1Char('`')) ++current; else current = 0;
+    longest = std::max(longest, current);
+  }
+  const QString marker(longest + 1, QLatin1Char('`'));
+  const bool pad = !text.isEmpty() && (text.front() == QLatin1Char('`') || text.back() == QLatin1Char('`'));
+  if (pad) return marker + QLatin1Char(' ') + text + QLatin1Char(' ') + marker;
+  return marker + text + marker;
+}
+
+QString wrapMarkdownRun(const MarkdownRun& run) {
+  QString body = run.text;
+  if (run.code) body = wrapCodeText(body);
+  if (run.bold) body = QStringLiteral("**") + body + QStringLiteral("**");
+  if (run.italic) body = QLatin1Char('*') + body + QLatin1Char('*');
+  if (run.strike) body = QStringLiteral("~~") + body + QStringLiteral("~~");
+  if (run.image) return QStringLiteral("![") + body + QStringLiteral("](") + run.url + QStringLiteral(")");
+  if (run.link) return QStringLiteral("[") + body + QStringLiteral("](") + run.url + QStringLiteral(")");
+  return body;
+}
+
+QString wrapMarkdownRuns(const QVector<MarkdownRun>& runs) {
+  QString out;
+  for (const MarkdownRun& run : runs) out += wrapMarkdownRun(run);
+  return out;
+}
+
+// Inline code is the one family the builder sets; code blocks are separate blocks.
+bool isInlineCodeFormat(const QTextCharFormat& fmt) {
+  for (const QString& family : fmt.fontFamilies().toStringList()) {
+    if (family.compare(QLatin1String("Consolas"), Qt::CaseInsensitive) == 0) return true;
+  }
+  return false;
+}
+
+// textFormats gives styled ranges over the block text, so classification never walks chars.
+QString inlineFromBlock(const QTextBlock& block) {
+  const QString text = block.text();
+  // Most blocks carry no styling at all; the fast path keeps serialization
+  // allocation-free for them.
+  if (text.isEmpty() || block.textFormats().isEmpty()) return text;
+  QVector<MarkdownRun> runs;
+  int pos = 0;
+  for (const QTextLayout::FormatRange& range : block.textFormats()) {
+    const int end = range.start + range.length;
+    if (range.start < pos || end <= pos) continue;
+    if (range.start > pos) {
+      MarkdownRun plain;
+      plain.text = text.mid(pos, range.start - pos);
+      pushMarkdownRun(runs, plain);
+      pos = range.start;
+    }
+    const QTextCharFormat& fmt = range.format;
+    MarkdownRun run;
+    run.text = text.mid(pos, end - pos);
+    run.bold = fmt.fontWeight() >= QFont::Bold;
+    run.italic = fmt.fontItalic();
+    run.strike = fmt.fontStrikeOut();
+    run.code = isInlineCodeFormat(fmt);
+    if (fmt.hasProperty(kImageProperty)) {
+      run.image = true;
+      run.url = fmt.property(kImageProperty).toString();
+    } else if (fmt.isAnchor()) {
+      run.link = true;
+      run.url = fmt.anchorHref();
+    }
+    pushMarkdownRun(runs, run);
+    pos = end;
+  }
+  if (pos < text.size()) {
+    MarkdownRun tail;
+    tail.text = text.mid(pos);
+    pushMarkdownRun(runs, tail);
+  }
+  return wrapMarkdownRuns(runs);
+}
 }  // namespace
 
 void buildDocument(const std::vector<typist::core::Block>& blocks, QTextDocument* document) {
@@ -205,9 +352,14 @@ QString serializeDocument(const QTextDocument* document) {
             // QTextTableCell exposes no text(); the content is read as a selection
             // between the cell's own first and last position.
             const QTextTableCell cell = table->cellAt(row, col);
-            QTextCursor cellCursor(cell.firstCursorPosition());
-            cellCursor.setPosition(cell.lastPosition(), QTextCursor::KeepAnchor);
-            QString cellText = cellCursor.selectedText();
+            QString cellText;
+            QTextBlock cellBlock = cell.firstCursorPosition().block();
+            const int cellEnd = cell.lastPosition();
+            while (cellBlock.isValid() && cellBlock.position() < cellEnd) {
+              if (!cellText.isEmpty()) cellText += QStringLiteral("<br>");
+              cellText += inlineFromBlock(cellBlock);
+              cellBlock = cellBlock.next();
+            }
             cellText.remove(QChar::ObjectReplacementCharacter);
             cellText = cellText.trimmed();
             // A merged cell repeats its content across the span; Markdown has no
@@ -272,7 +424,7 @@ QString serializeDocument(const QTextDocument* document) {
              current.blockFormat().property(kQuoteProperty).toInt() == groupId) {
         out += QLatin1Char('>');
         out += QLatin1Char(' ');
-        out += current.text() + QStringLiteral("\n");
+        out += inlineFromBlock(current) + QStringLiteral("\n");
         current = current.next();
       }
       out += QStringLiteral("\n");
@@ -306,7 +458,7 @@ QString serializeDocument(const QTextDocument* document) {
             (itemList->format().style() == QTextListFormat::ListDecimal) != ordered) {
           break;
         }
-        const QString itemText = current.text();
+        const QString itemText = inlineFromBlock(current);
         if (itemText.isEmpty() && !itemFormat.property(kTaskProperty).isValid()) {
           // Qt keeps an empty block around when a list starts the document; it is
           // an artifact, not a list item.
@@ -345,13 +497,29 @@ QString serializeDocument(const QTextDocument* document) {
     }
 
     if (!text.isEmpty()) {
-      out += text + QStringLiteral("\n\n");
+      out += inlineFromBlock(block) + QStringLiteral("\n\n");
       prevWasList = false;
     }
     block = block.next();
   }
 
   return out;
+}
+
+bool insertMarkdownAtCursor(const QString& source, QTextCursor& cursor, QString* error) {
+  const typist::core::ParseResult parsed =
+      typist::core::parseMarkdown(source.toStdString(), typist::core::ParseOptions{});
+  if (!parsed.ok) {
+    if (error != nullptr) *error = QString::fromStdString(parsed.error);
+    return false;
+  }
+  // One undo step for the whole paste; the pasted content starts on a fresh line.
+  cursor.beginEditBlock();
+  cursor.insertBlock();
+  BuildContext ctx;
+  for (const typist::core::Block& block : parsed.blocks) insertBlock(block, cursor, 0, ctx);
+  cursor.endEditBlock();
+  return true;
 }
 
 bool loadMarkdown(const QString& source, QTextDocument* document, QString* error) {

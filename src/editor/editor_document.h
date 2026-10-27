@@ -3,6 +3,7 @@
 #include "markdown.h"
 
 #include <QString>
+#include <QTextCursor>
 #include <QTextDocument>
 #include <vector>
 
@@ -17,6 +18,7 @@ constexpr uint kQuoteProperty = 0x100002;      // value: group id
 constexpr uint kRuleProperty = 0x100003;
 constexpr uint kTaskProperty = 0x100004;       // value: bool checked
 constexpr uint kCodeInfoProperty = 0x100005;   // value: fence info string, first block of a group
+constexpr uint kImageProperty = 0x100006;        // value: image destination, on an anchored run
 
 // Qt exposes no undo history cap, so the step count is checked against this limit
 // and the undo stack dropped when it is exceeded.
@@ -31,6 +33,11 @@ void buildDocument(const std::vector<typist::core::Block>& blocks, QTextDocument
 // Serializes a document back to Markdown: tables emit their header row and a
 // | --- | divider, cells escape '|' as \| and line breaks as <br>.
 QString serializeDocument(const QTextDocument* document);
+
+// Parses Markdown and inserts the blocks at the cursor, on one undo step. The cursor
+// lands after the pasted content. Returns false on a parse failure without touching
+// the document.
+bool insertMarkdownAtCursor(const QString& source, QTextCursor& cursor, QString* error);
 
 // Parses Markdown and rebuilds the document in place, clearing undo history so a
 // switch or load never becomes an undo step. Returns false on a parse error and
