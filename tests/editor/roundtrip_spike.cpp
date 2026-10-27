@@ -99,6 +99,7 @@ class EditorSpike : public QObject {
   void nestedListsRoundTripAtDepthFour();
   void pdfLongTablePaginatesRowByRow();
   void headingInlineStylesRoundTrip();
+  void sidebarExpandStateSurvivesRebuild();
   void docxExportEmbedsImageDrawing();
   void docxExportFallsBackWhenImageMissing();
   void updateFeedParsesVersionAndAssets();
@@ -1177,6 +1178,35 @@ void EditorSpike::versionComparisonAcrossMinorAndPatch() {
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("0.1.0")));
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("0.2.0")));
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.2.0-beta1"), QStringLiteral("0.2.0")));
+}
+
+void EditorSpike::sidebarExpandStateSurvivesRebuild() {
+  QDir root(QDir::tempPath());
+  const QString dirName = QStringLiteral("typist_tree_state");
+  QVERIFY(root.mkpath(QStringLiteral("%1/nested").arg(dirName)));
+  QFile leaf(root.filePath(QStringLiteral("%1/nested/a.md").arg(dirName)));
+  QVERIFY(leaf.open(QIODevice::WriteOnly));
+  leaf.write("# leaf\n");
+  leaf.close();
+
+  typist::ui::FileTree tree;
+  tree.setRoot(root.filePath(dirName));
+  QCOMPARE(tree.entryCount(), 1);
+  QCOMPARE(tree.directoryCount(), 1);
+  QVERIFY(tree.topLevelItem(0)->isExpanded());
+
+  tree.topLevelItem(0)->setExpanded(false);
+  tree.setRoot(root.filePath(dirName));
+  QVERIFY2(!tree.topLevelItem(0)->isExpanded(), "collapsed directory was reopened");
+
+  tree.topLevelItem(0)->setExpanded(true);
+  tree.setRoot(root.filePath(dirName));
+  QVERIFY2(tree.topLevelItem(0)->isExpanded(), "expanded directory was collapsed");
+  QCOMPARE(tree.entryCount(), 1);
+
+  QFile::remove(root.filePath(QStringLiteral("%1/nested/a.md").arg(dirName)));
+  QVERIFY(root.rmdir(QStringLiteral("%1/nested").arg(dirName)));
+  QVERIFY(root.rmdir(dirName));
 }
 
 void EditorSpike::docxExportEmbedsImageDrawing() {

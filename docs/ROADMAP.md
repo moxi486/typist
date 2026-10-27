@@ -57,6 +57,7 @@
 - 文件操作落在 platform::FileOps（createMarkdownFile/renameFile/deleteFile）：名字没有 .md 后缀就补上，重名直接拒绝且不覆盖，重命名用 QFile::rename 保留正文；UI 侧的对话框（QInputDialog/QMessageBox）只在右键菜单触发，headless 测试与 bench 不会走到。
 - Qt6 的 QFile 没有 open(fileName, mode) 重载：读另一个路径要先 QFile file(path) 再 open(QIODevice::ReadOnly)（报 no matching function for call to 'QFile::open(const QString&, OpenModeFlag)'）。
 - 层级实测：a.md + sub/b.md + sub/deeper/c.md + .git/g.md → tree_entries=3 tree_dirs=2（.git 被跳过）；删除当前编辑文件后缓冲区变未命名文档（bench 不覆盖这条，属交互路径）。
+- 侧栏展开状态事实：FileTree::setRoot 先收集已展开目录路径（kDirRole+kPathRole），重建后按集合逐项 setExpanded；用 `m_hasExpansionState` 区分"首次建树（全展开）"与"用户把目录全折叠（空集合，保持全折叠）"——只判断集合为空会把折叠状态又打开（实测第一轮失败）。
 - 目录自动刷新走 FileTree::refreshIfChanged()：signature() 用相对路径 + size + birthTime 拼成签名，签名相同就不重建（保留当前选中项）；QFileSystemWatcher 只监视目录，目录变动经 250ms 单发 QTimer 去抖后刷新并重新 addPaths（目录改名后 watcher 会丢掉旧路径）。
 - Qt6 的 QList 没有 filter(predicate)（error: no matching function for call to 'QList<QString>::filter(lambda)'）：过滤要写成显式循环。
 - MainWindow 里用 event->mimeData()->hasUrls() 需要 #include <QMimeData>，否则 invalid use of incomplete type 'const class QMimeData'；拖拽判定逻辑抽到 platform::firstMarkdownPath（取第一个本地 .md URL，https URL 与 .txt 都返回空）以便 headless 测试。

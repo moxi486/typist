@@ -57,6 +57,7 @@ class FileTree : public QTreeWidget {
   QString m_signature;
   int m_directories = 0;
   bool m_watchEnabled = false;
+  bool m_hasExpansionState = false;
   QFileSystemWatcher* m_watcher = nullptr;
   QTimer* m_debounce = nullptr;
 };

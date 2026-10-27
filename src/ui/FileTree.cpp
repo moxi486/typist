@@ -14,6 +14,7 @@
 #include <QMessageBox>
 #include <QContextMenuEvent>
 #include <QTreeWidgetItem>
+#include <QSet>
 
 namespace typist::ui {
 
@@ -38,12 +39,43 @@ FileTree::FileTree(QWidget* parent) : QTreeWidget(parent) {
   });
 }
 
+QStringList collectExpandedDirs(const QTreeWidget& tree) {
+  QStringList paths;
+  const auto walk = [&paths](const QTreeWidgetItem* item) {
+    if (item != nullptr && item->data(0, kDirRole).toBool() && item->isExpanded()) {
+      paths.append(item->data(0, kPathRole).toString());
+    }
+  };
+  for (int i = 0; i < tree.topLevelItemCount(); ++i) {
+    QTreeWidgetItem* top = tree.topLevelItem(i);
+    walk(top);
+    for (int j = 0; top != nullptr && j < top->childCount(); ++j) walk(top->child(j));
+  }
+  return paths;
+}
+
+void applyExpandedDirs(QTreeWidgetItem* item, const QSet<QString>& expanded) {
+  if (item == nullptr) return;
+  if (item->data(0, kDirRole).toBool()) item->setExpanded(expanded.contains(item->data(0, kPathRole).toString()));
+  for (int i = 0; i < item->childCount(); ++i) applyExpandedDirs(item->child(i), expanded);
+}
+
 void FileTree::setRoot(const QString& rootDir) {
+  // The listing is rebuilt on every watcher tick, so the open/closed state the
+  // user chose has to survive it; an empty capture means a fresh tree, which opens all.
+  const QStringList expanded = collectExpandedDirs(*this);
   m_root = rootDir;
   m_directories = 0;
   clear();
   buildDirectory(nullptr, rootDir, QString());
-  expandAll();
+  if (!m_hasExpansionState) {
+    expandAll();
+    m_hasExpansionState = true;
+  } else {
+    // An empty capture is a real choice: the user closed every directory.
+    const QSet<QString> kept{expanded.begin(), expanded.end()};
+    for (int i = 0; i < topLevelItemCount(); ++i) applyExpandedDirs(topLevelItem(i), kept);
+  }
   m_signature = signature();
   if (m_watchEnabled) watchCurrentDirectories();
 }
