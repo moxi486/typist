@@ -31,6 +31,7 @@
 - CMake 的 set_tests_properties ENVIRONMENT 用 ';' 分隔键值对：PATH 内的多个目录必须写成 \;，其它变量用普通 ';'；写错会让 Windows 侧测试在加载 DLL 时退到 0xc0000135。Qt 与 GCC 运行时目录从 Qt6_DIR 推导，cmark 运行时目录由 FindCmarkGfm 给出，不依赖 shell 的 PATH。
 - 自定义 QTextFormat 属性 id 必须高于 QTextFormat::UserProperty（0x100000），旧的 0x4001 区间会撞 Qt 内部枚举；已改为 0x100001 起。
 - 嵌套列表缩进按标记宽度输出；语料 tests/corpus/nested_wide.md（9. 与 10. 混排）在 core 与文档往返均通过：文档侧序号按连续计数重编，astEqual 不比较列表起始序号，缩进按标记宽度计算。
+- 嵌套深度实测：`- one / - two / - three / - four / - five` 五级嵌套（每级缩进 2 空格）在 core 序列化往返与 QTextDocument 往返两侧 astEqual 均通过（spike slot nestedListsRoundTripAtDepthFour），深度不是限制项；渲染侧靠 Qt 列表 indent 逐级递增，序列化按 indent-1 与 depth 匹配。
 - 撤销/重做已接入：QTextDocument 默认 undoRedoEnabled 为 false，需显式开启；载入后必须 clearUndoRedoStacks(UndoAndRedoStacks)，否则撤销会越过载入基线把文档清空；脏标记由「序列化结果是否等于已保存快照」派生，撤销回到已保存内容即转干净。Qt 6.12 的 QTextDocument 没有 setMaximumUndoHistory，只有 availableUndoSteps 与 clearUndoRedoStacks，长文档的撤销历史内存上限需自己实现。
 - 源码/渲染切换改为两份文档（ui::ViewSwitch）：渲染文档与纯文本文档各持一份撤销历史，切换时若两侧 AST 相同就不重建，历史因此跨切换保留；AST 不同才重建并清空目标栈（注入内容是新基线，旧撤销命令的位置已失效）。跨模式撤销对方模式的编辑仍不可表示，属已知限制。
 - 纯文本文档不能用 serializeDocument 取 Markdown：QTextDocument::setPlainText 把每一行（含空行）切成独立 block，序列化会凭空插入空行，AST 与原文不一致（探针 plain_ast_equal=0）；源码视图的内容一律取 toPlainText()。

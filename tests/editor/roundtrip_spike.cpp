@@ -95,6 +95,7 @@ class EditorSpike : public QObject {
   void toggleTaskCheckboxIsOneUndoStep();
   void docxExportWritesHyperlinkRelationships();
   void inlineImageRendersAndRoundTrips();
+  void nestedListsRoundTripAtDepthFour();
   void inlineRunsRoundTripThroughMarkdownSerialize();
   void inlineRunsRoundTripThroughDocument();
   void renderedDocumentCarriesInlineFormats();
@@ -1138,6 +1139,24 @@ void EditorSpike::toggleTaskCheckboxIsOneUndoStep() {
   QVERIFY(typist::editor::serializeDocument(&document).contains(QStringLiteral("- [ ] done")));
   document.undo();
   QCOMPARE(typist::editor::serializeDocument(&document), before);
+}
+
+void EditorSpike::nestedListsRoundTripAtDepthFour() {
+  const QString source = QStringLiteral(
+      "- one\n  - two\n    - three\n      - four\n        - five\n- next\n");
+  const typist::core::ParseResult first = typist::core::parseMarkdown(source.toStdString());
+  QVERIFY(first.ok);
+  const QString serialized = QString::fromStdString(typist::core::serializeMarkdown(first.blocks));
+  const typist::core::ParseResult second = typist::core::parseMarkdown(serialized.toStdString());
+  QVERIFY(second.ok);
+  QVERIFY2(typist::core::astEqual(first.blocks, second.blocks), serialized.toUtf8().constData());
+
+  QTextDocument document;
+  QVERIFY(typist::editor::loadMarkdown(source, &document, nullptr));
+  const QString fromDocument = typist::editor::serializeDocument(&document);
+  const typist::core::ParseResult third = typist::core::parseMarkdown(fromDocument.toStdString());
+  QVERIFY(third.ok);
+  QVERIFY2(typist::core::astEqual(first.blocks, third.blocks), fromDocument.toUtf8().constData());
 }
 
 void EditorSpike::inlineImageRendersAndRoundTrips() {
