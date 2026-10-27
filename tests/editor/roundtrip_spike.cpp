@@ -98,6 +98,7 @@ class EditorSpike : public QObject {
   void inlineImageRendersAndRoundTrips();
   void nestedListsRoundTripAtDepthFour();
   void pdfLongTablePaginatesRowByRow();
+  void headingInlineStylesRoundTrip();
   void updateFeedParsesVersionAndAssets();
   void updateFeedRejectsMalformedOrIncompleteFeed();
   void versionComparisonAcrossMinorAndPatch();
@@ -1175,6 +1176,25 @@ void EditorSpike::versionComparisonAcrossMinorAndPatch() {
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("0.2.0")));
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.2.0-beta1"), QStringLiteral("0.2.0")));
 }
+
+void EditorSpike::headingInlineStylesRoundTrip() {
+  const QString source = QStringLiteral("# **bold** and *em* with ") + QChar(0x60) + QStringLiteral("code") + QChar(0x60) + QStringLiteral(" and [link](https://example.org/a)") + QStringLiteral("\n\n### ## not a heading\n");
+  const auto parsed = typist::core::parseMarkdown(source.toStdString());
+  const QString serialized = QString::fromStdString(typist::core::serializeMarkdown(parsed.blocks));
+  QVERIFY2(serialized.startsWith(QStringLiteral("# **bold** and *em* with ") + QChar(0x60) + QStringLiteral("code") + QChar(0x60) + QStringLiteral(" and [link](https://example.org/a)")), serialized.toUtf8().constData());
+  QVERIFY(typist::core::astEqual(parsed.blocks, typist::core::parseMarkdown(serialized.toStdString()).blocks));
+
+  QTextDocument document;
+  QVERIFY(typist::editor::loadMarkdown(source, &document, nullptr));
+  const QString documentText = typist::editor::serializeDocument(&document);
+  QVERIFY2(documentText.contains(QStringLiteral("**bold**")) && documentText.contains(QStringLiteral("*em*"))
+      && documentText.contains(QChar(0x60)) && documentText.contains(QStringLiteral("[link](https://example.org/a)")),
+      documentText.toUtf8().constData());
+  QVERIFY(typist::core::astEqual(typist::core::parseMarkdown(documentText.toStdString()).blocks,
+                             typist::core::parseMarkdown(serialized.toStdString()).blocks));
+}
+
+
 
 void EditorSpike::pdfLongTablePaginatesRowByRow() {
   QString source;

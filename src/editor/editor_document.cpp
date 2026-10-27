@@ -530,7 +530,9 @@ QString serializeDocument(const QTextDocument* document) {
     }
 
     if (format.headingLevel() > 0) {
-      out += QString(format.headingLevel(), QLatin1Char('#')) + QStringLiteral(" ") + text;
+      // Heading content keeps its inline runs; the plain block text would drop bold, emphasis,
+      // code spans and links.
+      out += QString(format.headingLevel(), QLatin1Char('#')) + QStringLiteral(" ") + inlineFromBlock(block);
       out += QStringLiteral("\n\n");
       prevWasList = false;
       block = block.next();
