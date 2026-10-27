@@ -23,6 +23,12 @@
 #include <QClipboard>
 #include <QMouseEvent>
 #include <QTextBlock>
+#ifdef TYPIST_HAS_NETWORK
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#endif
+#include "UpdateChecker.h"
 #include <QCloseEvent>
 #include <QDir>
 #include <QDockWidget>
@@ -243,6 +249,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_outlineAction->setToolTip(tr("Outline"));
   viewMenu->addAction(m_outlineAction);
   connect(m_outlineAction, &QAction::triggered, this, &MainWindow::toggleOutline);
+
+  QMenu* helpMenu = menuBar()->addMenu(tr("Help"));
+  m_updateAction = new QAction(tr("Check for Updates"), this);
+  m_updateAction->setToolTip(tr("Check for Updates"));
+#ifdef TYPIST_HAS_NETWORK
+  m_updateAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+U")));
+  connect(m_updateAction, &QAction::triggered, this, &MainWindow::checkForUpdates);
+#endif
+  helpMenu->addAction(m_updateAction);
 
   m_sidebarAction = new QAction(tr("Show Files"), this);
   m_sidebarAction->setToolTip(tr("Show Files"));
@@ -892,6 +907,41 @@ void MainWindow::toggleTaskAtClick(const QMouseEvent* event) {
   if (!typist::editor::toggleTaskCheckbox(document, blockNumber)) return;
   statusBar()->showMessage(tr("Task toggled"));
 }
+
+void MainWindow::checkForUpdates() {
+#ifdef TYPIST_HAS_NETWORK
+  if (m_network == nullptr) {
+    m_network = new QNetworkAccessManager(this);
+    connect(m_network, &QNetworkAccessManager::finished, this, &MainWindow::handleUpdateReply);
+  }
+  QNetworkRequest request(QUrl(typist::ui::updateFeedUrl()));
+  request.setTransferTimeout(5000);
+  statusBar()->showMessage(tr("Checking for updates"));
+  m_network->get(request);
+#else
+  statusBar()->showMessage(tr("Update check unavailable in this build"));
+#endif
+}
+
+#ifdef TYPIST_HAS_NETWORK
+void MainWindow::handleUpdateReply(QNetworkReply* reply) {
+  QByteArray body;
+  if (reply != nullptr && reply->error() == QNetworkReply::NoError) body = reply->readAll();
+  if (reply != nullptr) reply->deleteLater();
+  typist::ui::UpdateFeed feed;
+  QString reason;
+  if (!typist::ui::parseUpdateFeed(body, &feed, &reason)) {
+    statusBar()->showMessage(reason.isEmpty() ? tr("Update check failed") : QStringLiteral("Update check failed: %1").arg(reason));
+    return;
+  }
+  const QString current = QStringLiteral(TYPIST_VERSION);
+  if (typist::ui::versionIsNewer(feed.version, current)) {
+    statusBar()->showMessage(tr("Version %1 is available").arg(feed.version));
+  } else {
+    statusBar()->showMessage(tr("You are on the latest version"));
+  }
+}
+#endif
 
 void MainWindow::recoverLatestDraft() {
   const QStringList drafts = typist::ui::draftPaths();

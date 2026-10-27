@@ -21,6 +21,7 @@
 - DOCX 表格列宽按每列最长内容分配（总宽约 9638 twips，等于 A4 减两侧 20mm），任务项用 ☑/☐ 字形（能否显示取决于阅读器字体）
 - DOCX 链接与图片写成 OOXML 超链接对象（w:hyperlink + 外部关系，同一 URL 共用一条关系；图片仍以文字形式给出目标路径，不内嵌图像）
 - 深嵌套列表：五级嵌套（每级缩进两空格）在 Markdown 往返与富文本往返两侧都保真，深度不是上限
+- 检查更新（Ctrl+Shift+U，Help > Check for Updates）：抓取更新源的 `latest.json`，比对版本号后在状态栏提示新版本；只提示，下载与安装仍手动
 - 点击切换任务项：在渲染视图里点列表项文字左侧的标记区会翻转任务勾选状态（源码视图要点亮文本自己改标记）；渲染视图的任务标记是 Qt 列表圆点，勾选状态只保存在块格式属性里
 - 渲染视图内联显示图片本体：`![alt](path)` 指向的本地图会直接画在文档里（超过 640×480 按比例缩小），序列化时仍还原成原来的 Markdown 链接（alt 与目标存在对象运行格式的属性里）；图不存在时退回带下划线的文字链接
 - 主题 light / dark / system（Ctrl+Shift+D 循环，偏好写入 QSettings；导出的 HTML 内嵌同一份主题样式）
@@ -38,13 +39,13 @@
 - 拖拽图片：把图片文件拖到窗口会在光标处插入 ![文件名](路径) 链接（源码视图直接插入该文本）
 - 往返保真测试：parse → serialize → parse 产生相同 AST
 - 文档：`docs/Build.md`（依赖与三平台构建）、`docs/Keyboard.md`（快捷键）、`docs/Themes.md`（主题与配置）、`docs/Translations.md`（翻译与 `.qm`）、`docs/Release.md`（发布打包、签名与更新通道）；第三方许可声明见仓库根目录的 `NOTICE`
-- 性能基线：`perf_baseline` 与 `repaint_baseline`（ctest 项）打印打开耗时与打字到重绘耗时；本机 Windows Release 实测冷启动 295ms、常驻工作集 21.7MB、1MB 文档 realistic 157ms、tableheavy 262ms、打字到重绘 0–1ms
+- 性能基线：`perf_baseline` 与 `repaint_baseline`（ctest 项）打印打开耗时与打字到重绘耗时；本机 Windows Release 实测冷启动 295ms、常驻工作集 21.7MB、1MB 文档 realistic 176ms、tableheavy 277ms、打字到重绘 0–1ms
 
 ## 性能预算（验收数字）
 
 - 冷启动 < 400ms（本机 Windows Release 实测 295ms；offscreen 的 17ms 只作 proxy）
 - 常驻内存 < 80MB（本机实测工作集 21.7MB）
-- 打开 1MB Markdown < 250ms（本机实测 realistic 157ms、tableheavy 262ms）
+- 打开 1MB Markdown < 250ms（本机实测 realistic 176ms、tableheavy 277ms）
 - 输入到重绘 < 16ms（本机实测 0–1ms，含载入 1MB 文档后；由 `typist --bench-repaint` 测量，空文档形状进 ctest）
 
 ## 技术栈

@@ -13,5 +13,6 @@
 | 目录内搜索 | Ctrl+Shift+F |
 | 大纲面板开关 | Ctrl+Shift+T |
 | 恢复崩溃草稿 | Ctrl+Shift+R（菜单 File > Recover Draft） |
+| 检查更新 | Ctrl+Shift+U（菜单 Help > Check for Updates） |
 
 导出 HTML 占用 Ctrl+Shift+E，恢复草稿用 Ctrl+Shift+R，两者不再冲突（此前它们共用 Ctrl+Shift+E，后注册的那个会吃掉前一个的按键）。

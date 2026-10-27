@@ -86,6 +86,8 @@
 - DOCX 事实：成员 XML 用 `toUtf8()` 写入且未压缩，可直接在字节里 grep 标签与字形；非 ASCII 字形别用 `QStringLiteral("\uXXXX")`（本轮字节字面量断言失败而 `QString(QChar(0x2611)).toUtf8()` 命中），用 QChar 显式构造再转 UTF-8；表格列宽按每列最长文本权重分配，总宽 9638 twips。
 - 内联图片事实：`cursor.insertImage(QTextImageFormat)` + `document->addResource(QVariant::Url, url, QImage)` 才会真的画出图；**打完图后不能用新建的 QTextCharFormat 去 setCharFormat 标记对象字符——那会抹掉 ImageName/ImageWidth/Height，块高变成 0**，必须读回 `cursor.charFormat()` 再追加自定义属性（实测：新建格式 h=0，复用格式后 h≥18）。序列化读 `kImageProperty`/`kImageAltProperty` 还原 `![alt](url)`；块文本里那个对象字符是 U+FFFC，不能让它漏进序列化。Qt6 没有 `setImageSizeLimit`，缩放靠显式 width/height。
 - 打包事实：CPack 的生成器在根 `CMakeLists.txt` 里按平台选（Windows ZIP、macOS TGZ+DMG、Linux TGZ，CI 显式 `-G "DEB;RPM;TGZ"` / `-G "DMG;TGZ"`）；`cmake --install` 只装 exe 与数据，Windows 的 Qt 运行时 DLL 必须靠 `windeployqt` 补（实测暂存树 24 文件、包 12.97MB）。本机没有 `dpkg-deb`/`rpmbuild`/`hdiutil`，deb/rpm/dmg 只能在 runner 上验证。
+- 更新检查事实：`QJsonDocument::fromJson` 的 `QJsonParseError` 必须是非 const（传 const 指针编译报错）；版本比较按点号分段整数比大小，预发布后缀（`-beta1`）永远不比基础版本新；网络模块走 `OPTIONAL_COMPONENTS Network` + `#ifdef TYPIST_HAS_NETWORK` 守卫（菜单动作与槽都在守卫内，缺模块时提示"此构建不支持更新检查"）；版本号靠 `target_compile_definitions(... TYPIST_VERSION="${PROJECT_VERSION}")` 传入。
+
 - 发布纪律：每个包都要有 SHA-256（`checksums.txt`），`latest.json` 只是更新清单，应用内更新检查还没实现；未配签名证书时如实发布未签名版本，不做任何绕过签名的做法。
 - 布局惰性事实：`blockBoundingRect().height()` 在没排版时给 0/14，要 `documentLayout()->documentSize()` 强制排版才有真实块高（与 PDF 分页同一条纪律）。
 - 任务状态事实：渲染文档里任务项的勾选状态存在 **QTextBlockFormat 的属性 kTaskProperty**，不在 QTextCharFormat 里（块文本只有条目正文，标记由 Qt 列表圆点画出），所以序列化读的是 blockFormat，切换也必须改 blockFormat；用 textFormats 找任务属性永远找不到。

@@ -66,7 +66,7 @@ target_link_libraries(typist_ui_toc PUBLIC Qt6::Gui)
 target_compile_options(typist_ui_toc PRIVATE -Wall -Wextra)
 
 qt_add_executable(typist main.cpp MainWindow.h MainWindow.cpp)
-target_link_libraries(typist PRIVATE typist::core typist::editor typist::platform typist::ui_theme typist::ui_autosave typist::ui_viewswitch typist::ui_search typist::ui_findbar typist::ui_filetree typist::ui_locale typist::ui_recovery typist::ui_conflict typist::ui_toc Qt6::Core Qt6::Gui Qt6::Widgets)
+target_link_libraries(typist PRIVATE typist::core typist::editor typist::platform typist::ui_theme typist::ui_autosave typist::ui_viewswitch typist::ui_search typist::ui_findbar typist::ui_filetree typist::ui_locale typist::ui_recovery typist::ui_conflict typist::ui_toc typist::ui_update Qt6::Core Qt6::Gui Qt6::Widgets)
 set_target_properties(typist PROPERTIES AUTOMOC ON)
 
 install(TARGETS typist RUNTIME DESTINATION bin)
@@ -74,3 +74,13 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../themes/default.qss DESTINATION s
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../NOTICE ${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE DESTINATION share/typist OPTIONAL)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../docs DESTINATION share/typist OPTIONAL)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../translations DESTINATION share/typist OPTIONAL)
+add_library(typist_ui_update STATIC UpdateChecker.h UpdateChecker.cpp)
+add_library(typist::ui_update ALIAS typist_ui_update)
+target_include_directories(typist_ui_update PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(typist_ui_update PUBLIC Qt6::Core)
+target_compile_options(typist_ui_update PRIVATE -Wall -Wextra)
+
+if(TARGET Qt6::Network)
+  target_compile_definitions(typist PRIVATE TYPIST_HAS_NETWORK=1 TYPIST_VERSION="${PROJECT_VERSION}")
+  target_link_libraries(typist PRIVATE Qt6::Network)
+endif()

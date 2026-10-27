@@ -16,6 +16,7 @@
 #include "SystemTheme.h"
 #include "ViewSwitch.h"
 #include "Theme.h"
+#include "UpdateChecker.h"
 #include "markdown.h"
 
 #include <QtTest>
@@ -96,6 +97,9 @@ class EditorSpike : public QObject {
   void docxExportWritesHyperlinkRelationships();
   void inlineImageRendersAndRoundTrips();
   void nestedListsRoundTripAtDepthFour();
+  void updateFeedParsesVersionAndAssets();
+  void updateFeedRejectsMalformedOrIncompleteFeed();
+  void versionComparisonAcrossMinorAndPatch();
   void inlineRunsRoundTripThroughMarkdownSerialize();
   void inlineRunsRoundTripThroughDocument();
   void renderedDocumentCarriesInlineFormats();
@@ -1139,6 +1143,36 @@ void EditorSpike::toggleTaskCheckboxIsOneUndoStep() {
   QVERIFY(typist::editor::serializeDocument(&document).contains(QStringLiteral("- [ ] done")));
   document.undo();
   QCOMPARE(typist::editor::serializeDocument(&document), before);
+}
+
+void EditorSpike::updateFeedParsesVersionAndAssets() {
+  const QByteArray json = QByteArrayLiteral("{\"version\":\"0.2.0\",\"assets\":[{\"name\":\"Typist-win64.zip\",\"url\":\"https://example.org/Typist-win64.zip\"},{\"name\":\"Typist-0.2.0.deb\",\"url\":\"https://example.org/Typist-0.2.0.deb\"}]}");
+  typist::ui::UpdateFeed feed;
+  QString error;
+  QVERIFY2(typist::ui::parseUpdateFeed(json, &feed, &error), error.toUtf8().constData());
+  QCOMPARE(feed.version, QStringLiteral("0.2.0"));
+  QCOMPARE(feed.assets.size(), 2);
+  QCOMPARE(feed.assets.at(0).toString(), QStringLiteral("https://example.org/Typist-win64.zip"));
+}
+
+void EditorSpike::updateFeedRejectsMalformedOrIncompleteFeed() {
+  typist::ui::UpdateFeed feed;
+  QString error;
+  QVERIFY(!typist::ui::parseUpdateFeed(QByteArrayLiteral("not json"), &feed, &error));
+  QVERIFY(error.contains(QStringLiteral("JSON")));
+  QVERIFY(!typist::ui::parseUpdateFeed(QByteArrayLiteral("{\"assets\":[]}"), &feed, &error));
+  QVERIFY(error.contains(QStringLiteral("version")));
+  QVERIFY(!typist::ui::parseUpdateFeed(QByteArrayLiteral("{\"version\":\"0.2.0\",\"assets\":[]}"), &feed, &error));
+  QVERIFY(error.contains(QStringLiteral("assets")));
+}
+
+void EditorSpike::versionComparisonAcrossMinorAndPatch() {
+  QVERIFY(typist::ui::versionIsNewer(QStringLiteral("0.2.0"), QStringLiteral("0.1.9")));
+  QVERIFY(typist::ui::versionIsNewer(QStringLiteral("0.0.10"), QStringLiteral("0.0.9")));
+  QVERIFY(typist::ui::versionIsNewer(QStringLiteral("1.10.0"), QStringLiteral("1.9.0")));
+  QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("0.1.0")));
+  QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("0.2.0")));
+  QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.2.0-beta1"), QStringLiteral("0.2.0")));
 }
 
 void EditorSpike::nestedListsRoundTripAtDepthFour() {

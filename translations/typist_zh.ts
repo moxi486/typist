@@ -251,5 +251,33 @@
         <source>Task toggled</source>
         <translation>任务项已切换</translation>
     </message>
+      <message>
+        <source>Help</source>
+        <translation>帮助</translation>
+    </message>
+    <message>
+        <source>Check for Updates</source>
+        <translation>检查更新</translation>
+    </message>
+    <message>
+        <source>Checking for updates</source>
+        <translation>正在检查更新</translation>
+    </message>
+    <message>
+        <source>Update check unavailable in this build</source>
+        <translation>此构建不支持更新检查</translation>
+    </message>
+    <message>
+        <source>Update check failed</source>
+        <translation>更新检查失败</translation>
+    </message>
+    <message>
+        <source>Version %1 is available</source>
+        <translation>有新版本 %1 可用</translation>
+    </message>
+    <message>
+        <source>You are on the latest version</source>
+        <translation>已是最新版本</translation>
+    </message>
   </context>
 </TS>

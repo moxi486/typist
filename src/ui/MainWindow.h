@@ -17,6 +17,8 @@ class QDockWidget;
 class QDropEvent;
 class QListWidget;
 class QMouseEvent;
+class QNetworkAccessManager;
+class QNetworkReply;
 class QTextDocument;
 class QTextEdit;
 
@@ -98,6 +100,10 @@ class MainWindow : public QMainWindow {
   void recoverLatestDraft();
   void pasteAsMarkdown();
   void toggleTaskAtClick(const QMouseEvent* event);
+#ifdef TYPIST_HAS_NETWORK
+  void checkForUpdates();
+  void handleUpdateReply(class QNetworkReply* reply);
+#endif
   void insertImageLink(const QString& path);
   void openSearchHit();
   void toggleSidebar();
@@ -144,6 +150,10 @@ class MainWindow : public QMainWindow {
   QListWidget* m_outlineList = nullptr;
   QAction* m_outlineAction = nullptr;
   QAction* m_pasteMarkdownAction = nullptr;
+  QAction* m_updateAction = nullptr;
+#ifdef TYPIST_HAS_NETWORK
+  QNetworkAccessManager* m_network = nullptr;
+#endif
   ui::ViewSwitch* m_view = nullptr;
   bool m_benchMode = false;
   QString m_currentPath;
