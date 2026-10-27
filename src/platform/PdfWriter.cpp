@@ -10,9 +10,35 @@
 #include <QTextLayout>
 #include <QTextDocument>
 #include <QTextTable>
+#include <QPair>
+#include <QVector>
 #include <QtGui>
 
 namespace typist::platform {
+
+QVector<QPair<int, int>> splitParagraphChunks(int lineCount, int linesPerPage) {
+  QVector<QPair<int, int>> chunks;
+  if (lineCount <= 0 || linesPerPage <= 0) return chunks;
+  if (lineCount <= linesPerPage) {
+    chunks.append(QPair<int, int>(0, lineCount));
+    return chunks;
+  }
+  int start = 0;
+  while (start < lineCount) {
+    const int remaining = lineCount - start;
+    if (remaining <= linesPerPage) {
+      chunks.append(QPair<int, int>(start, lineCount));
+      break;
+    }
+    int count = linesPerPage;
+    // A single leftover line must not be left alone on the next page.
+    if (remaining - count == 1) count = linesPerPage - 1;
+    if (count < 1) count = 1;
+    chunks.append(QPair<int, int>(start, start + count));
+    start += count;
+  }
+  return chunks;
+}
 
 QRectF tableHeaderRectFor(QTextDocument* document, const QTextBlock& block) {
   if (document == nullptr || !block.isValid()) return QRectF();
@@ -163,23 +189,24 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
       continue;
     }
 
-    // A block taller than the page is split at line boundaries so no line is sliced.
-    // QTextLine::rect() is block-relative, so page offsets are measured from the block top.
-    double pageTop = 0.0;
-    double pageBottom = 0.0;
+    // A block taller than the page is split at line boundaries so no line is sliced; the
+    // chunk rule also carries orphan control so a page never opens on one orphan line and
+    // the paragraph's last line never sits alone. QTextLine::rect() is block-relative.
+    int linesPerPage = 0;
     for (int line = 0; line < lineLayout->lineCount(); ++line) {
       const QRectF lineRect = lineLayout->lineAt(line).rect();
-      if (pageBottom > 0.0 && lineRect.y() - pageTop >= contentHeight) {
-        emitPage(writer, painter, layout, pageRect, page, blockRect.y() + pageTop, blockRect.y() + pageBottom,
-                 headerBand, footerBand, options);
-        ++page;
-        pageTop = lineRect.y();
-      }
-      pageBottom = lineRect.y() + lineRect.height();
+      if (lineRect.y() + lineRect.height() > contentHeight) break;
+      ++linesPerPage;
     }
-    emitPage(writer, painter, layout, pageRect, page, blockRect.y() + pageTop, blockRect.y() + pageBottom,
-             headerBand, footerBand, options);
-    ++page;
+    if (linesPerPage < 1) linesPerPage = 1;
+    const QVector<QPair<int, int>> chunks = splitParagraphChunks(lineLayout->lineCount(), linesPerPage);
+    for (const QPair<int, int>& chunk : chunks) {
+      const QRectF firstLine = lineLayout->lineAt(chunk.first).rect();
+      const QRectF lastLine = lineLayout->lineAt(chunk.second - 1).rect();
+      emitPage(writer, painter, layout, pageRect, page, blockRect.y() + firstLine.y(),
+               blockRect.y() + lastLine.y() + lastLine.height(), headerBand, footerBand, options);
+      ++page;
+    }
     ++blockNumber;
   }
 

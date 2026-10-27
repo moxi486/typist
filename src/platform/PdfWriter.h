@@ -1,6 +1,8 @@
 #pragma once
 
+#include <QPair>
 #include <QRectF>
+#include <QVector>
 #include <QString>
 
 class QTextBlock;
@@ -28,6 +30,11 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
 // outside a table or already sits in that row. Continuation pages redraw this rect so a
 // table split across pages keeps its column names.
 QRectF tableHeaderRectFor(QTextDocument* document, const QTextBlock& block);
+
+// Line ranges for a paragraph taller than a page: chunks are contiguous and cover every
+// line, a chunk holds at most linesPerPage lines, and orphan control keeps a lone trailing
+// line from landing alone on its own page (a single-line paragraph stays one chunk).
+QVector<QPair<int, int>> splitParagraphChunks(int lineCount, int linesPerPage);
 
 // False when the build cannot write PDF at all.
 bool pdfExportAvailable();

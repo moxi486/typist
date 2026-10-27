@@ -108,7 +108,7 @@
 - 分页实测：单个高于页面内容高度的**段落**块按行边界拆页（QTextLine::rect() 块内坐标）；长**表格**按行块分页——60 行表格导出实测 pages>=2（slot pdfLongTablePaginatesRowByRow），表格跨页不重复表头，防孤行仍待做。
 - DOCX 表格分页事实：OOXML 的 `<w:tbl>` 行由阅读器（Word/WPS/LibreOffice）自动跨页分页，导出侧不需要特殊处理；本机没有这三个阅读器，渲染分页只能在装有 Word/WPS 的机器或 CI 上确认。
 - PDF 重复表头事实（已实现）：PdfWriter 在续页起始块位于表格内部时，用 `QTextCursor(block).currentTable()` 取表、`cellAt(block.position()).row() > 0` 判定为续页、用首行各单元格的 `cellAt(0, col).firstCursorPosition().block()` 合成表头矩形，把表头画在页顶并从内容高度里扣掉表头高度 + 4px。块→表格只能用 `QTextCursor::currentTable()`：QTextBlock 没有 table()，QTextDocument 没有 findFrame/findTable，QTextTable 没有 cellPosition（是 cellAt(row, col)）。本机验证：分页模拟断言每个位于表格内的续页起始块都拿到表头矩形；导出对比 100 行表格 off/on 都是 3 页但字节数 17300→17450（续页确实多画了表头内容）；重画的字形内容是否在阅读器里正确显示仍要靠阅读器确认。
-- 防孤行（待做）：需要在分页时把"段落最后一行"与其上一行绑定，Qt 排版没有孤行控制 API，得在块内按行分组重新分页，风险高于收益，未实现。
+- 防孤行事实（已实现）：`typist::platform::splitParagraphChunks(lineCount, linesPerPage)` 给出行范围分块——块连续覆盖全部行、每块不超过 linesPerPage，且带防孤行规则（剩余行数恰好为 1 时把上一块缩到 linesPerPage-1，让段末至少两行同页；单行段落保持单块）。PdfWriter 的超高块路径先数出能放进 contentHeight 的行数再分块、逐块 emitPage；Qt 排版没有孤行控制 API，规则在应用侧实现。单测覆盖 60/30、31/30（29+2）、61/30（无单行块）、0/1/40/1 边界。
 - 页码/边距配置走 QSettings 键 pdfPaper=a4|letter、pdfMarginMm（限 5–60mm，非法值回退 20mm）。
 - 构造顺序教训：applyTheme() 会写 m_themeAction 的文字，必须在 action 创建之后调用（否则空指针崩溃）；保留 nullptr 守卫。
 - 性能基线已建立（本机 Windows、Release/NDEBUG）：冷启动 295ms（原生 windows platform；offscreen 17ms 只作 proxy），常驻工作集 21.7MB，1MB Markdown 两种形状——realistic parse 34 / build 67 / serialize 16 = 117ms，tableheavy parse 51 / build 111 / serialize 82 = 244ms，均进入 <250ms 预算。

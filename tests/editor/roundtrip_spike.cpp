@@ -103,6 +103,7 @@ class EditorSpike : public QObject {
   void nestedListsRoundTripAtDepthFour();
   void pdfLongTablePaginatesRowByRow();
   void headingInlineStylesRoundTrip();
+  void pdfParagraphChunkOrphanRules();
   void pdfPageStartBlockProbe();
   void pdfHeaderRowForContinuationPages();
   void pdfContinuationPagesRepeatTableHeader();
@@ -1217,6 +1218,35 @@ void EditorSpike::pdfContinuationPagesRepeatTableHeader() {
            qPrintable(QStringLiteral("off bytes=%1 on bytes=%2").arg(offBytes).arg(onBytes)));
   QFile::remove(offPath);
   QFile::remove(onPath);
+}
+
+void EditorSpike::pdfParagraphChunkOrphanRules() {
+  const auto covers = [](const QVector<QPair<int, int>>& chunks, int lineCount) {
+    int start = 0;
+    for (const QPair<int, int>& chunk : chunks) {
+      if (chunk.first != start) return false;
+      if (chunk.second <= chunk.first) return false;
+      start = chunk.second;
+    }
+    return start == lineCount;
+  };
+  const QVector<QPair<int, int>> even = typist::platform::splitParagraphChunks(60, 30);
+  QCOMPARE(even.size(), 2);
+  QVERIFY(covers(even, 60));
+  const QVector<QPair<int, int>> tail = typist::platform::splitParagraphChunks(31, 30);
+  QCOMPARE(tail.size(), 2);
+  QCOMPARE(tail.at(0).second - tail.at(0).first, 29);
+  QCOMPARE(tail.at(1).second - tail.at(1).first, 2);
+  QVERIFY(covers(tail, 31));
+  const QVector<QPair<int, int>> twice = typist::platform::splitParagraphChunks(61, 30);
+  QVERIFY(covers(twice, 61));
+  for (const QPair<int, int>& chunk : twice) {
+    QVERIFY(chunk.second - chunk.first > 1);
+  }
+  const QVector<QPair<int, int>> single = typist::platform::splitParagraphChunks(1, 30);
+  QCOMPARE(single.size(), 1);
+  QCOMPARE(typist::platform::splitParagraphChunks(0, 30).size(), 0);
+  QVERIFY(typist::platform::splitParagraphChunks(40, 1).size() >= 2);
 }
 
 void EditorSpike::pdfPageStartBlockProbe() {
