@@ -40,6 +40,10 @@
 - 撤销历史上限已实现：editor::kUndoStepLimit=200，contentsChanged 时 availableUndoSteps() 超限就 clearUndoRedoStacks(UndoStack)；Qt 没有部分裁剪，只能整栈丢弃，超限后撤销不可用。
 - HTML 导出走 cmark-gfm 的 GFM 扩展：core::toHtml 用 cmark_render_html(root, CMARK_OPT_UNSAFE, extensions)，扩展列表要与解析侧一致（cmark_markdown_to_html 不带扩展，表格/任务列表会退化），CMARK_OPT_UNSAFE 让 raw inline html（表格里的 <br>）保留；core::wrapHtmlDocument 加 UTF-8 charset 与中性默认样式。导出的是作者本机文档的 HTML，保留的原始 HTML 会执行脚本——只用于本地打开，不做网络服务。
 - PDF 导出改用 QtGui 的 QPdfWriter（不再需要 PrintSupport 模块）：setPageSize(QPageSize::A4/Letter) + setPageMargins(QMarginsF, QPageLayout::Millimeter) + pageLayout().paintRectPixels(resolution)，写分辨率固定 96dpi 让文档像素与设备像素一致；分页按 blockBoundingRect 累计高度切页并逐页 writer.newPage()，页眉/页脚各留 18px 带，页脚模板里的 # 替换为页码。
+- 文档内查找走 ui::SearchController（QTextDocument::find + FindFlags）：flag 名是 FindCaseSensitively（不是 FindCaseSensitivity）；find 返回选中匹配的游标，找不到返回 null 游标，从文档末尾之后搜索也返回 null（探针：from=27 isNull=1）。
+- 查找两端循环语义：向前步进越过最后一个匹配回到第一个；向后步进在第一个匹配之前回到最后一个（QTextCursor::End 位置处向前搜索返回 null，因此需要显式 wrap）。匹配计数用 selectionEnd 递增游标避免重叠匹配死循环。
+- 表格单元格可被查找命中（QTextDocument::find 会遍历 frame 树，探针 countMatches("aaa")=1），无需额外处理表格 frame。
+- 查找条是内联控件 ui::FindBar（QLineEdit + 区分大小写 + 匹配数 + Prev/Next），Ctrl+F 开关、Esc 关闭；bench 入口 --bench-search 打印 search_matches，环境变量 TYPIST_BENCH_FILE 与 TYPIST_SEARCH_PATTERN 控制被测文件与模式，ctest 项 search_baseline 用它。
 - PDF 输出的 /MediaBox 以 point 为单位（A4 595x842、Letter 612x792），断言纸张差异要按 point 比较而不是像素；解析时用 marker 长度偏移，硬编码偏移会读错数字（探针实测 offset+13 让宽高错位）。
 - 分页限制：单个高于页面内容高度的块会被截断（例如超长表格），后续页从下一个块继续；跨页表格与防孤行留待 Beta。
 - 页码/边距配置走 QSettings 键 pdfPaper=a4|letter、pdfMarginMm（限 5–60mm，非法值回退 20mm）。

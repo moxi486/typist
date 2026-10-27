@@ -22,18 +22,21 @@ int main(int argc, char* argv[]) {
   const bool benchStartup = args.contains(QStringLiteral("--bench-startup"));
   const bool benchRepaint = args.contains(QStringLiteral("--bench-repaint"));
   const bool benchViewSwitch = args.contains(QStringLiteral("--bench-view-switch"));
+  const bool benchSearch = args.contains(QStringLiteral("--bench-search"));
 
   typist::MainWindow window;
-  window.setBenchMode(benchStartup || benchRepaint || benchViewSwitch);
+  window.setBenchMode(benchStartup || benchRepaint || benchViewSwitch || benchSearch);
   const QByteArray benchFile = qgetenv("TYPIST_BENCH_FILE");
   if (!benchFile.isEmpty()) window.openFile(QString::fromUtf8(benchFile));
   window.show();
 
   int repaintBudgetBreaches = 0;
   bool undoKept = false;
-  if (benchStartup || benchRepaint || benchViewSwitch) {
+  int searchMatches = 0;
+
+  if (benchStartup || benchRepaint || benchViewSwitch || benchSearch) {
     QTimer::singleShot(0, &application, [&startup, &application, &window, benchStartup, benchRepaint, benchViewSwitch,
-                                       &repaintBudgetBreaches, &undoKept] {
+                                       benchSearch, &repaintBudgetBreaches, &undoKept, &searchMatches] {
       if (benchStartup) {
         std::printf("startup_ms=%lld\n", static_cast<long long>(startup.elapsed()));
       }
@@ -51,6 +54,11 @@ int main(int argc, char* argv[]) {
         undoKept = window.viewSwitchKeepsUndoForBench();
         std::printf("view_undo_kept=%d\n", undoKept ? 1 : 0);
       }
+      if (benchSearch) {
+        const QString pattern = QString::fromUtf8(qgetenv("TYPIST_SEARCH_PATTERN"));
+        searchMatches = window.searchMatchesForBench(pattern.isEmpty() ? QStringLiteral("item") : pattern);
+        std::printf("search_matches=%d\n", searchMatches);
+      }
       application.quit();
     });
   }
@@ -58,5 +66,6 @@ int main(int argc, char* argv[]) {
   const int code = application.exec();
   if (benchRepaint && repaintBudgetBreaches > 0) return 1;
   if (benchViewSwitch && !undoKept) return 1;
+  if (benchSearch && searchMatches == 0) return 1;
   return code;
 }

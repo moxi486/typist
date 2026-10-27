@@ -9,6 +9,7 @@
 - 打开 / 保存 Markdown（原子写入）
 - 撤销 / 重做，历史上限 200 步
 - 同一视图内源码与渲染切换（Ctrl+/），两种视图各留一份撤销历史；内容语义相同则切换不重建文档
+- 文档内查找（Ctrl+F 打开查找条，Enter 下一个、Shift+Enter 上一个，F3 / Shift+F3 步进，Esc 关闭；显示匹配数，可切换区分大小写，两端循环，表格单元格也能命中）
 - 导出 HTML（Ctrl+Shift+E，走 cmark-gfm 的 GFM 扩展）
 - 导出 PDF（Ctrl+Shift+P，走 QtGui 的 QPdfWriter；纸张 a4/letter、页边距 mm、页眉与页脚（页脚里的 # 替换为页码）可从配置控制，默认 a4 + 20mm + 页眉文件名 + 页脚 Page #）
 - 主题 light / dark / system（Ctrl+Shift+D 循环，偏好写入 QSettings；导出的 HTML 内嵌同一份主题样式）

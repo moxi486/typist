@@ -3,6 +3,7 @@
 #include "FileWriter.h"
 #include "PdfWriter.h"
 #include "AutoSave.h"
+#include "FindBar.h"
 #include "Settings.h"
 #include "ViewSwitch.h"
 #include "Theme.h"
@@ -23,8 +24,11 @@
 #include <QPalette>
 #include <QStatusBar>
 #include <QString>
+#include <QTextCursor>
 #include <QTextDocument>
 #include <QTextEdit>
+#include <QVBoxLayout>
+#include <QWidget>
 
 namespace typist {
 
@@ -63,7 +67,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_document = m_view->active();
   m_editor = new QTextEdit(this);
   m_view->showActiveIn(m_editor);
-  setCentralWidget(m_editor);
+  m_findBar = new ui::FindBar(this);
+
+  auto* central = new QWidget(this);
+  auto* centralLayout = new QVBoxLayout(central);
+  centralLayout->setContentsMargins(0, 0, 0, 0);
+  centralLayout->addWidget(m_editor);
+  centralLayout->addWidget(m_findBar);
+  setCentralWidget(central);
+
+  connect(m_findBar, &ui::FindBar::patternChanged, this, &MainWindow::refreshMatches);
+  connect(m_findBar, &ui::FindBar::findNext, this, &MainWindow::searchNext);
+  connect(m_findBar, &ui::FindBar::findPrevious, this, &MainWindow::searchPrevious);
 
   m_autoSave = new ui::AutoSave(this);
   m_autoSave->setCallback([this] { autoSaveNow(); });
@@ -109,6 +124,21 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_redoAction->setEnabled(false);
   editMenu->addAction(m_redoAction);
   connect(m_redoAction, &QAction::triggered, this, &MainWindow::redo);
+
+  m_findAction = new QAction(QStringLiteral("Find"), this);
+  m_findAction->setShortcut(QKeySequence::Find);
+  editMenu->addAction(m_findAction);
+  connect(m_findAction, &QAction::triggered, this, &MainWindow::toggleFindBar);
+
+  QAction* findNextAction = new QAction(QStringLiteral("Find Next"), this);
+  findNextAction->setShortcut(QKeySequence(QStringLiteral("F3")));
+  editMenu->addAction(findNextAction);
+  connect(findNextAction, &QAction::triggered, this, &MainWindow::searchNext);
+
+  QAction* findPreviousAction = new QAction(QStringLiteral("Find Previous"), this);
+  findPreviousAction->setShortcut(QKeySequence(QStringLiteral("Shift+F3")));
+  editMenu->addAction(findPreviousAction);
+  connect(findPreviousAction, &QAction::triggered, this, &MainWindow::searchPrevious);
 
   QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("View"));
   m_sourceAction = new QAction(QStringLiteral("Source View"), this);
@@ -304,6 +334,45 @@ void MainWindow::toggleSourceView() {
   m_redoAction->setEnabled(m_document->isRedoAvailable());
   m_dirty = currentMarkdown() != m_savedMarkdown;
   updateTitleAndStatus();
+}
+
+void MainWindow::toggleFindBar() {
+  if (m_findBar->isVisible()) {
+    m_findBar->closeBar();
+    m_editor->setFocus();
+  } else {
+    m_findBar->openFocused();
+  }
+  refreshMatches();
+}
+
+void MainWindow::searchNext() {
+  QTextCursor cursor = m_editor->textCursor();
+  m_search.setCaseSensitive(m_findBar->caseSensitive());
+  if (m_search.selectNext(cursor, m_findBar->pattern())) {
+    m_editor->setTextCursor(cursor);
+    m_editor->ensureCursorVisible();
+  }
+  refreshMatches();
+}
+
+void MainWindow::searchPrevious() {
+  QTextCursor cursor = m_editor->textCursor();
+  m_search.setCaseSensitive(m_findBar->caseSensitive());
+  if (m_search.selectPrevious(cursor, m_findBar->pattern())) {
+    m_editor->setTextCursor(cursor);
+    m_editor->ensureCursorVisible();
+  }
+  refreshMatches();
+}
+
+void MainWindow::refreshMatches() {
+  m_search.setCaseSensitive(m_findBar->caseSensitive());
+  m_findBar->setMatchCount(m_search.countMatches(m_document, m_findBar->pattern()));
+}
+
+int MainWindow::searchMatchesForBench(const QString& pattern) const {
+  return m_search.countMatches(m_document, pattern);
 }
 
 void MainWindow::cycleTheme() {

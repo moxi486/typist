@@ -1,8 +1,10 @@
 #pragma once
 
 #include <QMainWindow>
-#include <QString>
 #include <QPalette>
+#include <QString>
+
+#include "Search.h"
 
 class QAction;
 class QCloseEvent;
@@ -11,6 +13,7 @@ class QTextEdit;
 
 namespace typist::ui {
 class AutoSave;
+class FindBar;
 class ViewSwitch;
 }
 
@@ -36,6 +39,9 @@ class MainWindow : public QMainWindow {
   // Synthetic keystrokes in bench mode must not be persisted to the file under test.
   void setBenchMode(bool enabled);
 
+  // Bench seam: match count over the document the editor is showing.
+  int searchMatchesForBench(const QString& pattern) const;
+
  private slots:
   void openDialog();
   void save();
@@ -47,6 +53,10 @@ class MainWindow : public QMainWindow {
   void exportPdf();
   void cycleTheme();
   void autoSaveNow();
+  void toggleFindBar();
+  void searchNext();
+  void searchPrevious();
+  void refreshMatches();
 
  private:
   void updateTitleAndStatus();
@@ -59,10 +69,13 @@ class MainWindow : public QMainWindow {
 
   QTextEdit* m_editor = nullptr;
   QTextDocument* m_document = nullptr;
+  ui::FindBar* m_findBar = nullptr;
+  ui::SearchController m_search;
   QAction* m_undoAction = nullptr;
   QAction* m_redoAction = nullptr;
   QAction* m_sourceAction = nullptr;
   QAction* m_themeAction = nullptr;
+  QAction* m_findAction = nullptr;
   ui::AutoSave* m_autoSave = nullptr;
   ui::ViewSwitch* m_view = nullptr;
   bool m_benchMode = false;

@@ -2,6 +2,7 @@
 #include "FileWriter.h"
 #include "PdfWriter.h"
 #include "AutoSave.h"
+#include "Search.h"
 #include "Settings.h"
 #include "ViewSwitch.h"
 #include "Theme.h"
@@ -46,6 +47,10 @@ class EditorSpike : public QObject {
   void themeResolvesPreferenceAndStyles();
   void themePreferenceRoundTripsThroughSettings();
   void htmlExportEmbedsThemeStylesheet();
+  void searchCountsMatchesAcrossViews();
+  void searchWrapsAroundAtBothEnds();
+  void searchRespectsCaseSensitivity();
+  void searchReachesTableCells();
 
  private:
   std::string m_corpus;
@@ -494,6 +499,58 @@ void EditorSpike::pdfExportWiderMarginsProduceMorePages() {
   QFile::remove(widePath);
 }
 
+void EditorSpike::searchCountsMatchesAcrossViews() {
+  typist::ui::ViewSwitch view;
+  QString error;
+  QVERIFY(view.loadMarkdownIntoBoth(QStringLiteral("- first item\n- second item\n  - nested item\n- third item\n"), &error));
+  typist::ui::SearchController search;
+  QVERIFY(search.countMatches(view.rendered(), QStringLiteral("item")) == 4);
+  QVERIFY(search.countMatches(view.source(), QStringLiteral("item")) == 4);
+}
+
+void EditorSpike::searchWrapsAroundAtBothEnds() {
+  QTextDocument document;
+  QString error;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("alpha item beta item gamma"), &document, &error));
+  typist::ui::SearchController search;
+  const int first = document.find(QStringLiteral("item"), 0).selectionStart();
+  const int last = document.find(QStringLiteral("item"), first + 1).selectionStart();
+
+  QTextCursor cursor(&document);
+  cursor.movePosition(QTextCursor::End);
+  QVERIFY(search.selectNext(cursor, QStringLiteral("item")));
+  QCOMPARE(cursor.selectionStart(), first);
+  QVERIFY(search.selectNext(cursor, QStringLiteral("item")));
+  QCOMPARE(cursor.selectionStart(), last);
+  // Past the last match the forward step wraps to the first one.
+  QVERIFY(search.selectNext(cursor, QStringLiteral("item")));
+  QCOMPARE(cursor.selectionStart(), first);
+  // Before the first match the backward step wraps to the last one.
+  QVERIFY(search.selectPrevious(cursor, QStringLiteral("item")));
+  QCOMPARE(cursor.selectionStart(), last);
+  QVERIFY(search.selectPrevious(cursor, QStringLiteral("item")));
+  QCOMPARE(cursor.selectionStart(), first);
+}
+
+void EditorSpike::searchRespectsCaseSensitivity() {
+  QTextDocument document;
+  QString error;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("Item item ITEM"), &document, &error));
+  typist::ui::SearchController search;
+  QVERIFY(search.countMatches(&document, QStringLiteral("item")) == 3);
+  search.setCaseSensitive(true);
+  QVERIFY(search.countMatches(&document, QStringLiteral("item")) == 1);
+}
+
+// Table cells live in their own QTextFrame; the probe shows QTextDocument::find reaches them.
+void EditorSpike::searchReachesTableCells() {
+  QTextDocument document;
+  QString error;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("| cell | value |\n| --- | --- |\n| aaa | bbb |\n"), &document, &error));
+  typist::ui::SearchController search;
+  QVERIFY(search.countMatches(&document, QStringLiteral("aaa")) == 1);
+  QVERIFY(search.countMatches(&document, QStringLiteral("value")) == 1);
+}
 
 QTEST_MAIN(EditorSpike)
 
