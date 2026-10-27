@@ -1,14 +1,14 @@
 #include "MainWindow.h"
 
-#include "FileWriter.h"
-#include "PdfWriter.h"
 #include "AutoSave.h"
 #include "FileSearch.h"
+#include "FileTree.h"
 #include "FileWriter.h"
 #include "FindBar.h"
+#include "PdfWriter.h"
 #include "Settings.h"
-#include "ViewSwitch.h"
 #include "Theme.h"
+#include "ViewSwitch.h"
 #include "editor_document.h"
 #include "markdown.h"
 
@@ -79,6 +79,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   centralLayout->addWidget(m_editor);
   centralLayout->addWidget(m_findBar);
   setCentralWidget(central);
+
+  m_tree = new ui::FileTree(this);
+  m_sidebarDock = new QDockWidget(QStringLiteral("Files"), this);
+  m_sidebarDock->setWidget(m_tree);
+  m_sidebarDock->hide();
+  addDockWidget(Qt::LeftDockWidgetArea, m_sidebarDock);
+  connect(m_tree, &ui::FileTree::entryActivated, this, &MainWindow::openTreeEntry);
 
   m_results = new QListWidget(this);
   m_resultsDock = new QDockWidget(QStringLiteral("Search Results"), this);
@@ -156,6 +163,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   editMenu->addAction(m_folderSearchAction);
   connect(m_folderSearchAction, &QAction::triggered, this, &MainWindow::searchInFolder);
 
+
+  m_folderAction = new QAction(QStringLiteral("Open Folder"), this);
+  m_folderAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+O")));
+  fileMenu->addAction(m_folderAction);
+  connect(m_folderAction, &QAction::triggered, this, &MainWindow::openFolder);
+
   QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("View"));
   m_sourceAction = new QAction(QStringLiteral("Source View"), this);
   m_sourceAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+/")));
@@ -166,6 +179,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_themeAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+D")));
   viewMenu->addAction(m_themeAction);
   connect(m_themeAction, &QAction::triggered, this, &MainWindow::cycleTheme);
+
+  m_sidebarAction = new QAction(QStringLiteral("Show Files"), this);
+  m_sidebarAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
+  viewMenu->addAction(m_sidebarAction);
+  connect(m_sidebarAction, &QAction::triggered, this, &MainWindow::toggleSidebar);
 
   // Applied after the actions exist: applyTheme labels the theme action.
   applyTheme();
@@ -222,6 +240,11 @@ void MainWindow::openFile(const QString& path) {
   m_savedMarkdown = source;
   m_sourceAction->setText(QStringLiteral("Source View"));
   markClean();
+
+  if (m_sidebarDock->isVisible()) {
+    m_tree->setRoot(QFileInfo(path).absolutePath());
+    m_tree->selectPath(path);
+  }
 }
 
 void MainWindow::save() {
@@ -389,6 +412,33 @@ void MainWindow::refreshMatches() {
 
 int MainWindow::searchMatchesForBench(const QString& pattern) const {
   return m_search.countMatches(m_document, pattern);
+}
+
+int MainWindow::fileTreeEntriesForBench(const QString& rootDir) {
+  m_tree->setRoot(rootDir);
+  return m_tree->entryCount();
+}
+
+void MainWindow::toggleSidebar() {
+  if (m_sidebarDock->isVisible()) {
+    m_sidebarDock->hide();
+    return;
+  }
+  if (!m_currentPath.isEmpty()) m_tree->setRoot(QFileInfo(m_currentPath).absolutePath());
+  m_sidebarDock->show();
+  m_tree->selectPath(m_currentPath);
+}
+
+void MainWindow::openFolder() {
+  const QString dir = QFileDialog::getExistingDirectory(this, QStringLiteral("Open Folder"));
+  if (dir.isEmpty()) return;
+  m_tree->setRoot(dir);
+  m_sidebarDock->show();
+  statusBar()->showMessage(QStringLiteral("%1 markdown files in %2").arg(m_tree->entryCount()).arg(dir));
+}
+
+void MainWindow::openTreeEntry(const QString& path) {
+  openFile(path);
 }
 
 qint64 MainWindow::searchFolderForBench(const QString& rootDir, const QString& pattern, int* hitsOut) {

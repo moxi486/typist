@@ -10,6 +10,7 @@
 - 撤销 / 重做，历史上限 200 步
 - 同一视图内源码与渲染切换（Ctrl+/），两种视图各留一份撤销历史；内容语义相同则切换不重建文档
 - 文档内查找（Ctrl+F 打开查找条，Enter 下一个、Shift+Enter 上一个，F3 / Shift+F3 步进，Esc 关闭；显示匹配数，可切换区分大小写，两端循环，表格单元格也能命中）
+- 文件侧栏（Ctrl+Shift+L 开关左侧文件列表，Ctrl+Shift+O 打开文件夹；列表按相对路径排序，双击打开，打开文件时自动切到该文件所在目录并高亮当前文件）
 - 目录内搜索（Ctrl+Shift+F 搜索当前文件所在目录，结果落在底部 dock，双击打开命中文件；跳过隐藏目录与 .git/node_modules）
 - 导出 HTML（Ctrl+Shift+E，走 cmark-gfm 的 GFM 扩展）
 - 导出 PDF（Ctrl+Shift+P，走 QtGui 的 QPdfWriter；纸张 a4/letter、页边距 mm、页眉与页脚（页脚里的 # 替换为页码）可从配置控制，默认 a4 + 20mm + 页眉文件名 + 页脚 Page #）

@@ -15,6 +15,7 @@ class QTextEdit;
 
 namespace typist::ui {
 class AutoSave;
+class FileTree;
 class FindBar;
 class ViewSwitch;
 }
@@ -47,6 +48,9 @@ class MainWindow : public QMainWindow {
   // Bench seam: folder scan latency; *hitsOut receives the hit count.
   qint64 searchFolderForBench(const QString& rootDir, const QString& pattern, int* hitsOut);
 
+  // Bench seam: sidebar entry count for a root directory.
+  int fileTreeEntriesForBench(const QString& rootDir);
+
  private slots:
   void openDialog();
   void save();
@@ -64,6 +68,9 @@ class MainWindow : public QMainWindow {
   void refreshMatches();
   void searchInFolder();
   void openSearchHit();
+  void toggleSidebar();
+  void openFolder();
+  void openTreeEntry(const QString& path);
 
  private:
   void updateTitleAndStatus();
@@ -78,6 +85,8 @@ class MainWindow : public QMainWindow {
   QTextDocument* m_document = nullptr;
   ui::FindBar* m_findBar = nullptr;
   QDockWidget* m_resultsDock = nullptr;
+  QDockWidget* m_sidebarDock = nullptr;
+  ui::FileTree* m_tree = nullptr;
   QListWidget* m_results = nullptr;
   ui::SearchController m_search;
   QAction* m_undoAction = nullptr;
@@ -86,6 +95,8 @@ class MainWindow : public QMainWindow {
   QAction* m_themeAction = nullptr;
   QAction* m_findAction = nullptr;
   QAction* m_folderSearchAction = nullptr;
+  QAction* m_sidebarAction = nullptr;
+  QAction* m_folderAction = nullptr;
   ui::AutoSave* m_autoSave = nullptr;
   ui::ViewSwitch* m_view = nullptr;
   bool m_benchMode = false;

@@ -3,6 +3,7 @@
 #include "FileWriter.h"
 #include "PdfWriter.h"
 #include "AutoSave.h"
+#include "FileTree.h"
 #include "Search.h"
 #include "Settings.h"
 #include "ViewSwitch.h"
@@ -57,6 +58,10 @@ class EditorSpike : public QObject {
   void fileSearchRespectsCaseSensitivity();
   void fileSearchHonorsMaxHits();
   void fileSearchStaysWithinBudgetOnLargeFile();
+  void fileTreeListsMarkdownFilesUnderRoot();
+  void fileTreeSkipsHiddenDirectories();
+  void fileTreeRootsSwitchReplacesEntries();
+  void fileTreeSelectionTracksPath();
 
  private:
   std::string m_corpus;
@@ -660,6 +665,69 @@ void EditorSpike::fileSearchStaysWithinBudgetOnLargeFile() {
   const qint64 elapsed = timer.elapsed();
   QVERIFY(hits.size() == 1);
   QVERIFY(elapsed < 400);
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::fileTreeListsMarkdownFilesUnderRoot() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_tree_a"));
+  QDir().mkpath(QDir(dir).filePath(QStringLiteral("b")));
+  writeSearchFixture(dir, QStringLiteral("a.md"), QStringLiteral("# A\n"));
+  writeSearchFixture(QDir(dir).filePath(QStringLiteral("b")), QStringLiteral("c.md"), QStringLiteral("# C\n"));
+  writeSearchFixture(dir, QStringLiteral("notes.txt"), QStringLiteral("ignored\n"));
+
+  typist::ui::FileTree tree;
+  tree.setRoot(dir);
+  QVERIFY(tree.entryCount() == 2);
+  QVERIFY(tree.entryPath(0).endsWith(QStringLiteral("a.md")));
+  QVERIFY(tree.entryPath(1).endsWith(QStringLiteral("b/c.md")));
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::fileTreeSkipsHiddenDirectories() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_tree_b"));
+  QDir().mkpath(QDir(dir).filePath(QStringLiteral(".git")));
+  writeSearchFixture(dir, QStringLiteral("visible.md"), QStringLiteral("# V\n"));
+  writeSearchFixture(QDir(dir).filePath(QStringLiteral(".git")), QStringLiteral("hook.md"), QStringLiteral("# H\n"));
+
+  typist::ui::FileTree tree;
+  tree.setRoot(dir);
+  QVERIFY(tree.entryCount() == 1);
+  QVERIFY(tree.entryPath(0).endsWith(QStringLiteral("visible.md")));
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::fileTreeRootsSwitchReplacesEntries() {
+  const QString first = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_tree_c1"));
+  const QString second = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_tree_c2"));
+  QDir().mkpath(first);
+  QDir().mkpath(second);
+  writeSearchFixture(first, QStringLiteral("one.md"), QStringLiteral("# 1\n"));
+  writeSearchFixture(second, QStringLiteral("two.md"), QStringLiteral("# 2\n"));
+  writeSearchFixture(second, QStringLiteral("three.md"), QStringLiteral("# 3\n"));
+
+  typist::ui::FileTree tree;
+  tree.setRoot(first);
+  QVERIFY(tree.entryCount() == 1);
+  tree.setRoot(second);
+  QVERIFY(tree.entryCount() == 2);
+  QVERIFY(tree.entryPath(0).endsWith(QStringLiteral("three.md")));
+  QVERIFY(tree.entryPath(1).endsWith(QStringLiteral("two.md")));
+  QDir(first).removeRecursively();
+  QDir(second).removeRecursively();
+}
+
+void EditorSpike::fileTreeSelectionTracksPath() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_tree_d"));
+  QDir().mkpath(dir);
+  const QString target = writeSearchFixture(dir, QStringLiteral("target.md"), QStringLiteral("# T\n"));
+  writeSearchFixture(dir, QStringLiteral("other.md"), QStringLiteral("# O\n"));
+
+  typist::ui::FileTree tree;
+  tree.setRoot(dir);
+  tree.selectPath(target);
+  QCOMPARE(tree.selectedPath(), target);
+  tree.selectPath(QDir(dir).filePath(QStringLiteral("missing.md")));
+  QCOMPARE(tree.selectedPath(), target);
   QDir(dir).removeRecursively();
 }
 

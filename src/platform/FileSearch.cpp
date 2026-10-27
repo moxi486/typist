@@ -3,7 +3,10 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
+#include <QFileInfo>
 #include <QStringList>
+
+#include <algorithm>
 
 namespace typist::platform {
 
@@ -69,6 +72,35 @@ QVector<SearchHit> searchFiles(const SearchRequest& request, QString* error) {
     }
   }
   return hits;
+}
+
+
+QStringList listMarkdownFiles(const QString& rootDir, int maxEntries, qint64 maxFileBytes) {
+  const QDir root(rootDir);
+  QStringList entries;
+  QDirIterator it(rootDir, QStringList() << QStringLiteral("*.md"),
+                  QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden, QDirIterator::Subdirectories);
+  while (it.hasNext()) {
+    const QString path = it.next();
+    const QStringList parts = root.relativeFilePath(path).split(QChar(47));
+    bool skip = false;
+    for (int i = 0; i < parts.size() - 1; ++i) {
+      if (skippedDirectory(parts.at(i))) {
+        skip = true;
+        break;
+      }
+    }
+    if (skip) continue;
+
+    const QFileInfo info(path);
+    if (info.size() > maxFileBytes) continue;
+    entries.append(path);
+    if (maxEntries > 0 && entries.size() >= maxEntries) break;
+  }
+  std::sort(entries.begin(), entries.end(), [&root](const QString& left, const QString& right) {
+    return root.relativeFilePath(left) < root.relativeFilePath(right);
+  });
+  return entries;
 }
 
 }  // namespace typist::platform
