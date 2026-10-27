@@ -83,6 +83,8 @@
 - 性能事实：行内分类给 1MB realistic 的 serialize 加了约 3ms（157ms 总）、tableheavy 262ms；fast path（无 textFormats 的块直接返回文本）是必要的，否则 tableheavy 多出约 50ms。
 - PDF 分页事实：`setPageSize()` 不会重新排版，必须调 `layout->documentSize()` 才有真实块高与每块的行布局；`QTextLine::rect()` 是**块内相对坐标**，分页偏移要加上 `blockBoundingRect(block).y()`；软换行的段落是**一个块**（块内可含 \n），所以长段落确实会高于一页，但换行后行数比源行数少得多（600 源行 ≈ 49 排版行 ≈ 638px，需要更长的内容才会触发分页路径）。
 - DOCX 事实：成员 XML 用 `toUtf8()` 写入且未压缩，可直接在字节里 grep 标签与字形；非 ASCII 字形别用 `QStringLiteral("\uXXXX")`（本轮字节字面量断言失败而 `QString(QChar(0x2611)).toUtf8()` 命中），用 QChar 显式构造再转 UTF-8；表格列宽按每列最长文本权重分配，总宽 9638 twips。
+- 内联图片事实：`cursor.insertImage(QTextImageFormat)` + `document->addResource(QVariant::Url, url, QImage)` 才会真的画出图；**打完图后不能用新建的 QTextCharFormat 去 setCharFormat 标记对象字符——那会抹掉 ImageName/ImageWidth/Height，块高变成 0**，必须读回 `cursor.charFormat()` 再追加自定义属性（实测：新建格式 h=0，复用格式后 h≥18）。序列化读 `kImageProperty`/`kImageAltProperty` 还原 `![alt](url)`；块文本里那个对象字符是 U+FFFC，不能让它漏进序列化。Qt6 没有 `setImageSizeLimit`，缩放靠显式 width/height。
+- 布局惰性事实：`blockBoundingRect().height()` 在没排版时给 0/14，要 `documentLayout()->documentSize()` 强制排版才有真实块高（与 PDF 分页同一条纪律）。
 - 任务状态事实：渲染文档里任务项的勾选状态存在 **QTextBlockFormat 的属性 kTaskProperty**，不在 QTextCharFormat 里（块文本只有条目正文，标记由 Qt 列表圆点画出），所以序列化读的是 blockFormat，切换也必须改 blockFormat；用 textFormats 找任务属性永远找不到。
 - Qt6 API 事实：`QTextCursor(QTextDocument*, int position)` 这个重载不存在，要 `QTextCursor(document->findBlockByNumber(n))` 或先 `QTextCursor(document)` 再移动；点击门限用 `m_editor->cursorRect(cursorAtBlockStart).x()` 比较（标记区在条目文字左边）。
 - DOCX 超链接事实：`w:hyperlink r:id` 从 rId3 起（rId1 是 styles、rId2 是 numbering），关系写 `TargetMode="External"`，重复 URL 复用同一 rId；链接文字带 `<w:u w:val="single"/>`。图片没有 drawing/media 部件，只写成指向路径的超链接文本。

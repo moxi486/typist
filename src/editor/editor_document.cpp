@@ -8,7 +8,11 @@
 #include <QTextBlockFormat>
 #include <QTextCharFormat>
 #include <QTextCursor>
+#include <QFileInfo>
+#include <QImageReader>
+#include <QTextImageFormat>
 #include <QTextLayout>
+#include <QUrl>
 #include <QTextList>
 #include <QTextListFormat>
 #include <QTextTable>
@@ -64,7 +68,42 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
     return;
   }
   for (const typist::core::InlineRun& run : runs) {
-    cursor.insertText(QString::fromStdString(run.text), formatForRun(run));
+    const QString text = QString::fromStdString(run.text);
+    const QString target = QString::fromStdString(run.url);
+    if (run.image && !target.isEmpty() && QFileInfo(target).isFile()) {
+      // Show the image itself; the object run keeps target and alt so serialization
+      // can re-emit the Markdown link.
+      // A large photo is scaled down so the model stays bounded; the aspect ratio holds.
+      QImageReader reader(target);
+      QSize natural = reader.size();
+      if (natural.width() > 640 || natural.height() > 480) {
+        const double scale = qMin(640.0 / double(natural.width()), 480.0 / double(natural.height()));
+        natural = QSize(int(double(natural.width()) * scale), int(double(natural.height()) * scale));
+      }
+      const QImage loaded = reader.read();
+      const QUrl resourceUrl = QUrl::fromLocalFile(target);
+      cursor.document()->addResource(QVariant::Url, resourceUrl, loaded);
+      QTextImageFormat imageFormat;
+      imageFormat.setName(resourceUrl.toString());
+      if (natural.width() > 0 && natural.height() > 0) {
+        imageFormat.setWidth(natural.width());
+        imageFormat.setHeight(natural.height());
+      }
+      cursor.insertImage(imageFormat);
+      const QString blockText = cursor.block().text();
+      const int objectIndex = blockText.indexOf(QChar(0xFFFC));
+      if (objectIndex >= 0) {
+        // Reuse the object format: a fresh format would drop the image name and size.
+        cursor.setPosition(cursor.block().position() + objectIndex, QTextCursor::MoveAnchor);
+        cursor.setPosition(cursor.block().position() + objectIndex + 1, QTextCursor::KeepAnchor);
+        QTextCharFormat objectFormat = cursor.charFormat();
+        objectFormat.setProperty(kImageProperty, QVariant(target));
+        objectFormat.setProperty(kImageAltProperty, QVariant(text));
+        cursor.setCharFormat(objectFormat);
+      }
+      continue;
+    }
+    cursor.insertText(text, formatForRun(run));
   }
 }
 
@@ -292,6 +331,8 @@ QString inlineFromBlock(const QTextBlock& block) {
     if (fmt.hasProperty(kImageProperty)) {
       run.image = true;
       run.url = fmt.property(kImageProperty).toString();
+      const QString alt = fmt.property(kImageAltProperty).toString();
+      if (!alt.isEmpty()) run.text = alt;  // the block text here is the object placeholder
     } else if (fmt.isAnchor()) {
       run.link = true;
       run.url = fmt.anchorHref();

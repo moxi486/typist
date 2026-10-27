@@ -94,6 +94,7 @@ class EditorSpike : public QObject {
   void toggleTaskCheckboxIgnoresPlainBlocks();
   void toggleTaskCheckboxIsOneUndoStep();
   void docxExportWritesHyperlinkRelationships();
+  void inlineImageRendersAndRoundTrips();
   void inlineRunsRoundTripThroughMarkdownSerialize();
   void inlineRunsRoundTripThroughDocument();
   void renderedDocumentCarriesInlineFormats();
@@ -1137,6 +1138,43 @@ void EditorSpike::toggleTaskCheckboxIsOneUndoStep() {
   QVERIFY(typist::editor::serializeDocument(&document).contains(QStringLiteral("- [ ] done")));
   document.undo();
   QCOMPARE(typist::editor::serializeDocument(&document), before);
+}
+
+void EditorSpike::inlineImageRendersAndRoundTrips() {
+  const QString imagePath = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_inline_pic.png"));
+  QImage image(24, 18, QImage::Format_RGB32);
+  image.fill(Qt::blue);
+  QVERIFY(image.save(imagePath));
+
+  QTextDocument document;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("body\n\n![pic](%1)\n").arg(imagePath), &document, nullptr));
+  const QString serialized = typist::editor::serializeDocument(&document);
+  QVERIFY(serialized.contains(QStringLiteral("![pic](") + imagePath + QStringLiteral(")")));
+  QVERIFY(!serialized.contains(QChar(0xFFFC)));
+
+  // Layout is lazy: heights only become real once the document is laid out.
+  const QSizeF laidOut = document.documentLayout()->documentSize();
+  QVERIFY(laidOut.height() > 18.0);
+
+  bool tagged = false;
+  bool imageShown = false;
+  for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
+    for (const QTextLayout::FormatRange& range : block.textFormats()) {
+      if (range.format.hasProperty(typist::editor::kImageProperty)) tagged = true;
+    }
+    if (document.documentLayout()->blockBoundingRect(block).height() >= 18.0) imageShown = true;
+  }
+  QVERIFY(tagged);
+  QVERIFY(imageShown);
+
+  const typist::core::ParseResult parsed = typist::core::parseMarkdown(serialized.toStdString());
+  QVERIFY(parsed.ok);
+  bool imageRun = false;
+  for (const typist::core::Block& block : parsed.blocks) {
+    for (const typist::core::InlineRun& run : block.runs) if (run.image) imageRun = true;
+  }
+  QVERIFY(imageRun);
+  QFile::remove(imagePath);
 }
 
 void EditorSpike::docxExportWritesHyperlinkRelationships() {
