@@ -25,6 +25,21 @@ int SearchController::countMatches(const QTextDocument* document, const QString&
   return count;
 }
 
+QVector<QTextCursor> SearchController::allMatches(const QTextDocument* document, const QString& pattern, int maxHighlights) const {
+  QVector<QTextCursor> hits;
+  if (document == nullptr || pattern.isEmpty()) return hits;
+  int from = 0;
+  while (from < document->characterCount()) {
+    const QTextCursor hit = document->find(pattern, from, flags());
+    if (hit.isNull()) break;
+    hits.append(hit);
+    if (maxHighlights > 0 && hits.size() >= maxHighlights) break;
+    from = hit.selectionEnd();
+    if (hit.selectionEnd() == hit.selectionStart()) ++from;
+  }
+  return hits;
+}
+
 bool SearchController::selectNext(QTextCursor& cursor, const QString& pattern) const {
   if (cursor.isNull() || pattern.isEmpty()) return false;
   QTextDocument* document = cursor.document();

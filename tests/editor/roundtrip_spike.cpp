@@ -74,6 +74,8 @@ class EditorSpike : public QObject {
   void fileTreeRefreshDetectsContentChange();
   void fileTreeRefreshPreservesSelection();
   void dropTargetPicksMarkdownFile();
+  void searchHighlightsEveryMatch();
+  void searchHighlightRespectsCaseSensitivity();
 
  private:
   std::string m_corpus;
@@ -898,6 +900,29 @@ void EditorSpike::dropTargetPicksMarkdownFile() {
   QVERIFY(typist::platform::firstMarkdownPath({QUrl::fromLocalFile(text)}).isEmpty());
   QVERIFY(typist::platform::firstMarkdownPath({QUrl(QStringLiteral("https://example.com/a.md"))}).isEmpty());
   QDir(dir).removeRecursively();
+}
+
+void EditorSpike::searchHighlightsEveryMatch() {
+  typist::ui::SearchController search;
+  QTextDocument document;
+  QString error;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("item one\n\nitem two\n\nitem three\n\n| item |\n| --- |\n| item |\n"), &document, &error));
+
+  const QVector<QTextCursor> hits = search.allMatches(&document, QStringLiteral("item"));
+  QVERIFY(hits.size() == 5);
+  QVERIFY(hits.size() == search.countMatches(&document, QStringLiteral("item")));
+  QVERIFY(hits.last().selectedText().contains(QStringLiteral("item")));
+}
+
+void EditorSpike::searchHighlightRespectsCaseSensitivity() {
+  typist::ui::SearchController search;
+  QTextDocument document;
+  QString error;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("Item item ITEM\n"), &document, &error));
+
+  QVERIFY(search.allMatches(&document, QStringLiteral("item")).size() == 3);
+  search.setCaseSensitive(true);
+  QVERIFY(search.allMatches(&document, QStringLiteral("item")).size() == 1);
 }
 
 QTEST_MAIN(EditorSpike)

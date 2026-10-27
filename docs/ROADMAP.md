@@ -60,6 +60,7 @@
 - Qt6 的 QList 没有 filter(predicate)（error: no matching function for call to 'QList<QString>::filter(lambda)'）：过滤要写成显式循环。
 - MainWindow 里用 event->mimeData()->hasUrls() 需要 #include <QMimeData>，否则 invalid use of incomplete type 'const class QMimeData'；拖拽判定逻辑抽到 platform::firstMarkdownPath（取第一个本地 .md URL，https URL 与 .txt 都返回空）以便 headless 测试。
 - 监听只在侧栏可见时开启（toggleSidebar 显示时 setWatchEnabled(true)、隐藏时 false），bench 与 headless 测试不启用 watcher；QFileSystemWatcher 与拖拽的 UI 路径不在测试覆盖内，已在 README/ROADMAP 标注。
+- 全部匹配高亮走 SearchController::allMatches（上限 1000）+ QTextEdit::ExtraSelection 的 format.setBackground（取 QPalette::Highlight 加 alpha 110），关闭查找条时把 pattern 置空以清掉高亮；const 的 bench seam 不能调 setCaseSensitive（discards qualifiers），要拷贝一份 SearchController 再用。
 - PDF 输出的 /MediaBox 以 point 为单位（A4 595x842、Letter 612x792），断言纸张差异要按 point 比较而不是像素；解析时用 marker 长度偏移，硬编码偏移会读错数字（探针实测 offset+13 让宽高错位）。
 - 分页限制：单个高于页面内容高度的块会被截断（例如超长表格），后续页从下一个块继续；跨页表格与防孤行留待 Beta。
 - 页码/边距配置走 QSettings 键 pdfPaper=a4|letter、pdfMarginMm（限 5–60mm，非法值回退 20mm）。

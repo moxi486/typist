@@ -48,6 +48,9 @@ class MainWindow : public QMainWindow {
   // Bench seam: match count over the document the editor is showing.
   int searchMatchesForBench(const QString& pattern) const;
 
+  // Bench seam: number of highlighted matches for the current case mode.
+  int highlightCountForBench(const QString& pattern) const;
+
   // Bench seam: folder scan latency; *hitsOut receives the hit count.
   qint64 searchFolderForBench(const QString& rootDir, const QString& pattern, int* hitsOut);
 

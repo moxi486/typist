@@ -27,6 +27,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QColor>
 #include <QKeySequence>
 #include <QMenuBar>
 #include <QMenu>
@@ -386,6 +387,7 @@ void MainWindow::toggleSourceView() {
 void MainWindow::toggleFindBar() {
   if (m_findBar->isVisible()) {
     m_findBar->closeBar();
+    m_findBar->setPattern(QString());
     m_editor->setFocus();
   } else {
     m_findBar->openFocused();
@@ -415,7 +417,28 @@ void MainWindow::searchPrevious() {
 
 void MainWindow::refreshMatches() {
   m_search.setCaseSensitive(m_findBar->caseSensitive());
-  m_findBar->setMatchCount(m_search.countMatches(m_document, m_findBar->pattern()));
+  const QString pattern = m_findBar->pattern();
+  m_findBar->setMatchCount(m_search.countMatches(m_document, pattern));
+
+  QList<QTextEdit::ExtraSelection> selections;
+  if (!pattern.isEmpty()) {
+    QColor highlight = m_editor->palette().color(QPalette::Highlight);
+    highlight.setAlpha(110);
+    const QVector<QTextCursor> hits = m_search.allMatches(m_document, pattern);
+    selections.reserve(hits.size());
+    for (const QTextCursor& hit : hits) {
+      QTextEdit::ExtraSelection selection;
+      selection.cursor = hit;
+      selection.format.setBackground(highlight);
+      selections.append(selection);
+    }
+  }
+  m_editor->setExtraSelections(selections);
+}
+
+int MainWindow::highlightCountForBench(const QString& pattern) const {
+  typist::ui::SearchController search = m_search;
+  return search.allMatches(m_document, pattern).size();
 }
 
 int MainWindow::searchMatchesForBench(const QString& pattern) const {
