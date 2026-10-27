@@ -8,6 +8,7 @@
 #include "FileTree.h"
 #include "Search.h"
 #include "Settings.h"
+#include "SystemTheme.h"
 #include "ViewSwitch.h"
 #include "Theme.h"
 #include "markdown.h"
@@ -80,6 +81,8 @@ class EditorSpike : public QObject {
   void docxExportWritesEachPackageMemberOnce();
   void docxExportReportsHeadingTableAndTaskItem();
   void docxExportFailsWhenPathUnwritable();
+  void systemThemeParsesPlatformHints();
+  void systemThemeReadsWindowsRegistryHint();
 
  private:
   std::string m_corpus;
@@ -1006,6 +1009,23 @@ void EditorSpike::docxExportFailsWhenPathUnwritable() {
   QString error;
   QVERIFY(!typist::platform::exportDocx(path, QStringLiteral("# Title\n"), &error));
   QVERIFY(!error.isEmpty());
+}
+
+void EditorSpike::systemThemeParsesPlatformHints() {
+  QCOMPARE(typist::platform::darkHintFromAppsUseLightTheme(0), typist::platform::DarkHint::Dark);
+  QCOMPARE(typist::platform::darkHintFromAppsUseLightTheme(1), typist::platform::DarkHint::Light);
+  QCOMPARE(typist::platform::darkHintFromGtkTheme(QStringLiteral("Adwaita:dark")), typist::platform::DarkHint::Dark);
+  QCOMPARE(typist::platform::darkHintFromGtkTheme(QStringLiteral("Yaru-dark")), typist::platform::DarkHint::Dark);
+  QCOMPARE(typist::platform::darkHintFromGtkTheme(QStringLiteral("Adwaita")), typist::platform::DarkHint::Light);
+  QCOMPARE(typist::platform::darkHintFromGtkTheme(QString()), typist::platform::DarkHint::Unknown);
+}
+
+void EditorSpike::systemThemeReadsWindowsRegistryHint() {
+#if defined(Q_OS_WIN)
+  QVERIFY(typist::platform::nativeDarkHint() != typist::platform::DarkHint::Unknown);
+#else
+  QSKIP("Native dark hint is only readable on Windows in this suite.");
+#endif
 }
 
 QTEST_MAIN(EditorSpike)

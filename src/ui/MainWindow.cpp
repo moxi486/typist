@@ -2,6 +2,7 @@
 
 #include "AutoSave.h"
 #include "DocxWriter.h"
+#include "SystemTheme.h"
 #include "FileOps.h"
 #include "FileSearch.h"
 #include "FileTree.h"
@@ -46,7 +47,10 @@ namespace typist {
 namespace {
 
 bool systemPrefersDark() {
-  // Qt exposes no explicit dark-mode flag, so the host window colour is the hint.
+  const typist::platform::DarkHint hint = typist::platform::nativeDarkHint();
+  if (hint == typist::platform::DarkHint::Dark) return true;
+  if (hint == typist::platform::DarkHint::Light) return false;
+  // Qt exposes no explicit dark-mode flag, so the host window colour is the fallback hint.
   return QGuiApplication::palette().color(QPalette::Window).lightness() < 128;
 }
 
