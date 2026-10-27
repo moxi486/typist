@@ -7,6 +7,7 @@
 #include <QPageSize>
 #include <QPdfWriter>
 #include <QTextBlock>
+#include <QTextLayout>
 #include <QTextDocument>
 #include <QtGui>
 
@@ -18,6 +19,32 @@ constexpr double kBandHeightPx = 18.0;
 
 QPageSize paperFor(const QString& paper) {
   return paper == QStringLiteral("letter") ? QPageSize(QPageSize::Letter) : QPageSize(QPageSize::A4);
+}
+
+void drawBands(QPainter& painter, const QRectF& pageRect, int page, const PdfPageOptions& options,
+               double headerBand, double footerBand) {
+  if (!options.header.isEmpty()) {
+    painter.drawText(QPointF(pageRect.left(), pageRect.top() + kBandHeightPx - 4.0), options.header);
+  }
+  if (!options.footer.isEmpty()) {
+    QString line = options.footer;
+    line.replace(QStringLiteral("#"), QString::number(page));
+    painter.drawText(QPointF(pageRect.left(), pageRect.bottom() - 4.0), line);
+  }
+}
+
+void emitPage(QPdfWriter& writer, QPainter& painter, QAbstractTextDocumentLayout* layout, const QRectF& pageRect,
+              int page, double contentTop, double contentBottom, double headerBand, double footerBand,
+              const PdfPageOptions& options) {
+  if (page > 1) writer.newPage();
+  painter.save();
+  painter.translate(pageRect.left(), pageRect.top() + headerBand - contentTop);
+  QAbstractTextDocumentLayout::PaintContext context;
+  const double height = qMax(contentBottom - contentTop, 1.0);
+  context.clip = QRectF(0.0, contentTop, pageRect.width(), qMin(height, pageRect.height() - headerBand - footerBand));
+  layout->draw(&painter, context);
+  painter.restore();
+  drawBands(painter, pageRect, page, options, headerBand, footerBand);
 }
 
 }  // namespace
@@ -61,6 +88,9 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
   QTextDocument& laidOut = *copy;
   laidOut.setPageSize(QSizeF(pageRect.width(), contentHeight));
   QAbstractTextDocumentLayout* layout = laidOut.documentLayout();
+  // setPageSize alone does not relayout; documentSize() forces the pass that
+  // gives real block heights and per-block line layouts.
+  layout->documentSize();
 
   QPainter painter(&writer);
   painter.setFont(QFont(painter.font().family(), 9));
@@ -68,40 +98,52 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
   int blockNumber = 0;
   int page = 1;
   while (blockNumber < laidOut.blockCount()) {
-    const QTextBlock start = laidOut.findBlockByNumber(blockNumber);
-    const double base = layout->blockBoundingRect(start).y();
+    const QTextBlock block = laidOut.findBlockByNumber(blockNumber);
+    const QRectF blockRect = layout->blockBoundingRect(block);
+    QTextLayout* lineLayout = block.layout();
+    const bool tall = blockRect.height() > contentHeight && lineLayout != nullptr && lineLayout->lineCount() > 1;
 
-    // Advance while the block still fits below the page bottom; the first block of a page
-    // is always drawn even if it is taller than the page.
-    int nextBlock = blockNumber;
-    QTextBlock block = start;
-    while (block.isValid()) {
-      const QRectF rect = layout->blockBoundingRect(block);
-      if (nextBlock > blockNumber && (rect.y() - base) + rect.height() > contentHeight) break;
-      ++nextBlock;
-      block = block.next();
-    }
-    blockNumber = nextBlock;
-
-    if (page > 1) writer.newPage();
-
-    painter.save();
-    painter.translate(pageRect.left(), pageRect.top() + headerBand - base);
-    QAbstractTextDocumentLayout::PaintContext context;
-    context.clip = QRectF(0.0, base, pageRect.width(), contentHeight);
-    layout->draw(&painter, context);
-    painter.restore();
-
-    if (!options.header.isEmpty()) {
-      painter.drawText(QPointF(pageRect.left(), pageRect.top() + kBandHeightPx - 4.0), options.header);
-    }
-    if (!options.footer.isEmpty()) {
-      QString line = options.footer;
-      line.replace(QStringLiteral("#"), QString::number(page));
-      painter.drawText(QPointF(pageRect.left(), pageRect.bottom() - 4.0), line);
+    if (!tall) {
+      const double base = blockRect.y();
+      int nextBlock = blockNumber;
+      QTextBlock scan = block;
+      while (scan.isValid()) {
+        const QRectF rect = layout->blockBoundingRect(scan);
+        if (nextBlock > blockNumber && (rect.y() - base) + rect.height() > contentHeight) break;
+        ++nextBlock;
+        scan = scan.next();
+      }
+      blockNumber = nextBlock;
+      if (page > 1) writer.newPage();
+      painter.save();
+      painter.translate(pageRect.left(), pageRect.top() + headerBand - base);
+      QAbstractTextDocumentLayout::PaintContext context;
+      context.clip = QRectF(0.0, base, pageRect.width(), contentHeight);
+      layout->draw(&painter, context);
+      painter.restore();
+      drawBands(painter, pageRect, page, options, headerBand, footerBand);
+      ++page;
+      continue;
     }
 
+    // A block taller than the page is split at line boundaries so no line is sliced.
+    // QTextLine::rect() is block-relative, so page offsets are measured from the block top.
+    double pageTop = 0.0;
+    double pageBottom = 0.0;
+    for (int line = 0; line < lineLayout->lineCount(); ++line) {
+      const QRectF lineRect = lineLayout->lineAt(line).rect();
+      if (pageBottom > 0.0 && lineRect.y() - pageTop >= contentHeight) {
+        emitPage(writer, painter, layout, pageRect, page, blockRect.y() + pageTop, blockRect.y() + pageBottom,
+                 headerBand, footerBand, options);
+        ++page;
+        pageTop = lineRect.y();
+      }
+      pageBottom = lineRect.y() + lineRect.height();
+    }
+    emitPage(writer, painter, layout, pageRect, page, blockRect.y() + pageTop, blockRect.y() + pageBottom,
+             headerBand, footerBand, options);
     ++page;
+    ++blockNumber;
   }
 
   painter.end();

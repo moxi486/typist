@@ -81,6 +81,9 @@
 - CI 现在有三个本地跑不到的门：`i18n`（ubuntu，装 `qt6-l10n-tools`，`lupdate -tr strict` + `lrelease` 产出 `.qm` 并上传 `translations` 产物）、windows 作业里的 Performance gate（realistic `total_ms` <= 250、tableheavy <= 300、必须 `fidelity=ok`）与 Translation coverage（比较 MainWindow 唯一 `tr()` 数与 `.ts` 里 `<source>` 数）、`windows-msvc`（Bahrdot/setup-qt6 + cmark-gfm 源码构建，本机无 cl.exe，只在 CI 验证）。
 - 许可合规：仓库根目录 `NOTICE` 记 Qt LGPLv3 动态链接与可重链接步骤、cmark-gfm BSD-2、无内嵌字体/模板；文档页面 `docs/Build.md`、`docs/Keyboard.md`、`docs/Themes.md`、`docs/Translations.md` 与 README 链接。
 - 性能事实：行内分类给 1MB realistic 的 serialize 加了约 3ms（157ms 总）、tableheavy 262ms；fast path（无 textFormats 的块直接返回文本）是必要的，否则 tableheavy 多出约 50ms。
+- PDF 分页事实：`setPageSize()` 不会重新排版，必须调 `layout->documentSize()` 才有真实块高与每块的行布局；`QTextLine::rect()` 是**块内相对坐标**，分页偏移要加上 `blockBoundingRect(block).y()`；软换行的段落是**一个块**（块内可含 \n），所以长段落确实会高于一页，但换行后行数比源行数少得多（600 源行 ≈ 49 排版行 ≈ 638px，需要更长的内容才会触发分页路径）。
+- DOCX 事实：成员 XML 用 `toUtf8()` 写入且未压缩，可直接在字节里 grep 标签与字形；非 ASCII 字形别用 `QStringLiteral("\uXXXX")`（本轮字节字面量断言失败而 `QString(QChar(0x2611)).toUtf8()` 命中），用 QChar 显式构造再转 UTF-8；表格列宽按每列最长文本权重分配，总宽 9638 twips。
+- 测试纪律：断言里写 `\xE2\x9C\x91` 这类字节字面量容易被源码编码影响，优先用运行时 `QString(QChar(0xXXXX)).toUtf8()` 生成待查字节。
 - Qt6 API 事实：QTextCursor::MoveMode 只有 MoveAnchor 与 KeepAnchor（没有 KeepSelection/KeepRightSelection/MoveCursor），扩展选区用 setPosition(start, MoveAnchor) 再 setPosition(end, KeepAnchor)；QTextCursor 构造函数要非 const QTextDocument*，只读匹配路径用 const_cast；QTextBlock 用 isValid() 不是 isNull()；QAction 没有 setAccessibleName（可访问性靠 QWidget::setAccessibleName + QAction::setToolTip）。
 - 测试纪律：正则 slot 断言不要拿 findBlockByNumber(0).position() 当首个命中位置（文档首块常是空块，真实偏移是 1），改成用 outlineFromDocument 的 position 比较顺序。
 - 测试教训：platform::Settings 用的是原生存储（Windows 注册表 HKCU\Software\Typist\Typist），QSettings::setPath(IniFormat, UserScope, dir) 不影响 NativeFormat；bench/ctest 会往注册表写 recentFiles，所以测试要先 QSettings("Typist","Typist").remove("recentFiles") + sync() 再断言，结尾再清一次。

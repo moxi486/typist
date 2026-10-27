@@ -141,11 +141,11 @@ QString runXml(const QString& text, bool bold = false, bool italic = false, bool
 }
 
 
-QString runsXml(const std::vector<typist::core::InlineRun>& runs, const QString& fallback) {
-  if (runs.empty()) return runXml(fallback);
+QString runsXml(const std::vector<typist::core::InlineRun>& runs, const QString& fallback, bool forceBold = false) {
+  if (runs.empty()) return runXml(fallback, forceBold);
   QString out;
   for (const typist::core::InlineRun& run : runs) {
-    out += runXml(QString::fromStdString(run.text), run.bold, run.italic, run.code, run.strike);
+    out += runXml(QString::fromStdString(run.text), run.bold || forceBold, run.italic, run.code, run.strike);
   }
   return out;
 }
@@ -189,7 +189,10 @@ QString listXml(const typist::core::Block& block, int depth, bool ordered) {
   const int indent = 720 + depth * 720;
   for (const typist::core::Block& child : block.children) {
     if (child.type == typist::core::BlockType::ListItem) {
-      const QString prefix = child.task ? (child.checked ? QStringLiteral("[x] ") : QStringLiteral("[ ] ")) : QString();
+      // Real checkbox glyphs; whether they render depends on the viewer font.
+      const QString prefix = child.task
+          ? (child.checked ? QString(QChar(0x2611)) + QStringLiteral(" ") : QString(QChar(0x2610)) + QStringLiteral(" "))
+          : QString();
       QString props = QStringLiteral("<w:pPr><w:pStyle w:val=\"ListParagraph\"/>");
       props += QStringLiteral("<w:numPr><w:ilvl w:val=\"%1\"/><w:numId w:val=\"%2\"/></w:numPr>").arg(depth).arg(numId);
       props += QStringLiteral("<w:ind w:left=\"%1\" w:hanging=\"360\"/></w:pPr>").arg(indent);
@@ -204,6 +207,8 @@ QString listXml(const typist::core::Block& block, int depth, bool ordered) {
   return out;
 }
 
+constexpr int kTableWidthTwips = 9638;  // A4 minus two 20mm margins
+
 QString tableXml(const typist::core::Block& table) {
   int columns = 0;
   for (const typist::core::Block& row : table.children) {
@@ -216,6 +221,7 @@ QString tableXml(const typist::core::Block& table) {
   }
 
   QString out = QStringLiteral("<w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/>");
+  // Column weights follow the longest content per column so the grid is readable.
   out += QStringLiteral("<w:tblBorders><w:top w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>");
   out += QStringLiteral("<w:left w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>");
   out += QStringLiteral("<w:bottom w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>");
@@ -223,20 +229,42 @@ QString tableXml(const typist::core::Block& table) {
   out += QStringLiteral("<w:insideH w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>");
   out += QStringLiteral("<w:insideV w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>");
   out += QStringLiteral("</w:tblBorders></w:tblPr>");
+  QVector<int> weights(columns, 8);
+  for (const typist::core::Block& row : table.children) {
+    if (row.type != typist::core::BlockType::TableRow) continue;
+    int column = 0;
+    for (const typist::core::Block& cell : row.children) {
+      if (cell.type != typist::core::BlockType::TableCell) continue;
+      weights[column] = qMax(weights[column], static_cast<int>(QString::fromStdString(cell.text).length()) + 2);
+      ++column;
+    }
+  }
+  int totalWeight = 0;
+  for (int weight : weights) totalWeight += weight;
+  QVector<int> widths(columns, kTableWidthTwips / qMax(1, columns));
+  int used = 0;
+  for (int i = 0; i < columns - 1; ++i) {
+    widths[i] = (kTableWidthTwips * weights[i]) / totalWeight;
+    used += widths[i];
+  }
+  widths[columns - 1] = kTableWidthTwips - used;
   out += QStringLiteral("<w:tblGrid>");
-  for (int i = 0; i < columns; ++i) out += QStringLiteral("<w:gridCol w:w=\"2000\"/>");
+  for (int i = 0; i < columns; ++i) out += QStringLiteral("<w:gridCol w:w=\"%1\"/>").arg(widths[i]);
   out += QStringLiteral("</w:tblGrid>");
 
   int rowIndex = 0;
   for (const typist::core::Block& row : table.children) {
     if (row.type != typist::core::BlockType::TableRow) continue;
     const bool header = rowIndex == 0;
+    int columnIndex = 0;
     out += QStringLiteral("<w:tr>");
     for (const typist::core::Block& cell : row.children) {
       if (cell.type != typist::core::BlockType::TableCell) continue;
-      out += QStringLiteral("<w:tc><w:tcPr><w:tcW w:w=\"0\" w:type=\"auto\"/></w:tcPr>");
+      const int width = widths[qMin(columnIndex, columns - 1)];
+      out += QStringLiteral("<w:tc><w:tcPr><w:tcW w:w=\"%1\" w:type=\"dxa\"/></w:tcPr>").arg(width);
       const QStringList lines = QString::fromStdString(cell.text).split(QChar(10));
-      for (const QString& line : lines) out += paragraphXml(runXml(line, header));
+      for (const QString& line : lines) out += paragraphXml(runsXml(cell.runs, line, header));
+      ++columnIndex;
       out += QStringLiteral("</w:tc>");
     }
     out += QStringLiteral("</w:tr>");

@@ -16,7 +16,9 @@
 - 目录搜索在后台线程扫描并可取消（新的搜索会取消上一轮，关闭窗口时取消），扫描提前结束时会给出已找到的部分结果
 - 导出 HTML（Ctrl+Shift+E，走 cmark-gfm 的 GFM 扩展）
 - 导出 PDF（Ctrl+Shift+P，走 QtGui 的 QPdfWriter；纸张 a4/letter、页边距 mm、页眉与页脚（页脚里的 # 替换为页码）可从配置控制，默认 a4 + 20mm + 页眉文件名 + 页脚 Page #）
+- PDF 分页：块高超过一页时按行边界拆到多页，不会把一行切成两半（单个超页高的块此前会被截断）
 - 导出 DOCX（Ctrl+Shift+X，由 platform::DocxWriter 直接写 OOXML 包：标题、段落、列表、任务列表、代码块、引用、分隔线、表格；A4 20mm 边距与 PDF 默认一致）
+- DOCX 表格列宽按每列最长内容分配（总宽约 9638 twips，等于 A4 减两侧 20mm），任务项用 ☑/☐ 字形（能否显示取决于阅读器字体）
 - 主题 light / dark / system（Ctrl+Shift+D 循环，偏好写入 QSettings；导出的 HTML 内嵌同一份主题样式）
 - system 主题的判定顺序：Windows 读注册表 AppsUseLightTheme、Linux 读 GTK_THEME 或 ~/.config/gtk-3.0/settings.ini、macOS 读 AppleInterfaceStyle，读不到时回退到窗口调色板亮度
 - 界面语言跟随系统 locale：按语言取 typist_<lang>.qm 目录（依次找当前目录 translations/、可执行文件旁 translations/、Qt 翻译目录、~/.typist/translations/），英语是源语言无需目录；仓库带 translations/typist_zh.ts，编译产物 .qm 由 CI 的 lrelease 生成（本机未装 Qt Linguist，所以本地跑的是英语源文案）

@@ -25,6 +25,7 @@
 #include <QTextCursor>
 #include <QUrl>
 #include <QTextBlock>
+#include <QAbstractTextDocumentLayout>
 #include <QTextDocument>
 
 #include <filesystem>
@@ -87,6 +88,8 @@ class EditorSpike : public QObject {
   void docxExportWritesEachPackageMemberOnce();
   void docxExportReportsHeadingTableAndTaskItem();
   void docxExportFailsWhenPathUnwritable();
+  void docxTableGridWidthsFollowContent();
+  void pdfTallBlockSplitsAtLineBoundaries();
   void inlineRunsRoundTripThroughMarkdownSerialize();
   void inlineRunsRoundTripThroughDocument();
   void renderedDocumentCarriesInlineFormats();
@@ -1028,9 +1031,60 @@ void EditorSpike::docxExportReportsHeadingTableAndTaskItem() {
   const QByteArray document = readWholeFile(path);
   QVERIFY(document.contains("Heading1"));
   QVERIFY(document.contains("<w:tbl>"));
-  QVERIFY(document.contains("[x] done"));
+  const QByteArray glyph = QString(QChar(0x2611)).toUtf8();
+  const int glyphAt = document.indexOf(glyph);
+  const int escAt = document.indexOf("&#");
+  QVERIFY2(glyphAt >= 0, QStringLiteral("glyph=%1 escaped=%2 head=%3").arg(glyphAt).arg(escAt).arg(QString::fromLatin1(document.left(60))).toUtf8().constData());
   QVERIFY(typist::platform::docxSizeForBench(path, QStringLiteral("# Title\n")) > 400);
   QFile::remove(path);
+}
+
+void EditorSpike::docxTableGridWidthsFollowContent() {
+  const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_widths.docx"));
+  QString error;
+  QVERIFY(typist::platform::exportDocx(path, QStringLiteral("| short | much longer cell text here | mid |\n| --- | --- | --- |\n| a | b | c |\n"), &error));
+  const QByteArray data = readWholeFile(path);
+  QFile::remove(path);
+
+  QVector<int> widths;
+  int offset = 0;
+  const QByteArray marker = QByteArrayLiteral("<w:gridCol w:w=\"");
+  while ((offset = data.indexOf(marker, offset)) != -1) {
+    const int start = offset + marker.size();
+    int end = start;
+    while (end < data.size() && data[end] >= '0' && data[end] <= '9') ++end;
+    widths.append(QByteArray(data.constData() + start, end - start).toInt());
+    offset = end;
+  }
+  QCOMPARE(widths.size(), 3);
+  QVERIFY(widths.at(1) > widths.at(0));
+  QVERIFY(widths.at(1) > widths.at(2));
+  int total = 0;
+  for (int width : widths) total += width;
+  QVERIFY(total >= 9400 && total <= 9700);
+}
+
+void EditorSpike::pdfTallBlockSplitsAtLineBoundaries() {
+  const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_pdf_tall.pdf"));
+  QStringList lines;
+  for (int i = 0; i < 600; ++i) lines << QStringLiteral("line %1 of a long paragraph").arg(i);
+  QTextDocument document;
+  QVERIFY(typist::editor::loadMarkdown(lines.join(QStringLiteral("\n")), &document, nullptr));
+
+  const std::unique_ptr<QTextDocument> copy(document.clone());
+  copy->setPageSize(QSizeF(719.0, 935.0));
+  copy->documentLayout()->documentSize();
+  const QTextBlock paragraph = copy->firstBlock().next();
+  const double height = copy->documentLayout()->blockBoundingRect(paragraph).height();
+  QVERIFY2(height > 935.0, QStringLiteral("paragraph height=%1 expected taller than the page").arg(height).toUtf8().constData());
+  QVERIFY(paragraph.layout() != nullptr && paragraph.layout()->lineCount() > 1);
+
+  QString error;
+  QVERIFY2(typist::platform::exportPdf(path, &document, &error), qPrintable(error));
+  const int pages = pdfPageCount(path);
+  QFile::remove(path);
+  QVERIFY2(pages >= 3, QStringLiteral("expected the tall block to span pages, got %1").arg(pages).toUtf8().constData());
+  QVERIFY(pages <= 6);
 }
 
 void EditorSpike::docxExportFailsWhenPathUnwritable() {
