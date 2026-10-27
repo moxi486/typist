@@ -19,7 +19,7 @@
 - PDF 分页：长段落按行边界拆页（不会把一行切成两半），长表格按行分页（跨页不重复表头）
 - 导出 DOCX（Ctrl+Shift+X，由 platform::DocxWriter 直接写 OOXML 包：标题、段落、列表、任务列表、代码块、引用、分隔线、表格；A4 20mm 边距与 PDF 默认一致）
 - DOCX 表格列宽按每列最长内容分配（总宽约 9638 twips，等于 A4 减两侧 20mm），任务项用 ☑/☐ 字形（能否显示取决于阅读器字体）
-- DOCX 链接与图片写成 OOXML 超链接对象（w:hyperlink + 外部关系，同一 URL 共用一条关系；图片仍以文字形式给出目标路径，不内嵌图像）
+- DOCX 链接写成 OOXML 超链接对象（w:hyperlink + 外部关系，同一 URL 共用一条关系）；图片内嵌为 OOXML drawing 对象（图像本体写进 `word/media/imageN.png`，内部关系从 rId1001 起，超过 640×480 按比例缩小，EMU 尺寸 = 像素 × 9525）；图文件读不到时退回带下划线的文字链接
 - 深嵌套列表：五级嵌套（每级缩进两空格）在 Markdown 往返与富文本往返两侧都保真，深度不是上限
 - 检查更新（Ctrl+Shift+U，Help > Check for Updates）：抓取更新源的 `latest.json`，比对版本号后在状态栏提示新版本；只提示，下载与安装仍手动
 - 点击切换任务项：在渲染视图里点列表项文字左侧的标记区会翻转任务勾选状态（源码视图要点亮文本自己改标记）；渲染视图的任务标记是 Qt 列表圆点，勾选状态只保存在块格式属性里
@@ -34,19 +34,19 @@
 - 大纲面板（Ctrl+Shift+T 开关；按标题层级缩进，点击跳转；只在渲染视图生效，源码视图会提示）
 - 查找支持正则（查找栏 Regex 复选框；按块匹配，锚点 ^/$ 作用于每个文本块；无效表达式视为无匹配）
 - 无障碍标注（编辑器、文件列表、搜索结果、大纲与草稿 dock 提供 accessibleName，菜单动作提供含快捷键的 tooltip）
-- 行内样式保真：粗体、斜体、删除线、行内代码、链接、图片在 parse → serialize → parse 里完整往返；渲染视图用字重/斜体/删除线/等宽字体/锚点呈现，链接与图片在渲染里显示为带下划线的锚点文本（图片不内嵌渲染）
+- 行内样式保真：粗体、斜体、删除线、行内代码、链接、图片在 parse → serialize → parse 里完整往返，标题里的行内样式同样进序列化；渲染视图用字重/斜体/删除线/等宽字体/锚点呈现，链接显示为带下划线的锚点文本
 - 粘贴为 Markdown（Ctrl+Shift+V）：把剪贴板里的 Markdown 解析成块插到光标处，整个粘贴是一步撤销；源码视图下按纯文本粘贴
 - 拖拽图片：把图片文件拖到窗口会在光标处插入 ![文件名](路径) 链接（源码视图直接插入该文本）
 - 往返保真测试：parse → serialize → parse 产生相同 AST
 - 文档：`docs/index.md`（首页）、`docs/Build.md`（依赖与三平台构建）、`docs/Keyboard.md`（快捷键）、`docs/Themes.md`（主题与配置）、`docs/Translations.md`（翻译与 `.qm`）、`docs/Release.md`（发布打包、签名与更新通道）、`docs/ROADMAP.md`（路线图与实现事实）；第三方许可声明见仓库根目录的 `NOTICE`
 - 文档站：`docs/` 经 `pages.yml` 用 Jekyll 发布到 GitHub Pages（首页是 `docs/index.md`，主题 minimal）
-- 性能基线：`perf_baseline` 与 `repaint_baseline`（ctest 项）打印打开耗时与打字到重绘耗时；本机 Windows Release 实测冷启动 295ms、常驻工作集 21.7MB、1MB 文档 realistic 177ms、tableheavy 278ms（各取三次尝试的最优值）、打字到重绘 0–1ms
+- 性能基线：`perf_baseline` 与 `repaint_baseline`（ctest 项）打印打开耗时与打字到重绘耗时；本机 Windows Release 实测冷启动 295ms、常驻工作集 21.7MB、1MB 文档 realistic 155ms、tableheavy 274ms（各取三次尝试的最优值）、打字到重绘 0–1ms
 
 ## 性能预算（验收数字）
 
 - 冷启动 < 400ms（本机 Windows Release 实测 295ms；offscreen 的 17ms 只作 proxy）
 - 常驻内存 < 80MB（本机实测工作集 21.7MB）
-- 打开 1MB Markdown < 250ms（本机实测 realistic 177ms、tableheavy 278ms，取三次尝试最优值）
+- 打开 1MB Markdown < 250ms（本机实测 realistic 155ms、tableheavy 274ms，取三次尝试最优值）
 - 输入到重绘 < 16ms（本机实测 0–1ms，含载入 1MB 文档后；由 `typist --bench-repaint` 测量，空文档形状进 ctest）
 
 ## 技术栈

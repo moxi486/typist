@@ -5,6 +5,9 @@
 #include <QByteArray>
 #include <QFile>
 #include <QFileInfo>
+#include <QImageReader>
+#include <QFile>
+#include <QFileInfo>
 #include <QStringList>
 #include <QVector>
 
@@ -142,8 +145,58 @@ QString runXml(const QString& text, bool bold = false, bool italic = false, bool
 }
 
 
+struct ImageAttachment {
+  QString target;
+  QString partName;
+  QByteArray data;
+  int widthPx = 0;
+  int heightPx = 0;
+  int relId = 0;
+};
+
 struct XmlContext {
   QVector<QString> hyperlinkTargets;
+  QVector<ImageAttachment> images;
+
+  // Media relationships start at rId1001 so they never collide with hyperlink ids,
+  // which grow while the document body is being written.
+  int addImage(const QString& target) {
+    for (const ImageAttachment& image : images) {
+      if (image.target == target) return image.relId;
+    }
+    const QFileInfo info(target);
+    if (!info.isFile()) return 0;
+    QImageReader reader(target);
+    const QSize natural = reader.size();
+    QFile file(target);
+    if (!file.open(QIODevice::ReadOnly)) return 0;
+    const QByteArray data = file.readAll();
+    file.close();
+    if (data.isEmpty() || natural.width() <= 0 || natural.height() <= 0) return 0;
+
+    double scale = 1.0;
+    if (natural.width() > 640 || natural.height() > 480) {
+      scale = qMin(640.0 / natural.width(), 480.0 / natural.height());
+    }
+
+    QString extension = QString::fromLatin1(reader.format()).toLower();
+    if (extension == QStringLiteral("jpeg")) extension = QStringLiteral("jpg");
+    if (!QStringLiteral("png jpg gif webp bmp").contains(extension)) {
+      extension = info.suffix().toLower();
+      if (extension == QStringLiteral("jpeg")) extension = QStringLiteral("jpg");
+    }
+    if (extension.isEmpty()) extension = QStringLiteral("png");
+
+    ImageAttachment image;
+    image.target = target;
+    image.partName = QStringLiteral("word/media/image%1.%2").arg(images.size() + 1).arg(extension);
+    image.data = data;
+    image.widthPx = static_cast<int>(natural.width() * scale);
+    image.heightPx = static_cast<int>(natural.height() * scale);
+    image.relId = 1000 + images.size() + 1;
+    images.append(image);
+    return image.relId;
+  }
 
   int hyperlinkId(const QString& target) {
     for (int i = 0; i < hyperlinkTargets.size(); ++i) {
@@ -156,12 +209,37 @@ struct XmlContext {
 
 QString paragraphRun(const QString& text, bool forceBold, XmlContext& context);
 
+
+QString drawingXml(int relId, int docPrId, const QString& name, long long cxEmu, long long cyEmu) {
+  QString out;
+  out += QStringLiteral("<w:r><w:drawing><wp:inline xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\">");
+  out += QStringLiteral("<wp:extent cx=\"%1\" cy=\"%2\"/>").arg(cxEmu).arg(cyEmu);
+  out += QStringLiteral("<wp:docPr id=\"%1\" name=\"%2\"/>").arg(docPrId).arg(escapeXml(name));
+  out += QStringLiteral("<a:graphic xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\">");
+  out += QStringLiteral("<a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">");
+  out += QStringLiteral("<pic:pic xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">");
+  out += QStringLiteral("<pic:nvPicPr><pic:cNvPr id=\"%1\" name=\"%2\"/><pic:cNvPicPr/></pic:nvPicPr>").arg(docPrId).arg(escapeXml(name));
+  out += QStringLiteral("<pic:blipFill><a:blip xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" r:embed=\"rId%1\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>").arg(relId);
+  out += QStringLiteral("<pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%1\" cy=\"%2\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr>").arg(cxEmu).arg(cyEmu);
+  out += QStringLiteral("</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>");
+  return out;
+}
+
 QString runsXml(const std::vector<typist::core::InlineRun>& runs, const QString& fallback, XmlContext& context, bool forceBold = false) {
   if (runs.empty()) return paragraphRun(fallback, forceBold, context);
   QString out;
   for (const typist::core::InlineRun& run : runs) {
     const QString text = QString::fromStdString(run.text);
     const QString target = QString::fromStdString(run.url);
+    if (run.image && !target.isEmpty()) {
+      const int relId = context.addImage(target);
+      if (relId > 0) {
+        const ImageAttachment& image = context.images.last();
+        out += drawingXml(relId, relId - 1000, text.isEmpty() ? QStringLiteral("image") : text,
+                          static_cast<long long>(image.widthPx) * 9525, static_cast<long long>(image.heightPx) * 9525);
+        continue;
+      }
+    }
     if ((run.link || run.image) && !target.isEmpty()) {
       out += QStringLiteral("<w:hyperlink r:id=\"rId%1\">").arg(context.hyperlinkId(target));
       out += runXml(text, run.bold || forceBold, run.italic, run.code, run.strike, true);
@@ -389,6 +467,11 @@ QString contentTypesXml() {
   out += QStringLiteral("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">");
   out += QStringLiteral("<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>");
   out += QStringLiteral("<Default Extension=\"xml\" ContentType=\"application/xml\"/>");
+  out += QStringLiteral("<Default Extension=\"png\" ContentType=\"image/png\"/>");
+  out += QStringLiteral("<Default Extension=\"jpg\" ContentType=\"image/jpeg\"/>");
+  out += QStringLiteral("<Default Extension=\"gif\" ContentType=\"image/gif\"/>");
+  out += QStringLiteral("<Default Extension=\"webp\" ContentType=\"image/webp\"/>");
+  out += QStringLiteral("<Default Extension=\"bmp\" ContentType=\"image/bmp\"/>");
   out += QStringLiteral("<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>");
   out += QStringLiteral("<Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/>");
   out += QStringLiteral("<Override PartName=\"/word/numbering.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/>");
@@ -404,7 +487,7 @@ QString rootRelsXml() {
   return out;
 }
 
-QString documentRelsXml(const QVector<QString>& hyperlinkTargets) {
+QString documentRelsXml(const QVector<QString>& hyperlinkTargets, const QVector<ImageAttachment>& images) {
   QString out = QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
   out += QStringLiteral("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">");
   out += QStringLiteral("<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>");
@@ -413,6 +496,11 @@ QString documentRelsXml(const QVector<QString>& hyperlinkTargets) {
     out += QStringLiteral("<Relationship Id=\"rId%1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" Target=\"%2\" TargetMode=\"External\"/>")
                .arg(i + 3)
                .arg(escapeXml(hyperlinkTargets.at(i)));
+  }
+  for (const ImageAttachment& image : images) {
+    out += QStringLiteral("<Relationship Id=\"rId%1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"%2\"/>")
+               .arg(image.relId)
+               .arg(image.partName.mid(QStringLiteral("word/").size()));
   }
   out += QStringLiteral("</Relationships>");
   return out;
@@ -439,7 +527,10 @@ bool exportDocx(const QString& path, const QString& markdown, QString* error) {
   QVector<ZipEntry> entries;
   entries.append(ZipEntry{QByteArrayLiteral("[Content_Types].xml"), contentTypesXml().toUtf8()});
   entries.append(ZipEntry{QByteArrayLiteral("_rels/.rels"), rootRelsXml().toUtf8()});
-  entries.append(ZipEntry{QByteArrayLiteral("word/_rels/document.xml.rels"), documentRelsXml(context.hyperlinkTargets).toUtf8()});
+  entries.append(ZipEntry{QByteArrayLiteral("word/_rels/document.xml.rels"), documentRelsXml(context.hyperlinkTargets, context.images).toUtf8()});
+  for (const ImageAttachment& image : context.images) {
+    entries.append(ZipEntry{image.partName.toUtf8(), image.data});
+  }
   entries.append(ZipEntry{QByteArrayLiteral("word/styles.xml"), stylesXml().toUtf8()});
   entries.append(ZipEntry{QByteArrayLiteral("word/numbering.xml"), numberingXml().toUtf8()});
   entries.append(ZipEntry{QByteArrayLiteral("word/document.xml"), document.toUtf8()});

@@ -99,6 +99,8 @@ class EditorSpike : public QObject {
   void nestedListsRoundTripAtDepthFour();
   void pdfLongTablePaginatesRowByRow();
   void headingInlineStylesRoundTrip();
+  void docxExportEmbedsImageDrawing();
+  void docxExportFallsBackWhenImageMissing();
   void updateFeedParsesVersionAndAssets();
   void updateFeedRejectsMalformedOrIncompleteFeed();
   void versionComparisonAcrossMinorAndPatch();
@@ -1175,6 +1177,46 @@ void EditorSpike::versionComparisonAcrossMinorAndPatch() {
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("0.1.0")));
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.1.0"), QStringLiteral("0.2.0")));
   QVERIFY(!typist::ui::versionIsNewer(QStringLiteral("0.2.0-beta1"), QStringLiteral("0.2.0")));
+}
+
+void EditorSpike::docxExportEmbedsImageDrawing() {
+  const QString imagePath = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_image.png"));
+  QImage image(24, 18, QImage::Format_ARGB32);
+  image.fill(QColor(180, 60, 40));
+  QVERIFY(image.save(imagePath, "PNG"));
+  const QString markdown = QStringLiteral("![pic](%1)\n").arg(imagePath);
+  const QString docxPath = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_image.docx"));
+  QString error;
+  QVERIFY2(typist::platform::exportDocx(docxPath, markdown, &error), error.toUtf8().constData());
+  QFile file(docxPath);
+  QVERIFY(file.open(QIODevice::ReadOnly));
+  const QByteArray data = file.readAll();
+  file.close();
+  QVERIFY2(data.contains("<w:drawing>"), "no drawing element");
+  QVERIFY2(data.contains("r:embed=\"rId1001\""), "no embedded relationship id");
+  QVERIFY2(data.contains("word/media/image1.png"), "no media part entry");
+  QVERIFY2(data.contains("\x89PNG"), "media entry does not carry PNG bytes");
+  QVERIFY2(data.contains("<Default Extension=\"png\""), "content types miss png default");
+  QVERIFY2(data.contains("cx=\"228600\"") && data.contains("cy=\"171450\""), "extents do not match 24x18 px in EMU");
+  QVERIFY2(data.contains("<Relationship Id=\"rId1001\"") && data.contains("Target=\"media/image1.png\""), "image relationship missing");
+  const QByteArray probePath = qgetenv("TYPIST_DOCX_IMAGE_PROBE");
+  if (!probePath.isEmpty()) QFile::copy(docxPath, QString::fromUtf8(probePath));
+  QFile::remove(docxPath);
+  QFile::remove(imagePath);
+}
+
+void EditorSpike::docxExportFallsBackWhenImageMissing() {
+  const QString docxPath = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_missing_image.docx"));
+  QString error;
+  QVERIFY2(typist::platform::exportDocx(docxPath, QStringLiteral("![gone](missing.png)\n"), &error), error.toUtf8().constData());
+  QFile file(docxPath);
+  QVERIFY(file.open(QIODevice::ReadOnly));
+  const QByteArray data = file.readAll();
+  file.close();
+  QVERIFY(!data.contains("<w:drawing>"));
+  QVERIFY(!data.contains("word/media"));
+  QVERIFY(data.contains("<w:hyperlink"));
+  QFile::remove(docxPath);
 }
 
 void EditorSpike::headingInlineStylesRoundTrip() {
