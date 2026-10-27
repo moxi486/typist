@@ -16,6 +16,7 @@
 #include <QSettings>
 #include <QFile>
 #include <QTextCursor>
+#include <QUrl>
 #include <QTextDocument>
 
 #include <filesystem>
@@ -69,6 +70,10 @@ class EditorSpike : public QObject {
   void platformFileOpsCreateRenameDelete();
   void platformCreateRejectsDuplicateName();
   void platformRenameAppendsMarkdownSuffix();
+  void fileTreeRefreshDetectsAddedFile();
+  void fileTreeRefreshDetectsContentChange();
+  void fileTreeRefreshPreservesSelection();
+  void dropTargetPicksMarkdownFile();
 
  private:
   std::string m_corpus;
@@ -827,6 +832,71 @@ void EditorSpike::platformRenameAppendsMarkdownSuffix() {
   QString error;
   QVERIFY2(typist::platform::renameFile(source, QStringLiteral("newname"), &error), error.toLatin1().constData());
   QVERIFY(QFileInfo::exists(QDir(dir).filePath(QStringLiteral("newname.md"))));
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::fileTreeRefreshDetectsAddedFile() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_watch_a"));
+  QDir().mkpath(dir);
+  writeSearchFixture(dir, QStringLiteral("one.md"), QStringLiteral("# 1\n"));
+
+  typist::ui::FileTree tree;
+  tree.setRoot(dir);
+  QVERIFY(!tree.refreshIfChanged());
+
+  writeSearchFixture(dir, QStringLiteral("two.md"), QStringLiteral("# 2\n"));
+  QVERIFY(tree.refreshIfChanged());
+  QVERIFY(tree.entryCount() == 2);
+  QVERIFY(!tree.refreshIfChanged());
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::fileTreeRefreshDetectsContentChange() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_watch_b"));
+  QDir().mkpath(dir);
+  writeSearchFixture(dir, QStringLiteral("note.md"), QStringLiteral("# short\n"));
+
+  typist::ui::FileTree tree;
+  tree.setRoot(dir);
+  QVERIFY(!tree.refreshIfChanged());
+
+  writeSearchFixture(dir, QStringLiteral("note.md"), QStringLiteral("# much longer body\n\nmore text\n"));
+  QVERIFY(tree.refreshIfChanged());
+  QVERIFY(tree.entryCount() == 1);
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::fileTreeRefreshPreservesSelection() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_watch_c"));
+  QDir().mkpath(dir);
+  const QString keep = writeSearchFixture(dir, QStringLiteral("keep.md"), QStringLiteral("# K\n"));
+  writeSearchFixture(dir, QStringLiteral("other.md"), QStringLiteral("# O\n"));
+
+  typist::ui::FileTree tree;
+  tree.setRoot(dir);
+  tree.selectPath(keep);
+  QCOMPARE(tree.selectedPath(), keep);
+
+  writeSearchFixture(dir, QStringLiteral("added.md"), QStringLiteral("# A\n"));
+  QVERIFY(tree.refreshIfChanged());
+  QCOMPARE(tree.selectedPath(), keep);
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::dropTargetPicksMarkdownFile() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_drop"));
+  QDir().mkpath(dir);
+  const QString markdown = writeSearchFixture(dir, QStringLiteral("doc.md"), QStringLiteral("# D\n"));
+  const QString text = QDir(dir).filePath(QStringLiteral("notes.txt"));
+  QFile file(text);
+  QVERIFY(file.open(QIODevice::WriteOnly));
+  file.write("plain\n");
+  file.close();
+
+  const QList<QUrl> urls = {QUrl::fromLocalFile(text), QUrl::fromLocalFile(markdown)};
+  QCOMPARE(typist::platform::firstMarkdownPath(urls), markdown);
+  QVERIFY(typist::platform::firstMarkdownPath({QUrl::fromLocalFile(text)}).isEmpty());
+  QVERIFY(typist::platform::firstMarkdownPath({QUrl(QStringLiteral("https://example.com/a.md"))}).isEmpty());
   QDir(dir).removeRecursively();
 }
 

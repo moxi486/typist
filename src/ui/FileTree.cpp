@@ -1,8 +1,12 @@
 #include "FileTree.h"
 
 #include "FileOps.h"
+#include <QFileSystemWatcher>
+#include <QTimer>
 
 #include <QDir>
+#include <QDirIterator>
+#include <QFileInfo>
 #include <QFileDialog>
 #include <QHeaderView>
 #include <QInputDialog>
@@ -40,6 +44,8 @@ void FileTree::setRoot(const QString& rootDir) {
   clear();
   buildDirectory(nullptr, rootDir, QString());
   expandAll();
+  m_signature = signature();
+  if (m_watchEnabled) watchCurrentDirectories();
 }
 
 void FileTree::buildDirectory(QTreeWidgetItem* parent, const QString& absDir, const QString& relPath) {
@@ -57,8 +63,10 @@ void FileTree::buildDirectory(QTreeWidgetItem* parent, const QString& absDir, co
   for (const QString& sub : subdirs) {
     if (skippedDirectory(sub)) continue;
     QTreeWidgetItem* item = parent == nullptr ? new QTreeWidgetItem(this) : new QTreeWidgetItem(parent);
+    const QString subPath = dir.filePath(sub);
     item->setText(0, sub);
     item->setData(0, kDirRole, true);
+    item->setData(0, kPathRole, subPath);
     ++m_directories;
     buildDirectory(item, dir.filePath(sub), relPath + sub + QLatin1Char('/'));
   }
@@ -122,6 +130,101 @@ void FileTree::rebuild() {
   const QString current = selectedPath();
   setRoot(m_root);
   if (!current.isEmpty()) selectPath(current);
+}
+
+
+QString FileTree::signature() const {
+  QDir root(m_root);
+  QStringList parts;
+  QDirIterator it(m_root, QStringList() << QStringLiteral("*.md"), QDir::Files, QDirIterator::Subdirectories);
+  while (it.hasNext()) {
+    const QString path = it.next();
+    const QStringList segments = root.relativeFilePath(path).split(QChar(47));
+    bool skip = false;
+    for (int i = 0; i < segments.size() - 1; ++i) {
+      if (skippedDirectory(segments.at(i))) {
+        skip = true;
+        break;
+      }
+    }
+    if (skip) continue;
+    const QFileInfo info(path);
+    parts << QStringLiteral("%1|%2|%3").arg(root.relativeFilePath(path)).arg(info.size()).arg(info.birthTime().toMSecsSinceEpoch());
+  }
+  parts.sort();
+  return parts.join(QLatin1Char('#'));
+}
+
+void FileTree::collectDirectories(QStringList& dirs) const {
+  dirs << m_root;
+  for (int i = 0; i < topLevelItemCount(); ++i) {
+    QTreeWidgetItem* item = topLevelItem(i);
+    if (!item->data(0, kDirRole).toBool()) continue;
+    collectUnder(item, dirs);
+  }
+}
+
+void FileTree::collectUnder(const QTreeWidgetItem* item, QStringList& dirs) const {
+  dirs << item->data(0, kPathRole).toString();
+  for (int c = 0; c < item->childCount(); ++c) {
+    QTreeWidgetItem* child = item->child(c);
+    if (child->data(0, kDirRole).toBool()) collectUnder(child, dirs);
+  }
+}
+
+bool FileTree::refreshIfChanged() {
+  const QString current = signature();
+  if (current == m_signature) return false;
+  const QString selected = selectedPath();
+  m_signature = current;
+  setRoot(m_root);
+  if (!selected.isEmpty()) selectPath(selected);
+  return true;
+}
+
+void FileTree::watchCurrentDirectories() {
+  if (m_watcher == nullptr) return;
+  QStringList dirs;
+  collectDirectories(dirs);
+  const QStringList watched = m_watcher->directories();
+  QStringList missing;
+  for (const QString& dir : dirs) {
+    if (!watched.contains(dir)) missing << dir;
+  }
+  if (!missing.isEmpty()) m_watcher->addPaths(missing);
+}
+
+void FileTree::scheduleRefresh() {
+  if (m_debounce == nullptr) {
+    m_debounce = new QTimer(this);
+    m_debounce->setSingleShot(true);
+    connect(m_debounce, &QTimer::timeout, this, [this] {
+      refreshIfChanged();
+      watchCurrentDirectories();
+    });
+  }
+  m_debounce->start(250);
+}
+
+void FileTree::stopDebounce() {
+  if (m_debounce != nullptr) m_debounce->stop();
+}
+
+void FileTree::setWatchEnabled(bool enabled) {
+  m_watchEnabled = enabled;
+  if (!enabled) {
+    stopDebounce();
+    if (m_watcher != nullptr) {
+      const QStringList watched = m_watcher->directories();
+      if (!watched.isEmpty()) m_watcher->removePaths(watched);
+    }
+    return;
+  }
+  if (m_watcher == nullptr) {
+    m_watcher = new QFileSystemWatcher(this);
+    connect(m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] { scheduleRefresh(); });
+  }
+  watchCurrentDirectories();
 }
 
 void FileTree::contextMenuEvent(QContextMenuEvent* event) {

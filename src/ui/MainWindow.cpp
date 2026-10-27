@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "AutoSave.h"
+#include "FileOps.h"
 #include "FileSearch.h"
 #include "FileTree.h"
 #include "FileWriter.h"
@@ -17,7 +18,11 @@
 #include <QCloseEvent>
 #include <QDir>
 #include <QDockWidget>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QListWidget>
+#include <QMimeData>
+#include <QUrl>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
@@ -85,6 +90,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_sidebarDock->setWidget(m_tree);
   m_sidebarDock->hide();
   addDockWidget(Qt::LeftDockWidgetArea, m_sidebarDock);
+  setAcceptDrops(true);
   connect(m_tree, &ui::FileTree::entryActivated, this, &MainWindow::openTreeEntry);
   connect(m_tree, &ui::FileTree::fileRenamed, this, &MainWindow::treeFileRenamed);
   connect(m_tree, &ui::FileTree::fileRemoved, this, &MainWindow::treeFileRemoved);
@@ -447,14 +453,30 @@ void MainWindow::treeFileRemoved(const QString& path) {
   statusBar()->showMessage(QStringLiteral("Deleted file; buffer is now unsaved"));
 }
 
+bool MainWindow::openDroppedFiles(const QList<QUrl>& urls) {
+  const QString path = platform::firstMarkdownPath(urls);
+  if (path.isEmpty()) return false;
+  openFile(path);
+  return true;
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
+  if (event->mimeData()->hasUrls()) event->acceptProposedAction();
+}
+
+void MainWindow::dropEvent(QDropEvent* event) {
+  if (openDroppedFiles(event->mimeData()->urls())) event->acceptProposedAction();
+}
 
 void MainWindow::toggleSidebar() {
   if (m_sidebarDock->isVisible()) {
+    m_tree->setWatchEnabled(false);
     m_sidebarDock->hide();
     return;
   }
   if (!m_currentPath.isEmpty()) m_tree->setRoot(QFileInfo(m_currentPath).absolutePath());
   m_sidebarDock->show();
+  m_tree->setWatchEnabled(true);
   m_tree->selectPath(m_currentPath);
 }
 
@@ -463,6 +485,7 @@ void MainWindow::openFolder() {
   if (dir.isEmpty()) return;
   m_tree->setRoot(dir);
   m_sidebarDock->show();
+  m_tree->setWatchEnabled(true);
   statusBar()->showMessage(QStringLiteral("%1 markdown files in %2").arg(m_tree->entryCount()).arg(dir));
 }
 

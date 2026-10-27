@@ -3,6 +3,9 @@
 #include <QString>
 #include <QTreeWidget>
 
+class QFileSystemWatcher;
+class QTimer;
+
 namespace typist::ui {
 
 // Sidebar tree of directories and Markdown files; double-click opens, context menu edits files.
@@ -19,6 +22,12 @@ class FileTree : public QTreeWidget {
   void selectPath(const QString& path);
   QString selectedPath() const;
 
+  // Rebuilds only when the directory listing differs from what the tree shows.
+  bool refreshIfChanged();
+
+  // Watches directories under the root; changes are debounced into a refresh.
+  void setWatchEnabled(bool enabled);
+
  signals:
   void entryActivated(const QString& path);
   void fileRenamed(const QString& oldPath, const QString& newPath);
@@ -31,12 +40,22 @@ class FileTree : public QTreeWidget {
   void buildDirectory(QTreeWidgetItem* parent, const QString& absDir, const QString& relPath);
   QTreeWidgetItem* findLeaf(const QString& path) const;
   void rebuild();
+  QString signature() const;
+  void collectDirectories(QStringList& dirs) const;
+  void collectUnder(const QTreeWidgetItem* item, QStringList& dirs) const;
+  void watchCurrentDirectories();
+  void scheduleRefresh();
+  void stopDebounce();
   void newFileIn(const QString& dir);
   void renameSelected();
   void deleteSelected();
 
   QString m_root;
+  QString m_signature;
   int m_directories = 0;
+  bool m_watchEnabled = false;
+  QFileSystemWatcher* m_watcher = nullptr;
+  QTimer* m_debounce = nullptr;
 };
 
 }  // namespace typist::ui

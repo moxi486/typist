@@ -3,12 +3,15 @@
 #include <QMainWindow>
 #include <QPalette>
 #include <QString>
+#include <QUrl>
 
 #include "Search.h"
 
 class QAction;
 class QCloseEvent;
+class QDragEnterEvent;
 class QDockWidget;
+class QDropEvent;
 class QListWidget;
 class QTextDocument;
 class QTextEdit;
@@ -54,6 +57,9 @@ class MainWindow : public QMainWindow {
   // Bench seam: sidebar directory count for a root directory.
   int fileTreeDirectoriesForBench(const QString& rootDir);
 
+  // Opens the first Markdown URL from a drop; returns false when nothing applies.
+  bool openDroppedFiles(const QList<QUrl>& urls);
+
  private slots:
   void openDialog();
   void save();
@@ -76,6 +82,10 @@ class MainWindow : public QMainWindow {
   void openTreeEntry(const QString& path);
   void treeFileRenamed(const QString& oldPath, const QString& newPath);
   void treeFileRemoved(const QString& path);
+
+  protected:
+  void dragEnterEvent(QDragEnterEvent* event) override;
+  void dropEvent(QDropEvent* event) override;
 
  private:
   void updateTitleAndStatus();

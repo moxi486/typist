@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QUrl>
 
 namespace typist::platform {
 
@@ -56,6 +57,15 @@ bool deleteFile(const QString& path, QString* error) {
     return false;
   }
   return true;
+}
+
+QString firstMarkdownPath(const QList<QUrl>& urls) {
+  for (const QUrl& url : urls) {
+    const QString path = url.toLocalFile();
+    if (path.isEmpty() || !path.endsWith(QStringLiteral(".md"), Qt::CaseInsensitive)) continue;
+    return path;
+  }
+  return QString();
 }
 
 }  // namespace typist::platform
