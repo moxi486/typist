@@ -66,6 +66,9 @@
 - DOCX 包的外部验证：用捆绑 python 的 python-docx 重新打开 .deps/probe.docx（段落 9、表格 1、样式 Heading 1 / List Paragraph、页面 210x297mm、边距 20mm）；ctest 侧只测 zip 本地头遍历（localEntryNames + EOCD 条目数）与 docx_baseline（docx_bytes >= 400）。
 - 独立探针链项目静态库时，改过 src/platform 后必须先 cmake --build --target typist_platform 再重新链接探针，否则探针会链到旧的 .a 并给出与源码不符的字节数。
 - 原生 dark 检测落在 platform::SystemTheme：Windows 用 QSettings(NativeFormat, UserScope, "Microsoft", "Windows") 且键路径相对于 Software/<org>/<app>（写成 Software/Microsoft/Windows/... 会重复前缀并读不到值，hint 恒为 Unknown）；Linux 走 GTK_THEME（含 dark 即 Dark）否则解析 settings.ini 的 gtk-theme-name；macOS 用 QProcess::execute("defaults", {"read","-g","AppleInterfaceStyle"})，非零退出表示浅色（本机未验证）；MainWindow 的 systemPrefersDark() 优先用原生 hint，Unknown 时回退窗口调色板亮度。解析规则拆成 darkHintFromAppsUseLightTheme/darkHintFromGtkTheme 纯函数以便 headless 测试。
+- 多语言：UI 文案改为 MainWindow 的 tr()（context 为 MainWindow），translations/typist_zh.ts 手写 34 条；typist::ui::Localization 负责候选目录（cwd translations/、appdir translations/、QLibraryInfo::TranslationsPath、~/.typist/translations/）与 installTranslatorForLocale，英语直接返回空候选（源语言）。本机没装 lupdate/lrelease（pacman 的 mingw-w64-x86_64-qt6-base 不提供 Linguist 工具），所以本地不产 .qm、UI 走英语；CI 里用 `lupdate -tr strict src/ui/*.cpp -ts translations/typist_zh.ts` 与 `lrelease translations/*.ts` 补齐（不要手改 source 文本，避免与代码漂移）。
+- 翻译一致性用 headless 测试兜住：editor_spike 读 TYPIST_TS_FILE 与 TYPIST_UI_SOURCE，逐条断言 .ts 的 source 在 MainWindow.cpp 里有对应的 tr("...")、translation 非空、XML 合法；教训：QXmlStreamReader 的 text() 在 EndElement 上是空的，元素正文要靠在 StartElement 与 EndElement 之间捕获 Characters token（配合 isWhitespace() 过滤缩进）取得。
+- 构建时序教训：用 node fs.writeFileSync 改测试源码后 ninja 可能报 no work to do（对象 mtime 比源文件新），要 utimesSync 把源文件时间戳推到当前再 cmake --build，否则测的还是旧二进制。
 - PDF 输出的 /MediaBox 以 point 为单位（A4 595x842、Letter 612x792），断言纸张差异要按 point 比较而不是像素；解析时用 marker 长度偏移，硬编码偏移会读错数字（探针实测 offset+13 让宽高错位）。
 - 分页限制：单个高于页面内容高度的块会被截断（例如超长表格），后续页从下一个块继续；跨页表格与防孤行留待 Beta。
 - 页码/边距配置走 QSettings 键 pdfPaper=a4|letter、pdfMarginMm（限 5–60mm，非法值回退 20mm）。

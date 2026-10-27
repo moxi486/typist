@@ -92,7 +92,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   setCentralWidget(central);
 
   m_tree = new ui::FileTree(this);
-  m_sidebarDock = new QDockWidget(QStringLiteral("Files"), this);
+  m_sidebarDock = new QDockWidget(tr("Files"), this);
   m_sidebarDock->setWidget(m_tree);
   m_sidebarDock->hide();
   addDockWidget(Qt::LeftDockWidgetArea, m_sidebarDock);
@@ -102,7 +102,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   connect(m_tree, &ui::FileTree::fileRemoved, this, &MainWindow::treeFileRemoved);
 
   m_results = new QListWidget(this);
-  m_resultsDock = new QDockWidget(QStringLiteral("Search Results"), this);
+  m_resultsDock = new QDockWidget(tr("Search Results"), this);
   m_resultsDock->setWidget(m_results);
   m_resultsDock->hide();
   addDockWidget(Qt::BottomDockWidgetArea, m_resultsDock);
@@ -117,87 +117,87 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   m_themePreference = platform::themePreference();
 
-  QMenu* fileMenu = menuBar()->addMenu(QStringLiteral("File"));
+  QMenu* fileMenu = menuBar()->addMenu(tr("File"));
 
-  QAction* openAction = new QAction(QStringLiteral("Open"), this);
+  QAction* openAction = new QAction(tr("Open"), this);
   openAction->setShortcut(QKeySequence::Open);
   fileMenu->addAction(openAction);
   connect(openAction, &QAction::triggered, this, &MainWindow::openDialog);
 
-  QAction* saveAction = new QAction(QStringLiteral("Save"), this);
+  QAction* saveAction = new QAction(tr("Save"), this);
   saveAction->setShortcut(QKeySequence::Save);
   fileMenu->addAction(saveAction);
   connect(saveAction, &QAction::triggered, this, &MainWindow::save);
 
-  QAction* saveAsAction = new QAction(QStringLiteral("Save As"), this);
+  QAction* saveAsAction = new QAction(tr("Save As"), this);
   saveAsAction->setShortcut(QKeySequence::SaveAs);
   fileMenu->addAction(saveAsAction);
   connect(saveAsAction, &QAction::triggered, this, &MainWindow::saveAs);
 
-  QAction* exportHtmlAction = new QAction(QStringLiteral("Export HTML"), this);
+  QAction* exportHtmlAction = new QAction(tr("Export HTML"), this);
   exportHtmlAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+E")));
   fileMenu->addAction(exportHtmlAction);
   connect(exportHtmlAction, &QAction::triggered, this, &MainWindow::exportHtml);
 
-  QAction* exportPdfAction = new QAction(QStringLiteral("Export PDF"), this);
+  QAction* exportPdfAction = new QAction(tr("Export PDF"), this);
   exportPdfAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+P")));
   fileMenu->addAction(exportPdfAction);
   connect(exportPdfAction, &QAction::triggered, this, &MainWindow::exportPdf);
-  QAction* exportDocxAction = fileMenu->addAction(QStringLiteral("Export DOCX"));
+  QAction* exportDocxAction = fileMenu->addAction(tr("Export DOCX"));
   exportDocxAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+X")));
   connect(exportDocxAction, &QAction::triggered, this, &MainWindow::exportDocx);
 
-  QMenu* editMenu = menuBar()->addMenu(QStringLiteral("Edit"));
-  m_undoAction = new QAction(QStringLiteral("Undo"), this);
+  QMenu* editMenu = menuBar()->addMenu(tr("Edit"));
+  m_undoAction = new QAction(tr("Undo"), this);
   m_undoAction->setShortcut(QKeySequence::Undo);
   m_undoAction->setEnabled(false);
   editMenu->addAction(m_undoAction);
   connect(m_undoAction, &QAction::triggered, this, &MainWindow::undo);
 
-  m_redoAction = new QAction(QStringLiteral("Redo"), this);
+  m_redoAction = new QAction(tr("Redo"), this);
   m_redoAction->setShortcut(QKeySequence::Redo);
   m_redoAction->setEnabled(false);
   editMenu->addAction(m_redoAction);
   connect(m_redoAction, &QAction::triggered, this, &MainWindow::redo);
 
-  m_findAction = new QAction(QStringLiteral("Find"), this);
+  m_findAction = new QAction(tr("Find"), this);
   m_findAction->setShortcut(QKeySequence::Find);
   editMenu->addAction(m_findAction);
   connect(m_findAction, &QAction::triggered, this, &MainWindow::toggleFindBar);
 
-  QAction* findNextAction = new QAction(QStringLiteral("Find Next"), this);
+  QAction* findNextAction = new QAction(tr("Find Next"), this);
   findNextAction->setShortcut(QKeySequence(QStringLiteral("F3")));
   editMenu->addAction(findNextAction);
   connect(findNextAction, &QAction::triggered, this, &MainWindow::searchNext);
 
-  QAction* findPreviousAction = new QAction(QStringLiteral("Find Previous"), this);
+  QAction* findPreviousAction = new QAction(tr("Find Previous"), this);
   findPreviousAction->setShortcut(QKeySequence(QStringLiteral("Shift+F3")));
   editMenu->addAction(findPreviousAction);
   connect(findPreviousAction, &QAction::triggered, this, &MainWindow::searchPrevious);
 
-  m_folderSearchAction = new QAction(QStringLiteral("Search in Folder"), this);
+  m_folderSearchAction = new QAction(tr("Search in Folder"), this);
   m_folderSearchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
   editMenu->addAction(m_folderSearchAction);
   connect(m_folderSearchAction, &QAction::triggered, this, &MainWindow::searchInFolder);
 
 
-  m_folderAction = new QAction(QStringLiteral("Open Folder"), this);
+  m_folderAction = new QAction(tr("Open Folder"), this);
   m_folderAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+O")));
   fileMenu->addAction(m_folderAction);
   connect(m_folderAction, &QAction::triggered, this, &MainWindow::openFolder);
 
-  QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("View"));
-  m_sourceAction = new QAction(QStringLiteral("Source View"), this);
+  QMenu* viewMenu = menuBar()->addMenu(tr("View"));
+  m_sourceAction = new QAction(tr("Source View"), this);
   m_sourceAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+/")));
   viewMenu->addAction(m_sourceAction);
   connect(m_sourceAction, &QAction::triggered, this, &MainWindow::toggleSourceView);
 
-  m_themeAction = new QAction(QStringLiteral("Theme"), this);
+  m_themeAction = new QAction(tr("Theme"), this);
   m_themeAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+D")));
   viewMenu->addAction(m_themeAction);
   connect(m_themeAction, &QAction::triggered, this, &MainWindow::cycleTheme);
 
-  m_sidebarAction = new QAction(QStringLiteral("Show Files"), this);
+  m_sidebarAction = new QAction(tr("Show Files"), this);
   m_sidebarAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+L")));
   viewMenu->addAction(m_sidebarAction);
   connect(m_sidebarAction, &QAction::triggered, this, &MainWindow::toggleSidebar);
@@ -230,7 +230,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 }
 
 void MainWindow::openDialog() {
-  const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Open Markdown"), QString(),
+  const QString path = QFileDialog::getOpenFileName(this, tr("Open Markdown"), QString(),
                                                     QStringLiteral("Markdown (*.md)"));
   if (!path.isEmpty()) openFile(path);
 }
@@ -238,7 +238,7 @@ void MainWindow::openDialog() {
 void MainWindow::openFile(const QString& path) {
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly)) {
-    statusBar()->showMessage(QStringLiteral("Cannot open file"));
+    statusBar()->showMessage(tr("Cannot open file"));
     return;
   }
 
@@ -255,7 +255,7 @@ void MainWindow::openFile(const QString& path) {
   m_sourceMode = m_view->isSourceMode();
   m_currentPath = path;
   m_savedMarkdown = source;
-  m_sourceAction->setText(QStringLiteral("Source View"));
+  m_sourceAction->setText(tr("Source View"));
   markClean();
 
   if (m_sidebarDock->isVisible()) {
@@ -282,7 +282,7 @@ void MainWindow::save() {
 }
 
 void MainWindow::saveAs() {
-  const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Save Markdown"), m_currentPath,
+  const QString path = QFileDialog::getSaveFileName(this, tr("Save Markdown"), m_currentPath,
                                                     QStringLiteral("Markdown (*.md)"));
   if (path.isEmpty()) return;
   m_currentPath = path;
@@ -294,7 +294,7 @@ void MainWindow::exportHtml() {
       ? QDir::homePath() + QStringLiteral("/untitled.html")
       : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
             QFileInfo(m_currentPath).baseName() + QStringLiteral(".html");
-  const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Export HTML"), suggested,
+  const QString path = QFileDialog::getSaveFileName(this, tr("Export HTML"), suggested,
                                                     QStringLiteral("HTML (*.html)"));
   if (path.isEmpty()) return;
 
@@ -306,7 +306,7 @@ void MainWindow::exportHtml() {
     statusBar()->showMessage(error);
     return;
   }
-  statusBar()->showMessage(QStringLiteral("Exported HTML"));
+  statusBar()->showMessage(tr("Exported HTML"));
 }
 
 void MainWindow::exportPdf() {
@@ -319,7 +319,7 @@ void MainWindow::exportPdf() {
       ? QDir::homePath() + QStringLiteral("/untitled.pdf")
       : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
             QFileInfo(m_currentPath).baseName() + QStringLiteral(".pdf");
-  const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Export PDF"), suggested,
+  const QString path = QFileDialog::getSaveFileName(this, tr("Export PDF"), suggested,
                                                     QStringLiteral("PDF (*.pdf)"));
   if (path.isEmpty()) return;
 
@@ -342,7 +342,7 @@ void MainWindow::exportPdf() {
     statusBar()->showMessage(error);
     return;
   }
-  statusBar()->showMessage(QStringLiteral("Exported PDF"));
+  statusBar()->showMessage(tr("Exported PDF"));
 }
 
 void MainWindow::exportDocx() {
@@ -350,7 +350,7 @@ void MainWindow::exportDocx() {
       ? QDir::homePath() + QStringLiteral("/untitled.docx")
       : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
             QFileInfo(m_currentPath).baseName() + QStringLiteral(".docx");
-  const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Export DOCX"), suggested,
+  const QString path = QFileDialog::getSaveFileName(this, tr("Export DOCX"), suggested,
                                                     QStringLiteral("Word document (*.docx)"));
   if (path.isEmpty()) return;
 
@@ -360,7 +360,7 @@ void MainWindow::exportDocx() {
     statusBar()->showMessage(error);
     return;
   }
-  statusBar()->showMessage(QStringLiteral("Exported DOCX"));
+  statusBar()->showMessage(tr("Exported DOCX"));
 }
 
 void MainWindow::autoSaveNow() {
@@ -375,7 +375,7 @@ void MainWindow::autoSaveNow() {
 
   m_savedMarkdown = markdown;
   markClean();
-  statusBar()->showMessage(QStringLiteral("Autosaved"));
+  statusBar()->showMessage(tr("Autosaved"));
 }
 
 void MainWindow::undo() {
@@ -403,7 +403,7 @@ void MainWindow::toggleSourceView() {
   m_document = m_view->active();
   m_view->showActiveIn(m_editor);
   m_sourceMode = m_view->isSourceMode();
-  m_sourceAction->setText(m_sourceMode ? QStringLiteral("Rendered View") : QStringLiteral("Source View"));
+  m_sourceAction->setText(m_sourceMode ? tr("Rendered View") : tr("Source View"));
   m_undoAction->setEnabled(m_document->isUndoAvailable());
   m_redoAction->setEnabled(m_document->isRedoAvailable());
   m_dirty = currentMarkdown() != m_savedMarkdown;
@@ -503,7 +503,7 @@ void MainWindow::treeFileRemoved(const QString& path) {
   m_savedMarkdown.clear();
   markClean();
   updateTitleAndStatus();
-  statusBar()->showMessage(QStringLiteral("Deleted file; buffer is now unsaved"));
+  statusBar()->showMessage(tr("Deleted file; buffer is now unsaved"));
 }
 
 bool MainWindow::openDroppedFiles(const QList<QUrl>& urls) {
@@ -534,7 +534,7 @@ void MainWindow::toggleSidebar() {
 }
 
 void MainWindow::openFolder() {
-  const QString dir = QFileDialog::getExistingDirectory(this, QStringLiteral("Open Folder"));
+  const QString dir = QFileDialog::getExistingDirectory(this, tr("Open Folder"));
   if (dir.isEmpty()) return;
   m_tree->setRoot(dir);
   m_sidebarDock->show();
@@ -562,7 +562,7 @@ qint64 MainWindow::searchFolderForBench(const QString& rootDir, const QString& p
 void MainWindow::searchInFolder() {
   const QString pattern = m_findBar->pattern();
   if (pattern.isEmpty()) {
-    statusBar()->showMessage(QStringLiteral("Enter a pattern in the find bar first."));
+    statusBar()->showMessage(tr("Enter a pattern in the find bar first."));
     m_findBar->openFocused();
     return;
   }
@@ -603,7 +603,7 @@ void MainWindow::cycleTheme() {
   }
   platform::setThemePreference(m_themePreference);
   applyTheme();
-  statusBar()->showMessage(QStringLiteral("Theme: ") + m_themePreference);
+  statusBar()->showMessage(tr("Theme: %1").arg(m_themePreference));
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
@@ -617,7 +617,7 @@ void MainWindow::applyTheme() {
   m_editor->setStyleSheet(ui::editorStyleSheet(theme));
   applyThemePalette(themedPalette(theme));
   if (m_themeAction != nullptr) {
-    m_themeAction->setText(QStringLiteral("Theme: ") + themePreference());
+    m_themeAction->setText(tr("Theme: %1").arg(themePreference()));
   }
 }
 
@@ -667,7 +667,7 @@ void MainWindow::markClean() {
 void MainWindow::updateTitleAndStatus() {
   const QString base = m_currentPath.isEmpty() ? QStringLiteral("Typist") : m_currentPath;
   setWindowTitle(m_dirty ? base + QStringLiteral(" *") : base);
-  statusBar()->showMessage(m_dirty ? QStringLiteral("Unsaved changes") : QStringLiteral("Saved"));
+  statusBar()->showMessage(m_dirty ? tr("Unsaved changes") : tr("Saved"));
 }
 
 }  // namespace typist

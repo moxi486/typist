@@ -1,3 +1,4 @@
+#include "Localization.h"
 #include "MainWindow.h"
 
 #include <QApplication>
@@ -5,9 +6,11 @@
 #include <QByteArray>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QLocale>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
+#include <QTranslator>
 
 #include <cstdio>
 #include <cstdlib>
@@ -28,6 +31,9 @@ int main(int argc, char* argv[]) {
   const bool benchFolderSearch = args.contains(QStringLiteral("--bench-file-search"));
   const bool benchTree = args.contains(QStringLiteral("--bench-tree"));
   const bool benchDocx = args.contains(QStringLiteral("--bench-docx"));
+
+  QTranslator translator;
+  typist::ui::installTranslatorForLocale(&translator, QLocale::system().name());
 
   typist::MainWindow window;
   window.setBenchMode(benchStartup || benchRepaint || benchViewSwitch || benchSearch || benchFolderSearch || benchTree ||

@@ -38,6 +38,13 @@ target_include_directories(typist_ui_filetree PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(typist_ui_filetree PUBLIC typist::platform Qt6::Core Qt6::Gui Qt6::Widgets)
 target_compile_options(typist_ui_filetree PRIVATE -Wall -Wextra)
 
+
+add_library(typist_ui_locale STATIC Localization.h Localization.cpp)
+add_library(typist::ui_locale ALIAS typist_ui_locale)
+target_include_directories(typist_ui_locale PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(typist_ui_locale PUBLIC Qt6::Core)
+target_compile_options(typist_ui_locale PRIVATE -Wall -Wextra)
+
 qt_add_executable(typist main.cpp MainWindow.h MainWindow.cpp)
-target_link_libraries(typist PRIVATE typist::core typist::editor typist::platform typist::ui_theme typist::ui_autosave typist::ui_viewswitch typist::ui_search typist::ui_findbar typist::ui_filetree Qt6::Core Qt6::Gui Qt6::Widgets)
+target_link_libraries(typist PRIVATE typist::core typist::editor typist::platform typist::ui_theme typist::ui_autosave typist::ui_viewswitch typist::ui_search typist::ui_findbar typist::ui_filetree typist::ui_locale Qt6::Core Qt6::Gui Qt6::Widgets)
 set_target_properties(typist PROPERTIES AUTOMOC ON)

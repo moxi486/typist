@@ -7,6 +7,7 @@
 #include "FileOps.h"
 #include "FileTree.h"
 #include "Search.h"
+#include "Localization.h"
 #include "Settings.h"
 #include "SystemTheme.h"
 #include "ViewSwitch.h"
@@ -81,6 +82,9 @@ class EditorSpike : public QObject {
   void docxExportWritesEachPackageMemberOnce();
   void docxExportReportsHeadingTableAndTaskItem();
   void docxExportFailsWhenPathUnwritable();
+  void translationCandidatesFollowLocaleLanguage();
+  void translationFileCoversMainWindowStrings();
+  void translatorFallsBackWhenCatalogMissing();
   void systemThemeParsesPlatformHints();
   void systemThemeReadsWindowsRegistryHint();
 
@@ -1009,6 +1013,66 @@ void EditorSpike::docxExportFailsWhenPathUnwritable() {
   QString error;
   QVERIFY(!typist::platform::exportDocx(path, QStringLiteral("# Title\n"), &error));
   QVERIFY(!error.isEmpty());
+}
+
+void EditorSpike::translationCandidatesFollowLocaleLanguage() {
+  const QStringList candidates = typist::ui::translationCandidates(QStringLiteral("zh_CN"));
+  QCOMPARE(candidates.size(), 4);
+  QVERIFY(candidates.first().endsWith(QStringLiteral("typist_zh.qm")));
+  QVERIFY(typist::ui::translationCandidates(QStringLiteral("en_US")).isEmpty());
+  QVERIFY(typist::ui::translationCandidates(QStringLiteral("de_DE")).first().endsWith(QStringLiteral("typist_de.qm")));
+}
+
+void EditorSpike::translationFileCoversMainWindowStrings() {
+  const QString tsPath = qEnvironmentVariable("TYPIST_TS_FILE");
+  const QString sourcePath = qEnvironmentVariable("TYPIST_UI_SOURCE");
+  if (tsPath.isEmpty() || sourcePath.isEmpty()) QSKIP("Translation consistency check needs TYPIST_TS_FILE and TYPIST_UI_SOURCE.");
+  QFile tsFile(tsPath);
+  QVERIFY(tsFile.open(QIODevice::ReadOnly));
+  QFile sourceFile(sourcePath);
+  QVERIFY(sourceFile.open(QIODevice::ReadOnly));
+  const QString sourceCode = QString::fromUtf8(sourceFile.readAll());
+  sourceFile.close();
+  QXmlStreamReader xml(&tsFile);
+  int messages = 0;
+  bool inMainWindow = false;
+  QString source;
+  QString translation;
+  QString currentElement;
+  while (!xml.atEnd()) {
+    const QXmlStreamReader::TokenType token = xml.readNext();
+    if (xml.hasError()) {
+      QFAIL(qPrintable(QStringLiteral("Translation file is not well-formed XML: ") + xml.errorString()));
+    }
+    if (token == QXmlStreamReader::StartElement) {
+      currentElement = xml.name().toString();
+      if (currentElement == QStringLiteral("message")) {
+        source.clear();
+        translation.clear();
+      }
+    } else if (token == QXmlStreamReader::EndElement) {
+      if (xml.name() == QStringLiteral("message")) {
+        QVERIFY(inMainWindow);
+        QVERIFY(!source.isEmpty());
+        QVERIFY(!translation.isEmpty());
+        QVERIFY(sourceCode.contains(QStringLiteral("tr(\"") + source + QStringLiteral("\")")));
+        ++messages;
+      }
+      currentElement.clear();
+    } else if (token == QXmlStreamReader::Characters && !xml.isWhitespace()) {
+      if (currentElement == QStringLiteral("name")) inMainWindow = xml.text().toString() == QStringLiteral("MainWindow");
+      else if (currentElement == QStringLiteral("source")) source = xml.text().toString();
+      else if (currentElement == QStringLiteral("translation")) translation = xml.text().toString();
+    }
+  }
+  QVERIFY(messages >= 30);
+  tsFile.close();
+  QVERIFY(messages >= 30);
+}
+
+void EditorSpike::translatorFallsBackWhenCatalogMissing() {
+  QTranslator translator;
+  QVERIFY(!typist::ui::installTranslatorForLocale(&translator, QStringLiteral("zz_ZZ")));
 }
 
 void EditorSpike::systemThemeParsesPlatformHints() {
