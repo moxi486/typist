@@ -245,7 +245,14 @@ void MainWindow::exportPdf() {
     statusBar()->showMessage(error);
     return;
   }
-  if (!typist::platform::exportPdf(path, &rendered, &error)) {
+
+  platform::PdfPageOptions options;
+  options.paper = platform::pdfPaper();
+  options.marginMm = platform::pdfMarginMm();
+  options.header = QFileInfo(path).baseName();
+  options.footer = QStringLiteral("Page #");
+
+  if (!typist::platform::exportPdf(path, &rendered, options, &error)) {
     statusBar()->showMessage(error);
     return;
   }

@@ -34,6 +34,9 @@ class EditorSpike : public QObject {
   void sourceToggleRoundTripsWithoutUndoLeak();
   void undoHistoryStaysBounded();
   void pdfExportWritesPdfFile();
+  void pdfExportSelectsPaper();
+  void pdfExportPaginatesLongDocument();
+  void pdfExportWiderMarginsProduceMorePages();
   void viewSwitchKeepsRenderedHistoryAcrossRoundTrip();
   void viewSwitchInjectionResetsTargetHistory();
   void viewSwitchRebuildsRenderedFromEditedSource();
@@ -200,6 +203,83 @@ void EditorSpike::undoHistoryStaysBounded() {
   QVERIFY(!document.isUndoAvailable());
 }
 
+int pdfPageCount(const QString& path) {
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly)) return 0;
+  const QByteArray data = file.readAll();
+  file.close();
+  int pages = 0;
+  int offset = 0;
+  while ((offset = data.indexOf("/Type /Page", offset)) != -1) {
+    if (data.mid(offset + 11, 1) != QByteArrayLiteral("s")) ++pages;
+    offset += 11;
+  }
+  return pages;
+}
+
+QSizeF pdfMediaBox(const QString& path) {
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly)) return QSizeF();
+  const QByteArray data = file.readAll();
+  file.close();
+  const QByteArray marker = QByteArrayLiteral("/MediaBox [0 0 ");
+  const int offset = data.indexOf(marker);
+  if (offset == -1) return QSizeF();
+  const QByteArray rest = data.mid(offset + marker.size(), 32);
+  const QList<QByteArray> parts = rest.left(rest.indexOf(']')).split(' ');
+  return parts.size() >= 2 ? QSizeF(parts.at(0).toDouble(), parts.at(1).toDouble()) : QSizeF();
+}
+
+QString tempPdfPath(const QString& name) { return QDir::temp().filePath(name); }
+
+void EditorSpike::viewSwitchKeepsRenderedHistoryAcrossRoundTrip() {
+  typist::ui::ViewSwitch view;
+  QString error;
+  QVERIFY(view.loadMarkdownIntoBoth(QStringLiteral("# Title\n\nBody text\n"), &error));
+  const QString baseline = typist::editor::serializeDocument(view.rendered());
+
+  QTextCursor cursor(view.rendered());
+  cursor.movePosition(QTextCursor::End);
+  cursor.beginEditBlock();
+  cursor.insertText(QStringLiteral(" added"));
+  cursor.endEditBlock();
+
+  QVERIFY(view.switchView(&error));
+  QVERIFY(view.isSourceMode());
+  QVERIFY(view.switchView(&error));
+  QVERIFY(!view.isSourceMode());
+  QCOMPARE(view.active(), view.rendered());
+  QVERIFY(view.rendered()->isUndoAvailable());
+
+  view.rendered()->undo();
+  QCOMPARE(typist::editor::serializeDocument(view.rendered()), baseline);
+}
+
+void EditorSpike::pdfExportSelectsPaper() {
+  if (!typist::platform::pdfExportAvailable()) QSKIP("PDF export unavailable in this build");
+  QTextDocument document;
+  QString error;
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("# Title\n\nBody text\n"), &document, &error));
+
+  const QString a4Path = tempPdfPath(QStringLiteral("typist_a4.pdf"));
+  typist::platform::PdfPageOptions options;
+  options.paper = QStringLiteral("a4");
+  QVERIFY2(typist::platform::exportPdf(a4Path, &document, options, &error), qPrintable(error));
+  const QSizeF a4 = pdfMediaBox(a4Path);
+
+  options.paper = QStringLiteral("letter");
+  const QString letterPath = tempPdfPath(QStringLiteral("typist_letter.pdf"));
+  QVERIFY2(typist::platform::exportPdf(letterPath, &document, options, &error), qPrintable(error));
+  const QSizeF letter = pdfMediaBox(letterPath);
+
+  QVERIFY(a4.width() > 0.0);
+  QVERIFY(letter.width() > 0.0);
+  // MediaBox is written in points: A4 is narrower but taller than Letter.
+  QVERIFY(a4.width() < letter.width());
+  QVERIFY(a4.height() > letter.height());
+  QFile::remove(a4Path);
+  QFile::remove(letterPath);
+}
 void EditorSpike::pdfExportWritesPdfFile() {
   if (!typist::platform::pdfExportAvailable()) QSKIP("Qt PrintSupport is not available in this build");
 
@@ -219,31 +299,6 @@ void EditorSpike::pdfExportWritesPdfFile() {
   QVERIFY(file.read(5) == QByteArray("%PDF-"));
   file.close();
   QFile::remove(path);
-}
-
-void EditorSpike::viewSwitchKeepsRenderedHistoryAcrossRoundTrip() {
-  typist::ui::ViewSwitch view;
-  QString error;
-  QVERIFY(view.loadMarkdownIntoBoth(QStringLiteral("# Title\n\nBody text\n"), &error));
-  const QString baseline = typist::editor::serializeDocument(view.rendered());
-
-  QTextCursor cursor(view.rendered());
-  cursor.beginEditBlock();
-  cursor.movePosition(QTextCursor::End);
-  cursor.insertText(QStringLiteral(" extra"));
-  cursor.endEditBlock();
-  QVERIFY(view.rendered()->isUndoAvailable());
-
-  QVERIFY(view.switchView(&error));
-  QVERIFY(view.isSourceMode());
-  QCOMPARE(view.active(), view.source());
-  QVERIFY(view.switchView(&error));
-  QVERIFY(!view.isSourceMode());
-  QCOMPARE(view.active(), view.rendered());
-  QVERIFY(view.rendered()->isUndoAvailable());
-
-  view.rendered()->undo();
-  QCOMPARE(typist::editor::serializeDocument(view.rendered()), baseline);
 }
 
 void EditorSpike::viewSwitchInjectionResetsTargetHistory() {
@@ -396,6 +451,49 @@ void EditorSpike::savedMarkdownMatchesParsedSource() {
   file.close();
   QVERIFY(QFile::remove(path));
 }
+
+void EditorSpike::pdfExportPaginatesLongDocument() {
+  if (!typist::platform::pdfExportAvailable()) QSKIP("PDF export unavailable in this build");
+  QString source;
+  for (int i = 0; i < 200; ++i) {
+    source += QStringLiteral("Paragraph %1 with enough prose to occupy a couple of lines.\n\n").arg(i);
+  }
+  QTextDocument document;
+  QString error;
+  QVERIFY(typist::editor::loadMarkdown(source, &document, &error));
+
+  const QString path = tempPdfPath(QStringLiteral("typist_multipage.pdf"));
+  typist::platform::PdfPageOptions options;
+  options.header = QStringLiteral("Typist export test");
+  options.footer = QStringLiteral("Page #");
+  QVERIFY2(typist::platform::exportPdf(path, &document, options, &error), qPrintable(error));
+  QVERIFY(pdfPageCount(path) >= 3);
+  QFile::remove(path);
+}
+
+void EditorSpike::pdfExportWiderMarginsProduceMorePages() {
+  if (!typist::platform::pdfExportAvailable()) QSKIP("PDF export unavailable in this build");
+  QString source;
+  for (int i = 0; i < 200; ++i) {
+    source += QStringLiteral("Paragraph %1 with enough prose to occupy a couple of lines.\n\n").arg(i);
+  }
+  QTextDocument document;
+  QString error;
+  QVERIFY(typist::editor::loadMarkdown(source, &document, &error));
+
+  const QString tightPath = tempPdfPath(QStringLiteral("typist_tight.pdf"));
+  typist::platform::PdfPageOptions tight;
+  tight.marginMm = 10.0;
+  QVERIFY2(typist::platform::exportPdf(tightPath, &document, tight, &error), qPrintable(error));
+  const QString widePath = tempPdfPath(QStringLiteral("typist_wide.pdf"));
+  typist::platform::PdfPageOptions wide;
+  wide.marginMm = 60.0;
+  QVERIFY2(typist::platform::exportPdf(widePath, &document, wide, &error), qPrintable(error));
+  QVERIFY(pdfPageCount(widePath) > pdfPageCount(tightPath));
+  QFile::remove(tightPath);
+  QFile::remove(widePath);
+}
+
 
 QTEST_MAIN(EditorSpike)
 
