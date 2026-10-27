@@ -2,6 +2,7 @@
 
 #include "AutoSave.h"
 #include "DocxWriter.h"
+#include "FolderSearchRunner.h"
 #include "SystemTheme.h"
 #include "FileOps.h"
 #include "FileSearch.h"
@@ -179,6 +180,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_folderSearchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
   editMenu->addAction(m_folderSearchAction);
   connect(m_folderSearchAction, &QAction::triggered, this, &MainWindow::searchInFolder);
+  connect(&m_folderSearch, &platform::FolderSearchRunner::resultsReady, this, &MainWindow::onFolderSearchResults);
 
 
   m_folderAction = new QAction(tr("Open Folder"), this);
@@ -572,10 +574,12 @@ void MainWindow::searchInFolder() {
   request.rootDir = root;
   request.pattern = pattern;
   request.caseSensitive = m_findBar->caseSensitive();
+  m_searchRoot = root;
+  statusBar()->showMessage(tr("Searching %1...").arg(root));
+  m_folderSearch.start(request);
+}
 
-  QString error;
-  const QVector<platform::SearchHit> hits = platform::searchFiles(request, &error);
-
+void MainWindow::onFolderSearchResults(const QVector<platform::SearchHit>& hits, bool cancelled, const QString& error) {
   m_results->clear();
   for (const platform::SearchHit& hit : hits) {
     QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1:%2  %3").arg(QFileInfo(hit.path).fileName()).arg(hit.line).arg(hit.preview));
@@ -583,10 +587,13 @@ void MainWindow::searchInFolder() {
     m_results->addItem(item);
   }
   m_resultsDock->show();
-  statusBar()->showMessage(error.isEmpty() ? QStringLiteral("%1 matches in %2").arg(hits.size()).arg(root)
-                                                : QStringLiteral("%1 matches in %2 (%3)").arg(hits.size()).arg(root).arg(error));
+  if (cancelled) {
+    statusBar()->showMessage(tr("Search cancelled after %1 matches in %2").arg(hits.size()).arg(m_searchRoot));
+    return;
+  }
+  statusBar()->showMessage(error.isEmpty() ? tr("%1 matches in %2").arg(hits.size()).arg(m_searchRoot)
+                                                : tr("%1 matches in %2 (%3)").arg(hits.size()).arg(m_searchRoot).arg(error));
 }
-
 void MainWindow::openSearchHit() {
   QListWidgetItem* item = m_results->currentItem();
   if (item == nullptr) return;
@@ -607,6 +614,8 @@ void MainWindow::cycleTheme() {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+  // A scan still in flight must not outlive the window that owns its results.
+  m_folderSearch.cancel();
   // Closing is the last chance to persist edits; the debounce window may still be open.
   if (!m_benchMode) m_autoSave->flushNow();
   QMainWindow::closeEvent(event);

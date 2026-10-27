@@ -5,6 +5,7 @@
 #include <QString>
 #include <QUrl>
 
+#include "FolderSearchRunner.h"
 #include "Search.h"
 
 class QAction;
@@ -83,6 +84,7 @@ class MainWindow : public QMainWindow {
   void searchPrevious();
   void refreshMatches();
   void searchInFolder();
+  void onFolderSearchResults(const QVector<typist::platform::SearchHit>& hits, bool cancelled, const QString& error);
   void openSearchHit();
   void toggleSidebar();
   void openFolder();
@@ -111,6 +113,8 @@ class MainWindow : public QMainWindow {
   ui::FileTree* m_tree = nullptr;
   QListWidget* m_results = nullptr;
   ui::SearchController m_search;
+  platform::FolderSearchRunner m_folderSearch;
+  QString m_searchRoot;
   QAction* m_undoAction = nullptr;
   QAction* m_redoAction = nullptr;
   QAction* m_sourceAction = nullptr;

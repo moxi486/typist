@@ -128,6 +128,22 @@
         <translation>请先在查找栏输入要查找的内容。</translation>
     </message>
     <message>
+        <source>Searching %1...</source>
+        <translation>正在搜索 %1…</translation>
+    </message>
+    <message>
+        <source>Search cancelled after %1 matches in %2</source>
+        <translation>在 %2 中搜索到 %1 处匹配后取消</translation>
+    </message>
+    <message>
+        <source>%1 matches in %2</source>
+        <translation>%2 中找到 %1 处匹配</translation>
+    </message>
+    <message>
+        <source>%1 matches in %2 (%3)</source>
+        <translation>%2 中找到 %1 处匹配（%3）</translation>
+    </message>
+    <message>
         <source>Theme: %1</source>
         <translation>主题：%1</translation>
     </message>

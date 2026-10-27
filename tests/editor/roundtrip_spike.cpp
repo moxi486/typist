@@ -7,6 +7,7 @@
 #include "FileOps.h"
 #include "FileTree.h"
 #include "Search.h"
+#include "FolderSearchRunner.h"
 #include "Localization.h"
 #include "Settings.h"
 #include "SystemTheme.h"
@@ -82,6 +83,8 @@ class EditorSpike : public QObject {
   void docxExportWritesEachPackageMemberOnce();
   void docxExportReportsHeadingTableAndTaskItem();
   void docxExportFailsWhenPathUnwritable();
+  void folderSearchRunnerReportsHitsOffUiThread();
+  void cancellableScanStopsWhenFlagIsSet();
   void translationCandidatesFollowLocaleLanguage();
   void translationFileCoversMainWindowStrings();
   void translatorFallsBackWhenCatalogMissing();
@@ -1015,6 +1018,48 @@ void EditorSpike::docxExportFailsWhenPathUnwritable() {
   QVERIFY(!error.isEmpty());
 }
 
+void EditorSpike::folderSearchRunnerReportsHitsOffUiThread() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  for (int i = 0; i < 5; ++i) {
+    QFile file(dir.path() + QStringLiteral("/doc%1.md").arg(i));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("needle line for scan\n");
+    file.close();
+  }
+  typist::platform::FolderSearchRunner runner;
+  QSignalSpy spy(&runner, &typist::platform::FolderSearchRunner::resultsReady);
+  typist::platform::SearchRequest request;
+  request.rootDir = dir.path();
+  request.pattern = QStringLiteral("needle");
+  runner.start(request);
+  QVERIFY(spy.wait(5000));
+  QCOMPARE(spy.count(), 1);
+  const QVector<typist::platform::SearchHit> hits = spy.at(0).at(0).value<QVector<typist::platform::SearchHit>>();
+  QCOMPARE(hits.size(), 5);
+  QVERIFY(spy.at(0).at(1).toBool() == false);
+  QVERIFY(runner.isRunning() == false);
+}
+
+void EditorSpike::cancellableScanStopsWhenFlagIsSet() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QFile file(dir.path() + QStringLiteral("/doc.md"));
+  QVERIFY(file.open(QIODevice::WriteOnly));
+  file.write("needle\n");
+  file.close();
+  typist::platform::SearchRequest request;
+  request.rootDir = dir.path();
+  request.pattern = QStringLiteral("needle");
+  std::atomic<bool> cancelled{true};
+  bool wasCancelled = false;
+  QString error;
+  const QVector<typist::platform::SearchHit> hits =
+      typist::platform::searchFilesCancellable(request, &error, cancelled, &wasCancelled);
+  QVERIFY(hits.isEmpty());
+  QVERIFY(wasCancelled);
+}
+
 void EditorSpike::translationCandidatesFollowLocaleLanguage() {
   const QStringList candidates = typist::ui::translationCandidates(QStringLiteral("zh_CN"));
   QCOMPARE(candidates.size(), 4);
@@ -1065,6 +1110,15 @@ void EditorSpike::translationFileCoversMainWindowStrings() {
       else if (currentElement == QStringLiteral("translation")) translation = xml.text().toString();
     }
   }
+  QSet<QString> uniqueTr;
+  int cursor = sourceCode.indexOf(QStringLiteral("tr(\""));
+  while (cursor >= 0) {
+    const QString rest = sourceCode.mid(cursor + 5);
+    const int closing = rest.indexOf(QChar(34));
+    if (closing >= 0) uniqueTr.insert(rest.left(closing));
+    cursor = sourceCode.indexOf(QStringLiteral("tr(\""), cursor + 5 + closing);
+  }
+  QCOMPARE(messages, uniqueTr.size());
   QVERIFY(messages >= 30);
   tsFile.close();
   QVERIFY(messages >= 30);

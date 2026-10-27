@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -12,6 +13,7 @@ struct SearchHit {
   QString preview;
 };
 
+
 struct SearchRequest {
   QString rootDir;
   QString pattern;
@@ -22,6 +24,11 @@ struct SearchRequest {
 
 // Scans Markdown files under rootDir; hidden entries and VCS/build directories are skipped.
 QVector<SearchHit> searchFiles(const SearchRequest& request, QString* error);
+
+// Same scan with a cancellation flag checked between files; partial hits are returned and
+// wasCancelled reports whether the scan stopped early.
+QVector<SearchHit> searchFilesCancellable(const SearchRequest& request, QString* error,
+                                          const std::atomic<bool>& cancelled, bool* wasCancelled);
 
 // Lists Markdown files under rootDir as absolute paths, sorted by relative path.
 QStringList listMarkdownFiles(const QString& rootDir, int maxEntries = 500, qint64 maxFileBytes = 4 * 1024 * 1024);

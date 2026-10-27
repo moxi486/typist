@@ -24,7 +24,8 @@ QString previewOf(const QString& text) {
 
 }  // namespace
 
-QVector<SearchHit> searchFiles(const SearchRequest& request, QString* error) {
+QVector<SearchHit> scanFiles(const SearchRequest& request, QString* error, const std::atomic<bool>* cancelled,
+                               bool* wasCancelled) {
   QVector<SearchHit> hits;
   if (request.pattern.isEmpty()) {
     if (error) *error = QStringLiteral("Search pattern is empty");
@@ -35,6 +36,10 @@ QVector<SearchHit> searchFiles(const SearchRequest& request, QString* error) {
   QDirIterator it(request.rootDir, QStringList() << QStringLiteral("*.md"),
                   QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden, QDirIterator::Subdirectories);
   while (it.hasNext()) {
+    if (cancelled && cancelled->load(std::memory_order_relaxed)) {
+      if (wasCancelled) *wasCancelled = true;
+      return hits;
+    }
     const QString path = it.next();
     const QStringList parts = root.relativeFilePath(path).split(QChar(47));
     // Every directory component before the file name must be a visible, non-VCS directory.
@@ -101,6 +106,15 @@ QStringList listMarkdownFiles(const QString& rootDir, int maxEntries, qint64 max
     return root.relativeFilePath(left) < root.relativeFilePath(right);
   });
   return entries;
+}
+
+QVector<SearchHit> searchFiles(const SearchRequest& request, QString* error) {
+  return scanFiles(request, error, nullptr, nullptr);
+}
+
+QVector<SearchHit> searchFilesCancellable(const SearchRequest& request, QString* error,
+                                          const std::atomic<bool>& cancelled, bool* wasCancelled) {
+  return scanFiles(request, error, &cancelled, wasCancelled);
 }
 
 }  // namespace typist::platform
