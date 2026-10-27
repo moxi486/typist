@@ -52,6 +52,10 @@
 - 菜单项插入位置受构造函数里的局部变量作用域限制：把 View 菜单的动作接到 Edit 菜单段落里会报 'viewMenu' was not declared in this scope，必须插在 QMenu* viewMenu 声明之后。
 - 侧栏实测：401 个 .md（含子目录、含 .hidden 目录里的文件）tree_entries=401，隐藏目录被跳过；tests/corpus 根目录 tree_entries=14。bench 门槛 --bench-tree 要求 tree_entries > 0，否则退出码 1。
 - 又一次踩到同一个坑：把新测试实现接在旧函数结尾之后会多出第二份 QTEST_MAIN（redefinition of 'int main'）；改完必须 grep 确认只有一份且在 moc include 之前。
+- 侧栏改成层级目录树：FileTree::buildDirectory 递归建条目（目录节点用 kDirRole 标记，文件节点在 kPathRole 存绝对路径），entryCount/entryPath 只数叶子文件，directoryCount 数目录节点；目录过滤与侧栏列表同一规则（以 . 开头、build、node_modules 跳过）。
+- 文件操作落在 platform::FileOps（createMarkdownFile/renameFile/deleteFile）：名字没有 .md 后缀就补上，重名直接拒绝且不覆盖，重命名用 QFile::rename 保留正文；UI 侧的对话框（QInputDialog/QMessageBox）只在右键菜单触发，headless 测试与 bench 不会走到。
+- Qt6 的 QFile 没有 open(fileName, mode) 重载：读另一个路径要先 QFile file(path) 再 open(QIODevice::ReadOnly)（报 no matching function for call to 'QFile::open(const QString&, OpenModeFlag)'）。
+- 层级实测：a.md + sub/b.md + sub/deeper/c.md + .git/g.md → tree_entries=3 tree_dirs=2（.git 被跳过）；删除当前编辑文件后缓冲区变未命名文档（bench 不覆盖这条，属交互路径）。
 - PDF 输出的 /MediaBox 以 point 为单位（A4 595x842、Letter 612x792），断言纸张差异要按 point 比较而不是像素；解析时用 marker 长度偏移，硬编码偏移会读错数字（探针实测 offset+13 让宽高错位）。
 - 分页限制：单个高于页面内容高度的块会被截断（例如超长表格），后续页从下一个块继续；跨页表格与防孤行留待 Beta。
 - 页码/边距配置走 QSettings 键 pdfPaper=a4|letter、pdfMarginMm（限 5–60mm，非法值回退 20mm）。

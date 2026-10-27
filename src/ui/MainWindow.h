@@ -51,6 +51,9 @@ class MainWindow : public QMainWindow {
   // Bench seam: sidebar entry count for a root directory.
   int fileTreeEntriesForBench(const QString& rootDir);
 
+  // Bench seam: sidebar directory count for a root directory.
+  int fileTreeDirectoriesForBench(const QString& rootDir);
+
  private slots:
   void openDialog();
   void save();
@@ -71,6 +74,8 @@ class MainWindow : public QMainWindow {
   void toggleSidebar();
   void openFolder();
   void openTreeEntry(const QString& path);
+  void treeFileRenamed(const QString& oldPath, const QString& newPath);
+  void treeFileRemoved(const QString& path);
 
  private:
   void updateTitleAndStatus();

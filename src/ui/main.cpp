@@ -39,11 +39,12 @@ int main(int argc, char* argv[]) {
   int folderHits = 0;
   qint64 folderScanMs = 0;
   int treeEntries = 0;
+  int treeDirectories = 0;
 
   if (benchStartup || benchRepaint || benchViewSwitch || benchSearch || benchFolderSearch || benchTree) {
     QTimer::singleShot(0, &application, [&startup, &application, &window, benchStartup, benchRepaint, benchViewSwitch,
                                        benchSearch, benchFolderSearch, benchTree, &repaintBudgetBreaches, &undoKept,
-                                       &searchMatches, &folderHits, &folderScanMs, &treeEntries] {
+                                       &searchMatches, &folderHits, &folderScanMs, &treeEntries, &treeDirectories] {
       if (benchStartup) {
         std::printf("startup_ms=%lld\n", static_cast<long long>(startup.elapsed()));
       }
@@ -76,7 +77,8 @@ int main(int argc, char* argv[]) {
       if (benchTree) {
         const QString root = QString::fromUtf8(qgetenv("TYPIST_TREE_ROOT"));
         treeEntries = window.fileTreeEntriesForBench(root.isEmpty() ? QDir::currentPath() : root);
-        std::printf("tree_entries=%d\n", treeEntries);
+        treeDirectories = window.fileTreeDirectoriesForBench(root);
+        std::printf("tree_entries=%d tree_dirs=%d\n", treeEntries, treeDirectories);
       }
       application.quit();
     });

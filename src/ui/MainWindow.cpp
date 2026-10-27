@@ -86,6 +86,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_sidebarDock->hide();
   addDockWidget(Qt::LeftDockWidgetArea, m_sidebarDock);
   connect(m_tree, &ui::FileTree::entryActivated, this, &MainWindow::openTreeEntry);
+  connect(m_tree, &ui::FileTree::fileRenamed, this, &MainWindow::treeFileRenamed);
+  connect(m_tree, &ui::FileTree::fileRemoved, this, &MainWindow::treeFileRemoved);
 
   m_results = new QListWidget(this);
   m_resultsDock = new QDockWidget(QStringLiteral("Search Results"), this);
@@ -418,6 +420,33 @@ int MainWindow::fileTreeEntriesForBench(const QString& rootDir) {
   m_tree->setRoot(rootDir);
   return m_tree->entryCount();
 }
+
+int MainWindow::fileTreeDirectoriesForBench(const QString& rootDir) {
+  m_tree->setRoot(rootDir);
+  return m_tree->directoryCount();
+}
+
+void MainWindow::treeFileRenamed(const QString& oldPath, const QString& newPath) {
+  if (m_currentPath == oldPath) {
+    m_currentPath = newPath;
+    updateTitleAndStatus();
+  }
+}
+
+void MainWindow::treeFileRemoved(const QString& path) {
+  if (m_currentPath != path) return;
+  // The buffer under the deleted file becomes an unnamed document.
+  QString error;
+  m_view->loadMarkdownIntoBoth(QString(), &error);
+  m_document = m_view->active();
+  m_view->showActiveIn(m_editor);
+  m_currentPath.clear();
+  m_savedMarkdown.clear();
+  markClean();
+  updateTitleAndStatus();
+  statusBar()->showMessage(QStringLiteral("Deleted file; buffer is now unsaved"));
+}
+
 
 void MainWindow::toggleSidebar() {
   if (m_sidebarDock->isVisible()) {

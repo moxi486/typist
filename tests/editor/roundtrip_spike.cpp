@@ -3,6 +3,7 @@
 #include "FileWriter.h"
 #include "PdfWriter.h"
 #include "AutoSave.h"
+#include "FileOps.h"
 #include "FileTree.h"
 #include "Search.h"
 #include "Settings.h"
@@ -62,6 +63,12 @@ class EditorSpike : public QObject {
   void fileTreeSkipsHiddenDirectories();
   void fileTreeRootsSwitchReplacesEntries();
   void fileTreeSelectionTracksPath();
+  void fileTreeGroupsFilesByDirectory();
+  void fileTreeDirectoryCountMatchesSubdirectories();
+  void fileTreeRebuildSeesNewFile();
+  void platformFileOpsCreateRenameDelete();
+  void platformCreateRejectsDuplicateName();
+  void platformRenameAppendsMarkdownSuffix();
 
  private:
   std::string m_corpus;
@@ -728,6 +735,98 @@ void EditorSpike::fileTreeSelectionTracksPath() {
   QCOMPARE(tree.selectedPath(), target);
   tree.selectPath(QDir(dir).filePath(QStringLiteral("missing.md")));
   QCOMPARE(tree.selectedPath(), target);
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::fileTreeGroupsFilesByDirectory() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_tree_h"));
+  QDir().mkpath(QDir(dir).filePath(QStringLiteral("sub")));
+  writeSearchFixture(dir, QStringLiteral("top.md"), QStringLiteral("# T\n"));
+  writeSearchFixture(QDir(dir).filePath(QStringLiteral("sub")), QStringLiteral("deep.md"), QStringLiteral("# D\n"));
+
+  typist::ui::FileTree tree;
+  tree.setRoot(dir);
+  QVERIFY(tree.entryCount() == 2);
+  QVERIFY(tree.directoryCount() == 1);
+  QVERIFY(tree.entryPath(0).endsWith(QStringLiteral("top.md")));
+  QVERIFY(tree.entryPath(1).endsWith(QStringLiteral("deep.md")));
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::fileTreeDirectoryCountMatchesSubdirectories() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_tree_i"));
+  QDir().mkpath(QDir(dir).filePath(QStringLiteral("a")));
+  QDir().mkpath(QDir(dir).filePath(QStringLiteral("a/b")));
+  writeSearchFixture(QDir(dir).filePath(QStringLiteral("a/b")), QStringLiteral("deep.md"), QStringLiteral("# D\n"));
+
+  typist::ui::FileTree tree;
+  tree.setRoot(dir);
+  QVERIFY(tree.directoryCount() == 2);
+  QVERIFY(tree.entryCount() == 1);
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::fileTreeRebuildSeesNewFile() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_tree_j"));
+  QDir().mkpath(dir);
+  writeSearchFixture(dir, QStringLiteral("first.md"), QStringLiteral("# F\n"));
+
+  typist::ui::FileTree tree;
+  tree.setRoot(dir);
+  QVERIFY(tree.entryCount() == 1);
+
+  QString error;
+  QVERIFY2(typist::platform::createMarkdownFile(dir, QStringLiteral("second"), &error), error.toLatin1().constData());
+  tree.setRoot(dir);
+  QVERIFY(tree.entryCount() == 2);
+  QVERIFY(tree.entryPath(1).endsWith(QStringLiteral("second.md")));
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::platformFileOpsCreateRenameDelete() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_ops_a"));
+  QDir().mkpath(dir);
+  QString error;
+  QVERIFY2(typist::platform::createMarkdownFile(dir, QStringLiteral("note"), &error), error.toLatin1().constData());
+  const QString created = QDir(dir).filePath(QStringLiteral("note.md"));
+  QVERIFY(QFileInfo::exists(created));
+
+  QFile file(created);
+  QVERIFY(file.open(QIODevice::WriteOnly));
+  file.write("body\n");
+  file.close();
+
+  QVERIFY2(typist::platform::renameFile(created, QStringLiteral("renamed"), &error), error.toLatin1().constData());
+  const QString renamed = QDir(dir).filePath(QStringLiteral("renamed.md"));
+  QVERIFY(!QFileInfo::exists(created));
+  QVERIFY(QFileInfo::exists(renamed));
+  QFile reopened(renamed);
+  QVERIFY(reopened.open(QIODevice::ReadOnly));
+  QCOMPARE(QString::fromUtf8(reopened.readAll()), QStringLiteral("body\n"));
+  reopened.close();
+
+  QVERIFY2(typist::platform::deleteFile(renamed, &error), error.toLatin1().constData());
+  QVERIFY(!QFileInfo::exists(renamed));
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::platformCreateRejectsDuplicateName() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_ops_b"));
+  QDir().mkpath(dir);
+  QString error;
+  QVERIFY(typist::platform::createMarkdownFile(dir, QStringLiteral("dup.md"), &error));
+  QVERIFY(!typist::platform::createMarkdownFile(dir, QStringLiteral("dup"), &error));
+  QVERIFY(!error.isEmpty());
+  QDir(dir).removeRecursively();
+}
+
+void EditorSpike::platformRenameAppendsMarkdownSuffix() {
+  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_ops_c"));
+  QDir().mkpath(dir);
+  const QString source = writeSearchFixture(dir, QStringLiteral("old.md"), QStringLiteral("# O\n"));
+  QString error;
+  QVERIFY2(typist::platform::renameFile(source, QStringLiteral("newname"), &error), error.toLatin1().constData());
+  QVERIFY(QFileInfo::exists(QDir(dir).filePath(QStringLiteral("newname.md"))));
   QDir(dir).removeRecursively();
 }
 
