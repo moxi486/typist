@@ -21,6 +21,9 @@
 - system 主题的判定顺序：Windows 读注册表 AppsUseLightTheme、Linux 读 GTK_THEME 或 ~/.config/gtk-3.0/settings.ini、macOS 读 AppleInterfaceStyle，读不到时回退到窗口调色板亮度
 - 界面语言跟随系统 locale：按语言取 typist_<lang>.qm 目录（依次找当前目录 translations/、可执行文件旁 translations/、Qt 翻译目录、~/.typist/translations/），英语是源语言无需目录；仓库带 translations/typist_zh.ts，编译产物 .qm 由 CI 的 lrelease 生成（本机未装 Qt Linguist，所以本地跑的是英语源文案）
 - 自动保存（最后一次编辑后 2 秒落盘；未命名文件不自动保存；切换源码/渲染视图与关闭窗口时立即落盘）
+- 最近打开的文件（File > Recent Files，最多 8 条；菜单打开时剔除已不存在的路径）
+- 崩溃恢复草稿（有未保存编辑时写入草稿目录；File > Recover Draft（Ctrl+Shift+E）把最新草稿恢复到未保存缓冲区；启动时若存在草稿会在状态栏提示条数）
+- 外部修改冲突（磁盘内容变化且缓冲区未保存时询问是否重新载入，默认保留你的编辑；无对话框场景与 bench 模式一律保留编辑）
 - 往返保真测试：parse → serialize → parse 产生相同 AST
 - 性能基线：`perf_baseline` 与 `repaint_baseline`（ctest 项）打印打开耗时与打字到重绘耗时；本机 Windows Release 实测冷启动 295ms、常驻工作集 21.7MB、1MB 文档 realistic 117ms、tableheavy 244ms、打字到重绘 0–1ms
 

@@ -2,6 +2,7 @@
 
 #include "AutoSave.h"
 #include "DocxWriter.h"
+#include "Conflict.h"
 #include "FolderSearchRunner.h"
 #include "SystemTheme.h"
 #include "FileOps.h"
@@ -34,6 +35,7 @@
 #include <QKeySequence>
 #include <QMenuBar>
 #include <QMenu>
+#include <QMessageBox>
 #include <QPalette>
 #include <QStatusBar>
 #include <QString>
@@ -101,6 +103,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   connect(m_tree, &ui::FileTree::entryActivated, this, &MainWindow::openTreeEntry);
   connect(m_tree, &ui::FileTree::fileRenamed, this, &MainWindow::treeFileRenamed);
   connect(m_tree, &ui::FileTree::fileRemoved, this, &MainWindow::treeFileRemoved);
+  connect(m_tree, &ui::FileTree::directoryChanged, this, &MainWindow::checkCurrentFileConflict);
 
   m_results = new QListWidget(this);
   m_resultsDock = new QDockWidget(tr("Search Results"), this);
@@ -114,7 +117,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   connect(m_findBar, &ui::FindBar::findPrevious, this, &MainWindow::searchPrevious);
 
   m_autoSave = new ui::AutoSave(this);
-  m_autoSave->setCallback([this] { autoSaveNow(); });
+  m_autoSave->setCallback([this] { writeRecoveryDraft(); autoSaveNow(); });
 
   m_themePreference = platform::themePreference();
 
@@ -147,6 +150,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   QAction* exportDocxAction = fileMenu->addAction(tr("Export DOCX"));
   exportDocxAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+X")));
   connect(exportDocxAction, &QAction::triggered, this, &MainWindow::exportDocx);
+
+  QAction* recoverAction = new QAction(tr("Recover Draft"), this);
+  recoverAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+E")));
+  fileMenu->addAction(recoverAction);
+  connect(recoverAction, &QAction::triggered, this, &MainWindow::recoverLatestDraft);
+
+  m_recentMenu = fileMenu->addMenu(tr("Recent Files"));
+  connect(m_recentMenu, &QMenu::triggered, this, &MainWindow::openRecentEntry);
+  rebuildRecentMenu();
 
   QMenu* editMenu = menuBar()->addMenu(tr("Edit"));
   m_undoAction = new QAction(tr("Undo"), this);
@@ -229,6 +241,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   connect(qGuiApp, &QGuiApplication::paletteChanged, this, [this] { applyTheme(); });
 
   updateTitleAndStatus();
+  const int drafts = typist::ui::draftPaths().size();
+  if (drafts > 0) statusBar()->showMessage(tr("%1 drafts can be recovered with File > Recover Draft").arg(drafts));
 }
 
 void MainWindow::openDialog() {
@@ -259,6 +273,8 @@ void MainWindow::openFile(const QString& path) {
   m_savedMarkdown = source;
   m_sourceAction->setText(tr("Source View"));
   markClean();
+  typist::platform::addRecentFile(path);
+  rebuildRecentMenu();
 
   if (m_sidebarDock->isVisible()) {
     m_tree->setRoot(QFileInfo(path).absolutePath());
@@ -281,6 +297,8 @@ void MainWindow::save() {
 
   m_savedMarkdown = markdown;
   markClean();
+  typist::platform::addRecentFile(m_currentPath);
+  rebuildRecentMenu();
 }
 
 void MainWindow::saveAs() {
@@ -670,6 +688,7 @@ QString MainWindow::currentMarkdown() const {
 
 void MainWindow::markClean() {
   m_dirty = false;
+  if (!m_benchMode) typist::ui::removeDraft(m_currentPath);
   updateTitleAndStatus();
 }
 
@@ -677,6 +696,90 @@ void MainWindow::updateTitleAndStatus() {
   const QString base = m_currentPath.isEmpty() ? QStringLiteral("Typist") : m_currentPath;
   setWindowTitle(m_dirty ? base + QStringLiteral(" *") : base);
   statusBar()->showMessage(m_dirty ? tr("Unsaved changes") : tr("Saved"));
+}
+
+void MainWindow::rebuildRecentMenu() {
+  if (!m_recentMenu) return;
+  m_recentMenu->clear();
+  for (const QString& path : typist::platform::recentFiles()) {
+    if (!QFileInfo::exists(path)) {
+      typist::platform::removeRecentFile(path);
+      continue;
+    }
+    QAction* entry = m_recentMenu->addAction(QFileInfo(path).fileName());
+    entry->setData(path);
+  }
+  if (m_recentMenu->isEmpty()) {
+    QAction* placeholder = m_recentMenu->addAction(tr("No recent files"));
+    placeholder->setEnabled(false);
+  }
+}
+
+void MainWindow::openRecentEntry(QAction* action) {
+  if (!action || !action->isEnabled() || action->data().isNull()) return;
+  openFile(action->data().toString());
+}
+
+void MainWindow::checkCurrentFileConflict() {
+  if (m_currentPath.isEmpty()) return;
+  QFile file(m_currentPath);
+  if (!file.open(QIODevice::ReadOnly)) return;
+  const QString disk = QString::fromUtf8(file.readAll());
+  file.close();
+  const bool diskDiffers = disk != m_savedMarkdown;
+  if (typist::ui::decideConflict(m_dirty, diskDiffers, !m_benchMode) == typist::ui::ConflictChoice::ReloadDisk) {
+    if (m_dirty) {
+      const QMessageBox::StandardButton answer = QMessageBox::question(
+          this, tr("File changed on disk"),
+          tr("The file changed on disk while you have unsaved edits. Reload the disk version and discard your edits?"),
+          QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+      if (answer != QMessageBox::Yes) {
+        statusBar()->showMessage(tr("Keeping your unsaved edits"));
+        return;
+      }
+    }
+    openFile(m_currentPath);
+    statusBar()->showMessage(tr("Reloaded file changed on disk"));
+    return;
+  }
+  if (m_dirty && diskDiffers) statusBar()->showMessage(tr("File changed on disk; keeping your unsaved edits"));
+}
+
+void MainWindow::writeRecoveryDraft() {
+  if (m_benchMode || !m_dirty) return;
+  typist::ui::writeDraft(m_currentPath, currentMarkdown());
+}
+
+void MainWindow::recoverLatestDraft() {
+  const QStringList drafts = typist::ui::draftPaths();
+  if (drafts.isEmpty()) {
+    statusBar()->showMessage(tr("No drafts to recover"));
+    return;
+  }
+
+  QFile file(drafts.first());
+  if (!file.open(QIODevice::ReadOnly)) {
+    statusBar()->showMessage(tr("Cannot open draft"));
+    return;
+  }
+  const QString text = QString::fromUtf8(file.readAll());
+  file.close();
+
+  QString error;
+  if (!m_view->loadMarkdownIntoBoth(text, &error)) {
+    statusBar()->showMessage(error);
+    return;
+  }
+  m_document = m_view->active();
+  m_view->showActiveIn(m_editor);
+  m_sourceMode = m_view->isSourceMode();
+  // Recovery lands in an untitled buffer: the writer decides where it is saved.
+  m_currentPath.clear();
+  m_savedMarkdown = text;
+  m_dirty = true;
+  file.remove();
+  updateTitleAndStatus();
+  statusBar()->showMessage(tr("Recovered draft into an unsaved buffer"));
 }
 
 }  // namespace typist

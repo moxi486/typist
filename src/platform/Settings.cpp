@@ -42,4 +42,33 @@ void setPdfMarginMm(double value) {
   store.sync();
 }
 
+QStringList recentFiles(int limit) {
+  QSettings settings = openSettings();
+  const QStringList stored = settings.value(QStringLiteral("recentFiles")).toStringList();
+  QStringList out;
+  for (const QString& path : stored) {
+    if (path.isEmpty() || out.contains(path)) continue;
+    out.append(path);
+    if (limit > 0 && out.size() >= limit) break;
+  }
+  return out;
+}
+
+void addRecentFile(const QString& path) {
+  if (path.isEmpty()) return;
+  QSettings settings = openSettings();
+  QStringList stored = settings.value(QStringLiteral("recentFiles")).toStringList();
+  stored.removeOne(path);
+  stored.prepend(path);
+  while (stored.size() > 8) stored.removeLast();
+  settings.setValue(QStringLiteral("recentFiles"), stored);
+}
+
+void removeRecentFile(const QString& path) {
+  QSettings settings = openSettings();
+  QStringList stored = settings.value(QStringLiteral("recentFiles")).toStringList();
+  stored.removeOne(path);
+  settings.setValue(QStringLiteral("recentFiles"), stored);
+}
+
 }  // namespace typist::platform

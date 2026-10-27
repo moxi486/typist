@@ -200,6 +200,7 @@ void FileTree::scheduleRefresh() {
     m_debounce->setSingleShot(true);
     connect(m_debounce, &QTimer::timeout, this, [this] {
       refreshIfChanged();
+      emit directoryChanged();
       watchCurrentDirectories();
     });
   }

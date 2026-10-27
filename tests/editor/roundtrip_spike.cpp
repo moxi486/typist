@@ -7,8 +7,10 @@
 #include "FileOps.h"
 #include "FileTree.h"
 #include "Search.h"
+#include "Conflict.h"
 #include "FolderSearchRunner.h"
 #include "Localization.h"
+#include "RecoveryStore.h"
 #include "Settings.h"
 #include "SystemTheme.h"
 #include "ViewSwitch.h"
@@ -83,6 +85,10 @@ class EditorSpike : public QObject {
   void docxExportWritesEachPackageMemberOnce();
   void docxExportReportsHeadingTableAndTaskItem();
   void docxExportFailsWhenPathUnwritable();
+  void recentFilesKeepNewestFirstAndCap();
+  void recoveryStoreRoundTripsThroughEnvOverride();
+  void recoveryStoreKeysSeparateUntitledAndPaths();
+  void conflictDecisionProtectsUnsavedEdits();
   void folderSearchRunnerReportsHitsOffUiThread();
   void cancellableScanStopsWhenFlagIsSet();
   void translationCandidatesFollowLocaleLanguage();
@@ -1016,6 +1022,61 @@ void EditorSpike::docxExportFailsWhenPathUnwritable() {
   QString error;
   QVERIFY(!typist::platform::exportDocx(path, QStringLiteral("# Title\n"), &error));
   QVERIFY(!error.isEmpty());
+}
+
+void EditorSpike::recentFilesKeepNewestFirstAndCap() {
+  // The store is the native one (registry on Windows), so clear it for a deterministic run.
+  QSettings store(QStringLiteral("Typist"), QStringLiteral("Typist"));
+  store.remove(QStringLiteral("recentFiles"));
+  store.sync();
+  typist::platform::addRecentFile(QStringLiteral("/a.md"));
+  typist::platform::addRecentFile(QStringLiteral("/b.md"));
+  typist::platform::addRecentFile(QStringLiteral("/a.md"));
+  const QStringList stored = typist::platform::recentFiles();
+  QVERIFY2(stored.size() == 2, qPrintable(stored.join(QStringLiteral(";"))));
+  QCOMPARE(stored.first(), QStringLiteral("/a.md"));
+  for (int i = 0; i < 12; ++i) typist::platform::addRecentFile(QStringLiteral("/f%1.md").arg(i));
+  QCOMPARE(typist::platform::recentFiles().size(), 8);
+  typist::platform::removeRecentFile(QStringLiteral("/f11.md"));
+  QVERIFY(!typist::platform::recentFiles().contains(QStringLiteral("/f11.md")));
+  store.remove(QStringLiteral("recentFiles"));
+  store.sync();
+  QVERIFY(typist::platform::recentFiles().isEmpty());
+}
+
+void EditorSpike::recoveryStoreRoundTripsThroughEnvOverride() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  qputenv("TYPIST_RECOVERY_DIR", QDir::tempPath() == dir.path() ? QByteArray() : dir.path().toLocal8Bit());
+  QVERIFY(typist::ui::recoveryDir() == dir.path());
+  QVERIFY(typist::ui::writeDraft(QStringLiteral("/doc.md"), QStringLiteral("# Draft\n\nbody")));
+  QString text;
+  QVERIFY(typist::ui::readDraft(QStringLiteral("/doc.md"), &text));
+  QCOMPARE(text, QStringLiteral("# Draft\n\nbody"));
+  QCOMPARE(typist::ui::draftPaths().size(), 1);
+  QVERIFY(typist::ui::removeDraft(QStringLiteral("/doc.md")));
+  QVERIFY(!typist::ui::removeDraft(QStringLiteral("/doc.md")));
+  QVERIFY(!typist::ui::readDraft(QStringLiteral("/missing.md"), &text));
+}
+
+void EditorSpike::recoveryStoreKeysSeparateUntitledAndPaths() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  qputenv("TYPIST_RECOVERY_DIR", dir.path().toLocal8Bit());
+  QCOMPARE(typist::ui::recoveryKeyFor(QString()), QStringLiteral("untitled"));
+  QVERIFY(typist::ui::recoveryKeyFor(QStringLiteral("/a.md")) != typist::ui::recoveryKeyFor(QStringLiteral("/b.md")));
+  QVERIFY(typist::ui::writeDraft(QString(), QStringLiteral("untitled draft")));
+  QString text;
+  QVERIFY(typist::ui::readDraft(QString(), &text));
+  QCOMPARE(text, QStringLiteral("untitled draft"));
+  QVERIFY(!typist::ui::readDraft(QStringLiteral("/a.md"), &text));
+}
+
+void EditorSpike::conflictDecisionProtectsUnsavedEdits() {
+  QCOMPARE(typist::ui::decideConflict(true, false, true), typist::ui::ConflictChoice::KeepEditor);
+  QCOMPARE(typist::ui::decideConflict(false, true, true), typist::ui::ConflictChoice::ReloadDisk);
+  QCOMPARE(typist::ui::decideConflict(true, true, false), typist::ui::ConflictChoice::KeepEditor);
+  QCOMPARE(typist::ui::decideConflict(true, true, true), typist::ui::ConflictChoice::ReloadDisk);
 }
 
 void EditorSpike::folderSearchRunnerReportsHitsOffUiThread() {

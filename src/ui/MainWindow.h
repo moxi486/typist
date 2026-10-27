@@ -5,7 +5,9 @@
 #include <QString>
 #include <QUrl>
 
+#include "Conflict.h"
 #include "FolderSearchRunner.h"
+#include "RecoveryStore.h"
 #include "Search.h"
 
 class QAction;
@@ -85,6 +87,11 @@ class MainWindow : public QMainWindow {
   void refreshMatches();
   void searchInFolder();
   void onFolderSearchResults(const QVector<typist::platform::SearchHit>& hits, bool cancelled, const QString& error);
+  void rebuildRecentMenu();
+  void openRecentEntry(QAction* action);
+  void checkCurrentFileConflict();
+  void writeRecoveryDraft();
+  void recoverLatestDraft();
   void openSearchHit();
   void toggleSidebar();
   void openFolder();
@@ -124,6 +131,7 @@ class MainWindow : public QMainWindow {
   QAction* m_sidebarAction = nullptr;
   QAction* m_folderAction = nullptr;
   ui::AutoSave* m_autoSave = nullptr;
+  QMenu* m_recentMenu = nullptr;
   ui::ViewSwitch* m_view = nullptr;
   bool m_benchMode = false;
   QString m_currentPath;

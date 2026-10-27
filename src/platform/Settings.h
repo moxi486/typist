@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 namespace typist::platform {
 
@@ -18,5 +19,12 @@ void setPdfPaper(const QString& value);
 double pdfMarginMm(double fallback = 20.0);
 
 void setPdfMarginMm(double value);
+
+// Most recently opened or saved paths, newest first; stale entries are pruned by callers.
+QStringList recentFiles(int limit = 8);
+
+void addRecentFile(const QString& path);
+
+void removeRecentFile(const QString& path);
 
 }  // namespace typist::platform

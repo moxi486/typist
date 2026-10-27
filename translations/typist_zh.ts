@@ -40,6 +40,14 @@
         <translation>导出 DOCX</translation>
     </message>
     <message>
+        <source>Recover Draft</source>
+        <translation>恢复草稿</translation>
+    </message>
+    <message>
+        <source>Recent Files</source>
+        <translation>最近打开</translation>
+    </message>
+    <message>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
@@ -86,6 +94,10 @@
     <message>
         <source>Show Files</source>
         <translation>显示文件列表</translation>
+    </message>
+    <message>
+        <source>%1 drafts can be recovered with File > Recover Draft</source>
+        <translation>有 %1 份草稿可通过「文件 > 恢复草稿」找回</translation>
     </message>
     <message>
         <source>Open Markdown</source>
@@ -154,6 +166,42 @@
     <message>
         <source>Saved</source>
         <translation>已保存</translation>
+    </message>
+    <message>
+        <source>No recent files</source>
+        <translation>没有最近打开的文件</translation>
+    </message>
+    <message>
+        <source>File changed on disk</source>
+        <translation>磁盘上的文件已变化</translation>
+    </message>
+    <message>
+        <source>The file changed on disk while you have unsaved edits. Reload the disk version and discard your edits?</source>
+        <translation>磁盘上的文件已变化，而你有未保存的编辑。要重新载入磁盘版本并丢弃你的编辑吗？</translation>
+    </message>
+    <message>
+        <source>Keeping your unsaved edits</source>
+        <translation>保留你未保存的编辑</translation>
+    </message>
+    <message>
+        <source>Reloaded file changed on disk</source>
+        <translation>已重新载入磁盘上变化的文件</translation>
+    </message>
+    <message>
+        <source>File changed on disk; keeping your unsaved edits</source>
+        <translation>磁盘上的文件已变化；保留你未保存的编辑</translation>
+    </message>
+    <message>
+        <source>No drafts to recover</source>
+        <translation>没有可恢复的草稿</translation>
+    </message>
+    <message>
+        <source>Cannot open draft</source>
+        <translation>无法打开草稿</translation>
+    </message>
+    <message>
+        <source>Recovered draft into an unsaved buffer</source>
+        <translation>已把草稿恢复到未保存的缓冲区</translation>
     </message>
 </context>
 </TS>
