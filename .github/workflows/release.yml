@@ -61,7 +61,7 @@ jobs:
         shell: pwsh
         run: |
           Compress-Archive -Path stage\* -DestinationPath Typist-win64.zip -Force
-          Get-FileHash -Algorithm SHA256 Typist-win64.zip | ForEach-Object { "$($_.Hash.ToLower())  Typist-win64.zip" } | Set-Content checksums.txt
+          Get-FileHash -Algorithm SHA256 -Path Typist-win64.zip, Typist-*-installer.exe -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path -Leaf $_.Path)" } | Set-Content checksums.txt
       - name: Build NSIS installer
         shell: pwsh
         run: |
@@ -104,7 +104,7 @@ jobs:
             --icon-file packaging/linux/typist.png \
             --output appimage
       - name: Hash
-        run: sha256sum Typist-*.deb Typist-*.rpm Typist-*.tar.gz Typist-*.AppImage > checksums.txt
+        run: find . -maxdepth 1 \( -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' -o -name '*.AppImage' \) -type f -print0 | xargs -0 sha256sum > checksums.txt
       - uses: actions/upload-artifact@v4
         with:
           name: typist-linux
@@ -131,7 +131,7 @@ jobs:
       - name: Package dmg and portable tarball
         run: cpack -G "DMG;TGZ" -C Release -b build/macos-clang
       - name: Hash
-        run: sha256sum Typist-*.dmg Typist-*.tar.gz > checksums.txt
+        run: find . -maxdepth 1 \( -name '*.dmg' -o -name '*.tar.gz' \) -type f -print0 | xargs -0 sha256sum > checksums.txt
       - uses: actions/upload-artifact@v4
         with:
           name: typist-macos
