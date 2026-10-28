@@ -7,7 +7,7 @@ Typist 的发布包由 `.github/workflows/release.yml` 在打 `v*` 标签时构�
 ## 产物
 - Windows：`Typist-win64.zip`，暂存树经 `windeployqt` 补齐 Qt DLL 与插件后，`deploy-runtime.cmake` 递归收集程序和插件依赖的 MinGW、ICU 等运行库；启动检查使用只包含发布目录和 Windows 系统目录的 PATH。
 - Linux：`Typist-*.deb`、`Typist-*.rpm`、`Typist-*.tar.gz`，由 `cpack --config build/linux/CPackConfig.cmake -G "DEB;RPM;TGZ" -C Release -B dist` 生成。
-- macOS：使用 Qt 官方 6.8.3 安装包与静态 cmark-gfm，避免发布包依赖 Homebrew 路径。`Typist.app` 经 `macdeployqt` 补齐 Qt 依赖并校验 ad-hoc 签名后，由 CPack 的 `DragNDrop` 和 `TGZ` 生成器打包为 `Typist-*.dmg`、`Typist-*.tar.gz`。
+- macOS：使用 Qt 官方 6.8.3 安装包与静态 cmark-gfm，避免发布包依赖 Homebrew 路径。先安装到暂存树，再由 `macdeployqt` 补齐依赖并校验 ad-hoc 签名，CPack 直接打包暂存树，避免二次安装改写 RPATH 后破坏签名。`DragNDrop` 和 `TGZ` 生成器输出 `Typist-*.dmg`、`Typist-*.tar.gz`，tarball 解包后还会再次校验签名并启动程序。
 - 每个包都有 `checksums.txt`（SHA-256），`release` 作业还会写 `latest.json`（版本号、发布时间、资产 URL），作为更新源的清单。
 - Windows 还有 NSIS 安装器：runner 上 `choco install nsis`，脚本 `packaging/windows/typist.nsi` 把 staging 树装进 `$PROGRAMFILES64\Typist`，写卸载与 App Paths 注册表项、开始菜单与桌面快捷方式。
 - Linux 还有 AppImage：使用 `DESTDIR` 将程序安装到 AppDir 的 `usr/` 下，再由 linuxdeploy 与 Qt 插件打包；显式使用 Qt 6 的 `qmake6`，以 extract-and-run 模式避开 runner 的 FUSE 依赖。

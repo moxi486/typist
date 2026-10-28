@@ -173,18 +173,30 @@ jobs:
       - name: Configure
         run: cmake --preset macos-clang -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$QT_ROOT_DIR;$PWD/cmark-install"
       - run: cmake --build build/macos-clang --parallel 2
+      - name: Stage the application bundle
+        run: cmake --install build/macos-clang --prefix "$PWD/stage"
       - name: Deploy Qt into the application bundle
         run: |
-          bundle=build/macos-clang/src/ui/Typist.app
+          bundle=stage/Typist.app
           "$QT_ROOT_DIR/bin/macdeployqt" "$bundle" -always-overwrite -codesign=-
           cp "$QT_ROOT_DIR/plugins/platforms/libqoffscreen.dylib" "$bundle/Contents/PlugIns/platforms/"
           codesign --force --deep --sign - "$bundle"
           codesign --verify --deep --strict "$bundle"
       - name: Smoke test the deployed application
         timeout-minutes: 1
-        run: env -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH QT_QPA_PLATFORM=offscreen build/macos-clang/src/ui/Typist.app/Contents/MacOS/Typist --bench-repaint
+        run: env -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH QT_QPA_PLATFORM=offscreen stage/Typist.app/Contents/MacOS/Typist --bench-repaint
       - name: Package dmg and portable tarball
-        run: cpack --config build/macos-clang/CPackConfig.cmake -G "DragNDrop;TGZ" -C Release -B dist
+        run: |
+          cpack --config build/macos-clang/CPackConfig.cmake -G "DragNDrop;TGZ" -C Release -B dist \
+            -D CPACK_INSTALL_CMAKE_PROJECTS= "-DCPACK_INSTALLED_DIRECTORIES=$PWD/stage;/"
+      - name: Verify the packaged application bundle
+        timeout-minutes: 1
+        run: |
+          mkdir archive-smoke
+          tar -xzf dist/Typist-*.tar.gz -C archive-smoke
+          bundle="$(find archive-smoke -type d -name Typist.app -prune)"
+          codesign --verify --deep --strict "$bundle"
+          env -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH QT_QPA_PLATFORM=offscreen "$bundle/Contents/MacOS/Typist" --bench-repaint
       - name: Hash
         run: ( cd dist && shasum -a 256 Typist-* ) > dist/checksums.txt
       - uses: actions/upload-artifact@v4
