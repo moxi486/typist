@@ -92,7 +92,7 @@
 - 性能测量事实：本机并发任务（后台构建）会让单次计时膨胀到 2 倍（realistic 175→290、tableheavy 277→664），因此 perf_bench 取三次尝试的每阶段最优值输出（attempts=3）；干净跑下 realistic 177ms、tableheavy 278ms，仍在 CI 门限 250/300 内。标题序列化走 inlineFromBlock（保留粗体/强调/行内代码/链接），实测比纯文本路径慢约 20ms（serialize 90 vs 70）。
 - 增量排版事实：buildDocument 后调用 documentLayout()->documentSize() 实测 0ms（realistic 与 tableheavy 都是 0），说明排版随每次插入增量完成、没有一次性全量成本，因此 Beta 的"增量渲染"不需要另做实现；导出与 PDF 分页仍要显式 documentSize() 才有真实块高。
 
-- 发布纪律：每个包都要有 SHA-256（`checksums.txt`），`latest.json` 只是更新清单，应用内更新检查还没实现；未配签名证书时如实发布未签名版本，不做任何绕过签名的做法。
+- 发布纪律：每个包都要有 SHA-256（`checksums.txt`），`latest.json` 是更新清单；应用内已实现检查更新（Ctrl+Shift+U，超时 5 秒，只提示不下载安装），默认更新源是占位仓库 `typist-editor/typist`，上线时要改成真实 owner/repo 或用 `TYPIST_UPDATE_URL` 覆盖；分支名必须是 `main`（`ci.yml` 只触发 main）；版本 0.1.0 起由 `TYPIST_VERSION` 编译定义注入，改版本号后必须重新 configure；未配签名证书时如实发布未签名版本，不做任何绕过签名的做法。
 - 布局惰性事实：`blockBoundingRect().height()` 在没排版时给 0/14，要 `documentLayout()->documentSize()` 强制排版才有真实块高（与 PDF 分页同一条纪律）。
 - 任务标记事实：勾选状态存在 **QTextBlockFormat 的属性 kTaskProperty**（不在 QTextCharFormat 里）；渲染视图里条目开头插入 ☑/☐ 字形（带 kTaskMarkProperty 标记）并把列表样式设为 **QTextListFormat::ListStyleUndefined** 去掉圆点——像素探针实测 disc 区域 ink>0、undefined 区域 ink=0，说明该样式确实不画标记（Qt6 没有 ListNone，也没有自定义 bullet 字符 API）。序列化在列表发射处剥掉前两个字符（字形+空格），**不要**在 inlineFromBlock 里逐片段查属性：那样 tableheavy 的 serialize 从 92ms 升到 123ms、total 从 279 升到 330（破 300 门限），发射处剥离后回到 109/279。
 - Qt6 API 事实：`QTextCursor(QTextDocument*, int position)` 这个重载不存在，要 `QTextCursor(document->findBlockByNumber(n))` 或先 `QTextCursor(document)` 再移动；点击门限用 `m_editor->cursorRect(cursorAtBlockStart).x()` 比较（标记区在条目文字左边）。
