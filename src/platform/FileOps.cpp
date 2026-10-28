@@ -10,7 +10,8 @@ namespace typist::platform {
 namespace {
 
 QString withMarkdownSuffix(const QString& name) {
-  return name.endsWith(QStringLiteral(".md"), Qt::CaseInsensitive) ? name : name + QStringLiteral(".md");
+  return name.endsWith(QStringLiteral(".md"), Qt::CaseInsensitive) ? name
+                                                                   : name + QStringLiteral(".md");
 }
 
 }  // namespace
@@ -69,7 +70,7 @@ QString firstMarkdownPath(const QList<QUrl>& urls) {
 }
 
 QString firstImagePath(const QList<QUrl>& urls) {
-  static const QStringList suffixes = {QStringLiteral(".png"), QStringLiteral(".jpg"),
+  static const QStringList suffixes = {QStringLiteral(".png"),  QStringLiteral(".jpg"),
                                        QStringLiteral(".jpeg"), QStringLiteral(".gif"),
                                        QStringLiteral(".webp"), QStringLiteral(".svg"),
                                        QStringLiteral(".bmp")};

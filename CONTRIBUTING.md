@@ -10,7 +10,7 @@ main 为唯一长期分支，功能在 short-lived 分支开发，PR 合入 main
 
 ## 代码规范
 
-- C++17；入库的 .clang-format 是唯一格式标准，CI 用 clang-format --dry-run --Werror 拦截。
+- C++17；入库的 .clang-format 是唯一格式标准，CI 用 clang-format-18 --dry-run --Werror 拦截，本地格式化也使用 clang-format 18。
 - 命名：类 PascalCase，方法与函数 camelCase，成员变量加 m_ 前缀。
 - src/core 不得包含任何 Qt Widgets 头文件，必须能脱离 UI 独立编译与测试。
 - 每个新功能带测试；无测试的 PR 不予合入。

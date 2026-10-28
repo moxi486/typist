@@ -10,7 +10,8 @@ namespace typist::ui {
 QString updateFeedUrl() {
   const QByteArray override = qgetenv("TYPIST_UPDATE_URL");
   if (!override.isEmpty()) return QString::fromUtf8(override);
-  return QStringLiteral("https://github.com/typist-editor/typist/releases/latest/download/latest.json");
+  return QStringLiteral(
+      "https://github.com/typist-editor/typist/releases/latest/download/latest.json");
 }
 
 bool parseUpdateFeed(const QByteArray& json, UpdateFeed* feedOut, QString* errorOut) {

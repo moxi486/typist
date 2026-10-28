@@ -24,7 +24,7 @@ enum class BlockType {
 // with both flags rather than a nested tree.
 struct InlineRun {
   std::string text;
-  std::string url;      // link or image destination
+  std::string url;  // link or image destination
   bool bold = false;
   bool italic = false;
   bool strike = false;
@@ -35,13 +35,13 @@ struct InlineRun {
 
 struct Block {
   BlockType type = BlockType::Paragraph;
-  int level = 0;          // heading level
-  bool ordered = false;   // ordered list
-  bool task = false;      // GFM task list item
+  int level = 0;         // heading level
+  bool ordered = false;  // ordered list
+  bool task = false;     // GFM task list item
   bool checked = false;
-  std::string text;       // flattened inline content
+  std::string text;             // flattened inline content
   std::vector<InlineRun> runs;  // styled inline spans; empty when there is no styling
-  std::string info;       // fenced code info string
+  std::string info;             // fenced code info string
   std::vector<Block> children;
 };
 

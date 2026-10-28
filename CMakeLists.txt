@@ -6,6 +6,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(MSVC)
+  set(TYPIST_WARNING_OPTIONS /W4 /utf-8)
+else()
+  set(TYPIST_WARNING_OPTIONS -Wall -Wextra)
+endif()
+
 # Packaging: CPack builds the distributable bundles. Platform generators are chosen
 # here; CI adds DEB/RPM explicitly where the tools exist on the runner.
 set(CPACK_PACKAGE_NAME "Typist")

@@ -14,9 +14,9 @@ find_path(cmark-gfm_INCLUDE_DIR
   HINTS ${_cmark_hints} ${PC_CMARK_GFM_LIBDIR}
   PATH_SUFFIXES cmark-gfm)
 
-find_library(cmark-gfm_LIBRARY NAMES cmark-gfm libcmark-gfm
+find_library(cmark-gfm_LIBRARY NAMES cmark-gfm libcmark-gfm cmark-gfm_static libcmark-gfm_static
   HINTS ${PC_CMARK_GFM_LIBDIR} ${_cmark_hints})
-find_library(cmark-gfm_EXTENSIONS_LIBRARY NAMES cmark-gfm-extensions libcmark-gfm-extensions
+find_library(cmark-gfm_EXTENSIONS_LIBRARY NAMES cmark-gfm-extensions libcmark-gfm-extensions cmark-gfm-extensions_static libcmark-gfm-extensions_static
   HINTS ${PC_CMARK_GFM_EXT_LIBDIR} ${_cmark_hints})
 
 include(FindPackageHandleStandardArgs)
@@ -31,7 +31,8 @@ if(CmarkGfm_FOUND AND NOT TARGET cmark-gfm::cmark-gfm)
   add_library(cmark-gfm::extensions UNKNOWN IMPORTED)
   set_target_properties(cmark-gfm::extensions PROPERTIES
     IMPORTED_LOCATION "${cmark-gfm_EXTENSIONS_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "${cmark-gfm_INCLUDE_DIR}")
+    INTERFACE_INCLUDE_DIRECTORIES "${cmark-gfm_INCLUDE_DIR}"
+    INTERFACE_LINK_LIBRARIES cmark-gfm::cmark-gfm)
 endif()
 
 if(WIN32 AND cmark-gfm_LIBRARY)

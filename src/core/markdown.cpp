@@ -1,11 +1,11 @@
 #include "markdown.h"
 
-#include <cmark-gfm.h>
 #include <cmark-gfm-core-extensions.h>
 #include <cmark-gfm-extension_api.h>
+#include <cmark-gfm.h>
 
-#include <memory>
 #include <algorithm>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -16,7 +16,8 @@ void pushRun(std::vector<InlineRun>& runs, const InlineRun& run) {
   if (run.text.empty()) return;
   if (!runs.empty() && runs.back().bold == run.bold && runs.back().italic == run.italic &&
       runs.back().strike == run.strike && runs.back().code == run.code &&
-      runs.back().link == run.link && runs.back().image == run.image && runs.back().url == run.url) {
+      runs.back().link == run.link && runs.back().image == run.image &&
+      runs.back().url == run.url) {
     runs.back().text += run.text;
     return;
   }
@@ -101,7 +102,10 @@ std::string wrapCode(const std::string& text) {
   std::size_t longest = 0;
   std::size_t current = 0;
   for (const char ch : text) {
-    if (ch == '`') ++current; else current = 0;
+    if (ch == '`')
+      ++current;
+    else
+      current = 0;
     longest = std::max(longest, current);
   }
   const std::size_t fence = longest + 1;
@@ -264,16 +268,20 @@ std::vector<std::string> splitLines(const std::string& text) {
 std::string escapeTableCell(const std::string& text) {
   std::string out;
   for (char c : text) {
-    if (c == '|') out += "\\|";
-    else if (c == '\n') out += "<br>";
-    else out += c;
+    if (c == '|')
+      out += "\\|";
+    else if (c == '\n')
+      out += "<br>";
+    else
+      out += c;
   }
   return out;
 }
 
 std::string serializeRow(const Block& row) {
   std::string out = "|";
-  for (const Block& cell : row.children) out += " " + escapeTableCell(renderInline(cell.runs, cell.text)) + " |";
+  for (const Block& cell : row.children)
+    out += " " + escapeTableCell(renderInline(cell.runs, cell.text)) + " |";
   out += "\n";
   return out;
 }
@@ -350,10 +358,14 @@ std::string serializeBlock(const Block& block, int indent) {
 std::string escapeHtml(std::string_view text) {
   std::string out;
   for (char c : text) {
-    if (c == '&') out += "&amp;";
-    else if (c == '<') out += "&lt;";
-    else if (c == '>') out += "&gt;";
-    else out += c;
+    if (c == '&')
+      out += "&amp;";
+    else if (c == '<')
+      out += "&lt;";
+    else if (c == '>')
+      out += "&gt;";
+    else
+      out += c;
   }
   return out;
 }
@@ -394,8 +406,8 @@ ParseResult parseMarkdown(std::string_view source, const ParseOptions& options) 
 
   const std::vector<std::string> lines = sourceLines(source);
   cmark_parser_feed(parser.get(), source.data(), source.size());
-  std::unique_ptr<cmark_node, decltype(&cmark_node_free)> root(
-      cmark_parser_finish(parser.get()), &cmark_node_free);
+  std::unique_ptr<cmark_node, decltype(&cmark_node_free)> root(cmark_parser_finish(parser.get()),
+                                                               &cmark_node_free);
   if (!root) {
     result.error = "cmark_parser_finish failed";
     return result;
@@ -433,8 +445,8 @@ std::string toHtml(std::string_view source, const ParseOptions& options) {
   }
 
   cmark_parser_feed(parser.get(), source.data(), source.size());
-  std::unique_ptr<cmark_node, decltype(&cmark_node_free)> root(
-      cmark_parser_finish(parser.get()), &cmark_node_free);
+  std::unique_ptr<cmark_node, decltype(&cmark_node_free)> root(cmark_parser_finish(parser.get()),
+                                                               &cmark_node_free);
   if (!root) {
     cmark_llist_free(mem, extensions);
     return "";
@@ -461,10 +473,11 @@ std::string wrapHtmlDocument(std::string_view body, std::string_view title, std:
 }
 
 std::string wrapHtmlDocument(std::string_view body, std::string_view title) {
-  return wrapHtmlDocument(body, title,
-                          "body{max-width:68ch;margin:2rem auto;padding:0 1rem;line-height:1.6}"
-                          "code,pre{font-family:monospace}pre{overflow:auto}"
-                          "table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:.4rem .6rem}");
+  return wrapHtmlDocument(
+      body, title,
+      "body{max-width:68ch;margin:2rem auto;padding:0 1rem;line-height:1.6}"
+      "code,pre{font-family:monospace}pre{overflow:auto}"
+      "table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:.4rem .6rem}");
 }
 
 bool runsEqual(const std::vector<InlineRun>& lhs, const std::vector<InlineRun>& rhs) {
@@ -485,9 +498,9 @@ bool astEqual(const std::vector<Block>& lhs, const std::vector<Block>& rhs) {
   for (std::size_t i = 0; i < lhs.size(); ++i) {
     const Block& a = lhs[i];
     const Block& b = rhs[i];
-    if (a.type != b.type || a.level != b.level || a.ordered != b.ordered ||
-        a.task != b.task || a.checked != b.checked || a.text != b.text ||
-        a.info != b.info || !runsEqual(a.runs, b.runs)) {
+    if (a.type != b.type || a.level != b.level || a.ordered != b.ordered || a.task != b.task ||
+        a.checked != b.checked || a.text != b.text || a.info != b.info ||
+        !runsEqual(a.runs, b.runs)) {
       return false;
     }
     if (!astEqual(a.children, b.children)) return false;

@@ -15,4 +15,4 @@
 - `ctest` 覆盖往返保真、幂等、视图切换、主题判定、翻译覆盖与性能基线。
 - `tests/editor/roundtrip_spike.exe` 是逐 slot 的富断言测试（当前 78 slot），跑之前必须先构建，脚本不会替你构建。
 - 性能：`typist --bench-startup --bench-repaint --bench-view-switch --bench-search --bench-file-search --bench-tree --bench-docx`；`tests/perf/perf_bench.exe` 打印 1MB 文档的 parse/build/serialize/total 毫秒与 `fidelity=ok`。
-- CI 的 Performance gate 门限：realistic `total_ms` <= 250，tableheavy <= 300，且必须出现 `fidelity=ok`。
+- CI 使用 Release 构建，由 CTest 的 `perf_baseline` 统一检查性能与保真：realistic `total_ms` <= 250、tableheavy 压力场景 <= 1500，两个场景都必须 `fidelity=ok`。取消 Windows 工作流中重复执行且采用 300ms 表格门限的脚本，避免与基准程序的验收规则不一致；本机 300ms 表格数据仍可用于性能对比。

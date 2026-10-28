@@ -1,18 +1,18 @@
 #include "PdfWriter.h"
 
 #include <QByteArray>
-#include <memory>
 #include <QMarginsF>
-#include <QPainter>
 #include <QPageSize>
+#include <QPainter>
+#include <QPair>
 #include <QPdfWriter>
 #include <QTextBlock>
-#include <QTextLayout>
 #include <QTextDocument>
+#include <QTextLayout>
 #include <QTextTable>
-#include <QPair>
 #include <QVector>
 #include <QtGui>
+#include <memory>
 
 namespace typist::platform {
 
@@ -68,13 +68,15 @@ constexpr double kBandHeightPx = 18.0;
 constexpr double kTableHeaderGapPx = 4.0;
 
 QPageSize paperFor(const QString& paper) {
-  return paper == QStringLiteral("letter") ? QPageSize(QPageSize::Letter) : QPageSize(QPageSize::A4);
+  return paper == QStringLiteral("letter") ? QPageSize(QPageSize::Letter)
+                                           : QPageSize(QPageSize::A4);
 }
 
 void drawBands(QPainter& painter, const QRectF& pageRect, int page, const PdfPageOptions& options,
                double headerBand, double footerBand) {
   if (!options.header.isEmpty()) {
-    painter.drawText(QPointF(pageRect.left(), pageRect.top() + kBandHeightPx - 4.0), options.header);
+    painter.drawText(QPointF(pageRect.left(), pageRect.top() + kBandHeightPx - 4.0),
+                     options.header);
   }
   if (!options.footer.isEmpty()) {
     QString line = options.footer;
@@ -83,15 +85,16 @@ void drawBands(QPainter& painter, const QRectF& pageRect, int page, const PdfPag
   }
 }
 
-void emitPage(QPdfWriter& writer, QPainter& painter, QAbstractTextDocumentLayout* layout, const QRectF& pageRect,
-              int page, double contentTop, double contentBottom, double headerBand, double footerBand,
-              const PdfPageOptions& options) {
+void emitPage(QPdfWriter& writer, QPainter& painter, QAbstractTextDocumentLayout* layout,
+              const QRectF& pageRect, int page, double contentTop, double contentBottom,
+              double headerBand, double footerBand, const PdfPageOptions& options) {
   if (page > 1) writer.newPage();
   painter.save();
   painter.translate(pageRect.left(), pageRect.top() + headerBand - contentTop);
   QAbstractTextDocumentLayout::PaintContext context;
   const double height = qMax(contentBottom - contentTop, 1.0);
-  context.clip = QRectF(0.0, contentTop, pageRect.width(), qMin(height, pageRect.height() - headerBand - footerBand));
+  context.clip = QRectF(0.0, contentTop, pageRect.width(),
+                        qMin(height, pageRect.height() - headerBand - footerBand));
   layout->draw(&painter, context);
   painter.restore();
   drawBands(painter, pageRect, page, options, headerBand, footerBand);
@@ -105,7 +108,8 @@ bool exportPdf(const QString& path, const QTextDocument* document, QString* erro
   return exportPdf(path, document, PdfPageOptions(), error);
 }
 
-bool exportPdf(const QString& path, const QTextDocument* document, const PdfPageOptions& options, QString* error) {
+bool exportPdf(const QString& path, const QTextDocument* document, const PdfPageOptions& options,
+               QString* error) {
   if (document == nullptr) {
     if (error != nullptr) *error = QStringLiteral("No document to print");
     return false;
@@ -118,8 +122,9 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
     if (error != nullptr) *error = QStringLiteral("Unsupported paper size");
     return false;
   }
-  if (!writer.setPageMargins(QMarginsF(options.marginMm, options.marginMm, options.marginMm, options.marginMm),
-                             QPageLayout::Millimeter)) {
+  if (!writer.setPageMargins(
+          QMarginsF(options.marginMm, options.marginMm, options.marginMm, options.marginMm),
+          QPageLayout::Millimeter)) {
     if (error != nullptr) *error = QStringLiteral("Margins do not fit the paper");
     return false;
   }
@@ -129,7 +134,8 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
   const QRectF pageRect(writer.pageLayout().paintRectPixels(writer.resolution()));
   const double contentHeight = pageRect.height() - headerBand - footerBand;
   if (contentHeight <= 0.0) {
-    if (error != nullptr) *error = QStringLiteral("No room left for content after header and footer");
+    if (error != nullptr)
+      *error = QStringLiteral("No room left for content after header and footer");
     return false;
   }
 
@@ -151,13 +157,15 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
     const QTextBlock block = laidOut.findBlockByNumber(blockNumber);
     const QRectF blockRect = layout->blockBoundingRect(block);
     QTextLayout* lineLayout = block.layout();
-    const bool tall = blockRect.height() > contentHeight && lineLayout != nullptr && lineLayout->lineCount() > 1;
+    const bool tall =
+        blockRect.height() > contentHeight && lineLayout != nullptr && lineLayout->lineCount() > 1;
 
     if (!tall) {
       const double base = blockRect.y();
       // A page that starts inside a table is a continuation: the first row is redrawn
       // at the top and the row it occupies is reserved out of the content height.
-      const QRectF headerRect = options.repeatTableHeader ? tableHeaderRectFor(&laidOut, block) : QRectF();
+      const QRectF headerRect =
+          options.repeatTableHeader ? tableHeaderRectFor(&laidOut, block) : QRectF();
       const double reserved = headerRect.isNull() ? 0.0 : headerRect.height() + kTableHeaderGapPx;
       const double room = contentHeight - reserved;
       int nextBlock = blockNumber;
@@ -199,7 +207,8 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
       ++linesPerPage;
     }
     if (linesPerPage < 1) linesPerPage = 1;
-    const QVector<QPair<int, int>> chunks = splitParagraphChunks(lineLayout->lineCount(), linesPerPage);
+    const QVector<QPair<int, int>> chunks =
+        splitParagraphChunks(lineLayout->lineCount(), linesPerPage);
     for (const QPair<int, int>& chunk : chunks) {
       const QRectF firstLine = lineLayout->lineAt(chunk.first).rect();
       const QRectF lastLine = lineLayout->lineAt(chunk.second - 1).rect();

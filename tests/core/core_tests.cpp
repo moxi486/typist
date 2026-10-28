@@ -65,8 +65,10 @@ int main(int argc, char** argv) {
   for (const auto& file : mdFilesIn(corpus / "gfm")) checkRoundTrip(file);
 
   const auto table = typist::core::parseMarkdown(readFile(corpus / "gfm" / "table.md"));
-  check(table.ok && containsBlock(table.blocks, typist::core::BlockType::Table), "gfm table parsed");
-  check(table.ok && containsBlock(table.blocks, typist::core::BlockType::TableCell), "gfm table cells parsed");
+  check(table.ok && containsBlock(table.blocks, typist::core::BlockType::Table),
+        "gfm table parsed");
+  check(table.ok && containsBlock(table.blocks, typist::core::BlockType::TableCell),
+        "gfm table cells parsed");
 
   const auto tasks = typist::core::parseMarkdown(readFile(corpus / "gfm" / "tasklist.md"));
   bool checkedSeen = false;
@@ -83,7 +85,8 @@ int main(int argc, char** argv) {
   check(tableHtml.find("<table>") != std::string::npos, "html table rendered");
   check(tableHtml.find("<th>") != std::string::npos, "html table header rendered");
 
-  const std::string escapedHtml = typist::core::toHtml(readFile(corpus / "gfm" / "table_escapes.md"));
+  const std::string escapedHtml =
+      typist::core::toHtml(readFile(corpus / "gfm" / "table_escapes.md"));
   check(escapedHtml.find("a | b") != std::string::npos, "html escaped pipe becomes text");
   check(escapedHtml.find("<br>") != std::string::npos, "html keeps br inside cell");
 
@@ -96,7 +99,8 @@ int main(int argc, char** argv) {
 
   const std::string page = typist::core::wrapHtmlDocument(tableHtml, "Doc <title>");
   check(page.find("<meta charset=\"utf-8\">") != std::string::npos, "html page declares charset");
-  check(page.find("<title>Doc &lt;title&gt;</title>") != std::string::npos, "html page escapes title");
+  check(page.find("<title>Doc &lt;title&gt;</title>") != std::string::npos,
+        "html page escapes title");
 
   std::cout << (g_failures == 0 ? "all tests passed\n"
                                 : "failed: " + std::to_string(g_failures) + "\n");

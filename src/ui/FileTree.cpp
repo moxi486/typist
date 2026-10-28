@@ -1,20 +1,20 @@
 #include "FileTree.h"
 
 #include "FileOps.h"
-#include <QFileSystemWatcher>
-#include <QTimer>
 
+#include <QContextMenuEvent>
 #include <QDir>
 #include <QDirIterator>
-#include <QFileInfo>
 #include <QFileDialog>
+#include <QFileInfo>
+#include <QFileSystemWatcher>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QMenu>
 #include <QMessageBox>
-#include <QContextMenuEvent>
-#include <QTreeWidgetItem>
 #include <QSet>
+#include <QTimer>
+#include <QTreeWidgetItem>
 
 namespace typist::ui {
 
@@ -24,7 +24,8 @@ constexpr int kPathRole = Qt::UserRole;
 constexpr int kDirRole = Qt::UserRole + 1;
 
 bool skippedDirectory(const QString& name) {
-  return name.startsWith(QChar(46)) || name == QStringLiteral("build") || name == QStringLiteral("node_modules");
+  return name.startsWith(QChar(46)) || name == QStringLiteral("build") ||
+         name == QStringLiteral("node_modules");
 }
 
 }  // namespace
@@ -56,7 +57,8 @@ QStringList collectExpandedDirs(const QTreeWidget& tree) {
 
 void applyExpandedDirs(QTreeWidgetItem* item, const QSet<QString>& expanded) {
   if (item == nullptr) return;
-  if (item->data(0, kDirRole).toBool()) item->setExpanded(expanded.contains(item->data(0, kPathRole).toString()));
+  if (item->data(0, kDirRole).toBool())
+    item->setExpanded(expanded.contains(item->data(0, kPathRole).toString()));
   for (int i = 0; i < item->childCount(); ++i) applyExpandedDirs(item->child(i), expanded);
 }
 
@@ -80,11 +82,14 @@ void FileTree::setRoot(const QString& rootDir) {
   if (m_watchEnabled) watchCurrentDirectories();
 }
 
-void FileTree::buildDirectory(QTreeWidgetItem* parent, const QString& absDir, const QString& relPath) {
+void FileTree::buildDirectory(QTreeWidgetItem* parent, const QString& absDir,
+                              const QString& relPath) {
   QDir dir(absDir);
-  const QStringList files = dir.entryList(QStringList() << QStringLiteral("*.md"), QDir::Files, QDir::Name);
+  const QStringList files =
+      dir.entryList(QStringList() << QStringLiteral("*.md"), QDir::Files, QDir::Name);
   for (const QString& file : files) {
-    QTreeWidgetItem* item = parent == nullptr ? new QTreeWidgetItem(this) : new QTreeWidgetItem(parent);
+    QTreeWidgetItem* item =
+        parent == nullptr ? new QTreeWidgetItem(this) : new QTreeWidgetItem(parent);
     const QString path = dir.filePath(file);
     item->setText(0, file);
     item->setData(0, kPathRole, path);
@@ -94,7 +99,8 @@ void FileTree::buildDirectory(QTreeWidgetItem* parent, const QString& absDir, co
   const QStringList subdirs = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
   for (const QString& sub : subdirs) {
     if (skippedDirectory(sub)) continue;
-    QTreeWidgetItem* item = parent == nullptr ? new QTreeWidgetItem(this) : new QTreeWidgetItem(parent);
+    QTreeWidgetItem* item =
+        parent == nullptr ? new QTreeWidgetItem(this) : new QTreeWidgetItem(parent);
     const QString subPath = dir.filePath(sub);
     item->setText(0, sub);
     item->setData(0, kDirRole, true);
@@ -108,8 +114,10 @@ int FileTree::entryCount() const {
   int count = 0;
   for (int i = 0; i < topLevelItemCount(); ++i) {
     QTreeWidgetItem* item = topLevelItem(i);
-    if (item->data(0, kDirRole).toBool()) count += item->childCount();
-    else ++count;
+    if (item->data(0, kDirRole).toBool())
+      count += item->childCount();
+    else
+      ++count;
   }
   return count;
 }
@@ -138,10 +146,12 @@ QString FileTree::entryPath(int index) const {
 QTreeWidgetItem* FileTree::findLeaf(const QString& path) const {
   for (int i = 0; i < topLevelItemCount(); ++i) {
     QTreeWidgetItem* item = topLevelItem(i);
-    if (!item->data(0, kDirRole).toBool() && item->data(0, kPathRole).toString() == path) return item;
+    if (!item->data(0, kDirRole).toBool() && item->data(0, kPathRole).toString() == path)
+      return item;
     for (int c = 0; c < item->childCount(); ++c) {
       QTreeWidgetItem* child = item->child(c);
-      if (!child->data(0, kDirRole).toBool() && child->data(0, kPathRole).toString() == path) return child;
+      if (!child->data(0, kDirRole).toBool() && child->data(0, kPathRole).toString() == path)
+        return child;
     }
   }
   return nullptr;
@@ -164,11 +174,11 @@ void FileTree::rebuild() {
   if (!current.isEmpty()) selectPath(current);
 }
 
-
 QString FileTree::signature() const {
   QDir root(m_root);
   QStringList parts;
-  QDirIterator it(m_root, QStringList() << QStringLiteral("*.md"), QDir::Files, QDirIterator::Subdirectories);
+  QDirIterator it(m_root, QStringList() << QStringLiteral("*.md"), QDir::Files,
+                  QDirIterator::Subdirectories);
   while (it.hasNext()) {
     const QString path = it.next();
     const QStringList segments = root.relativeFilePath(path).split(QChar(47));
@@ -181,7 +191,10 @@ QString FileTree::signature() const {
     }
     if (skip) continue;
     const QFileInfo info(path);
-    parts << QStringLiteral("%1|%2|%3").arg(root.relativeFilePath(path)).arg(info.size()).arg(info.birthTime().toMSecsSinceEpoch());
+    parts << QStringLiteral("%1|%2|%3")
+                 .arg(root.relativeFilePath(path))
+                 .arg(info.size())
+                 .arg(info.birthTime().toMSecsSinceEpoch());
   }
   parts.sort();
   return parts.join(QLatin1Char('#'));
@@ -276,8 +289,9 @@ void FileTree::contextMenuEvent(QContextMenuEvent* event) {
 
 void FileTree::newFileIn(const QString& dir) {
   bool ok = false;
-  const QString name = QInputDialog::getText(this, QStringLiteral("New Markdown File"), QStringLiteral("File name"),
-                                             QLineEdit::Normal, QStringLiteral("untitled.md"), &ok);
+  const QString name =
+      QInputDialog::getText(this, QStringLiteral("New Markdown File"), QStringLiteral("File name"),
+                            QLineEdit::Normal, QStringLiteral("untitled.md"), &ok);
   if (!ok || name.isEmpty()) return;
 
   QString error;
@@ -286,15 +300,17 @@ void FileTree::newFileIn(const QString& dir) {
     return;
   }
   rebuild();
-  emit entryActivated(QDir(dir).filePath(name.endsWith(QStringLiteral(".md")) ? name : name + QStringLiteral(".md")));
+  emit entryActivated(QDir(dir).filePath(
+      name.endsWith(QStringLiteral(".md")) ? name : name + QStringLiteral(".md")));
 }
 
 void FileTree::renameSelected() {
   const QString path = selectedPath();
   if (path.isEmpty()) return;
   bool ok = false;
-  const QString name = QInputDialog::getText(this, QStringLiteral("Rename File"), QStringLiteral("New name"),
-                                             QLineEdit::Normal, QFileInfo(path).fileName(), &ok);
+  const QString name =
+      QInputDialog::getText(this, QStringLiteral("Rename File"), QStringLiteral("New name"),
+                            QLineEdit::Normal, QFileInfo(path).fileName(), &ok);
   if (!ok || name.isEmpty()) return;
 
   QString error;
@@ -302,7 +318,9 @@ void FileTree::renameSelected() {
     QMessageBox::warning(this, QStringLiteral("Rename File"), error);
     return;
   }
-  const QString newPath = QDir(QFileInfo(path).absolutePath()).filePath(name.endsWith(QStringLiteral(".md")) ? name : name + QStringLiteral(".md"));
+  const QString newPath =
+      QDir(QFileInfo(path).absolutePath())
+          .filePath(name.endsWith(QStringLiteral(".md")) ? name : name + QStringLiteral(".md"));
   rebuild();
   selectPath(newPath);
   emit fileRenamed(path, newPath);
@@ -311,8 +329,9 @@ void FileTree::renameSelected() {
 void FileTree::deleteSelected() {
   const QString path = selectedPath();
   if (path.isEmpty()) return;
-  if (QMessageBox::question(this, QStringLiteral("Delete File"), QStringLiteral("Delete %1?").arg(QFileInfo(path).fileName()))
-      != QMessageBox::Yes) {
+  if (QMessageBox::question(this, QStringLiteral("Delete File"),
+                            QStringLiteral("Delete %1?").arg(QFileInfo(path).fileName())) !=
+      QMessageBox::Yes) {
     return;
   }
 
