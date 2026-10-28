@@ -20,6 +20,8 @@ jobs:
           if grep -rn -E 'QWidget|QTextEdit|QApplication|Qt6::Widgets' src/core; then
             echo 'src/core must not depend on Qt Widgets'; exit 1
           fi
+      - name: Release metadata tests
+        run: python3 -m unittest discover -s tests/packaging -v
 
   core-linux:
     runs-on: ubuntu-24.04

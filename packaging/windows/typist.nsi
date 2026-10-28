@@ -15,6 +15,7 @@ InstallDir "$PROGRAMFILES64\Typist"
 InstallDirRegKey HKLM "${PRODUCT_DIR_REGKEY}" ""
 ShowInstDetails show
 ShowUninstDetails show
+RequestExecutionLevel admin
 
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "Install Typist ${VERSION}"

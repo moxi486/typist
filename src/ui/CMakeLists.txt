@@ -69,7 +69,17 @@ qt_add_executable(typist main.cpp MainWindow.h MainWindow.cpp)
 target_link_libraries(typist PRIVATE typist::core typist::editor typist::platform typist::ui_theme typist::ui_autosave typist::ui_viewswitch typist::ui_search typist::ui_findbar typist::ui_filetree typist::ui_locale typist::ui_recovery typist::ui_conflict typist::ui_toc typist::ui_update Qt6::Core Qt6::Gui Qt6::Widgets)
 set_target_properties(typist PROPERTIES AUTOMOC ON)
 
-install(TARGETS typist RUNTIME DESTINATION bin)
+if(APPLE)
+  set_target_properties(typist PROPERTIES
+    MACOSX_BUNDLE TRUE
+    OUTPUT_NAME Typist
+    MACOSX_BUNDLE_BUNDLE_NAME Typist
+    MACOSX_BUNDLE_GUI_IDENTIFIER io.github.moxi486.typist
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}")
+endif()
+
+install(TARGETS typist RUNTIME DESTINATION bin BUNDLE DESTINATION .)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../themes/default.qss DESTINATION share/typist/themes)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../NOTICE ${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE DESTINATION share/typist OPTIONAL)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../docs DESTINATION share/typist OPTIONAL)
