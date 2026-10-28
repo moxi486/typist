@@ -23,6 +23,8 @@
 #include <QDir>
 #include <QFile>
 #include <QImage>
+#include <QPageLayout>
+#include <QPageSize>
 #include <QPainter>
 #include <QRegularExpression>
 #include <QSet>
@@ -1152,30 +1154,41 @@ void EditorSpike::pdfTallBlockSplitsAtLineBoundaries() {
   fixedFont.setFont(font);
   fontCursor.mergeCharFormat(fixedFont);
 
+  const typist::platform::PdfPageOptions options;
+  const QMarginsF margins(options.marginMm, options.marginMm, options.marginMm, options.marginMm);
+  const QPageLayout pageLayout(QPageSize(QPageSize::A4), QPageLayout::Portrait, margins,
+                               QPageLayout::Millimeter);
+  const QSize contentSize = pageLayout.paintRectPixels(96).size();
   const std::unique_ptr<QTextDocument> copy(document.clone());
-  copy->setPageSize(QSizeF(719.0, 935.0));
+  copy->setPageSize(contentSize);
   copy->documentLayout()->documentSize();
   const QTextBlock paragraph = copy->firstBlock().next();
   const double height = copy->documentLayout()->blockBoundingRect(paragraph).height();
-  QVERIFY2(height > 935.0, QStringLiteral("paragraph height=%1 expected taller than the page")
-                               .arg(height)
-                               .toUtf8()
-                               .constData());
+  QVERIFY2(height > contentSize.height(),
+           QStringLiteral("paragraph height=%1 expected taller than the page")
+               .arg(height)
+               .toUtf8()
+               .constData());
   QVERIFY(paragraph.layout() != nullptr && paragraph.layout()->lineCount() > 1);
+  const int layoutPages = copy->pageCount();
 
   QString error;
-  QVERIFY2(typist::platform::exportPdf(path, &document, &error), qPrintable(error));
+  QVERIFY2(typist::platform::exportPdf(path, &document, options, &error), qPrintable(error));
   const int pages = pdfPageCount(path);
   QFile::remove(path);
   QVERIFY2(pages >= 3, QStringLiteral("expected the tall block to span pages, got %1")
                            .arg(pages)
                            .toUtf8()
                            .constData());
-  QVERIFY2(pages <= 6, qPrintable(QStringLiteral("pages=%1 lines=%2 height=%3 font=%4")
-                                      .arg(pages)
-                                      .arg(paragraph.layout()->lineCount())
-                                      .arg(height)
-                                      .arg(paragraph.layout()->font().toString())));
+  // Compare against the same A4 content area used by the writer. Font metrics
+  // vary by Qt version; the empty leading block can account for one extra page.
+  QVERIFY2(pages >= layoutPages && pages <= layoutPages + 1,
+           qPrintable(QStringLiteral("pages=%1 layoutPages=%2 lines=%3 height=%4 font=%5")
+                          .arg(pages)
+                          .arg(layoutPages)
+                          .arg(paragraph.layout()->lineCount())
+                          .arg(height)
+                          .arg(paragraph.layout()->font().toString())));
 }
 
 void EditorSpike::toggleTaskCheckboxFlipsRenderedState() {
