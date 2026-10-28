@@ -154,17 +154,35 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      - run: brew install cmark-gfm qt@6
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: clang_64
+          cache: true
+      - name: Build and install static cmark-gfm
+        run: |
+          curl -fL --retry 3 -o cmark.tar.gz https://github.com/github/cmark-gfm/archive/refs/tags/0.29.0.gfm.13.tar.gz
+          tar xzf cmark.tar.gz
+          cmake -S cmark-gfm-0.29.0.gfm.13 -B cmark-build -DCMAKE_BUILD_TYPE=Release \
+            -DCMARK_SHARED=OFF -DCMARK_STATIC=ON -DCMARK_TESTS=OFF \
+            "-DCMAKE_INSTALL_PREFIX=$PWD/cmark-install" -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build cmark-build --parallel 2
+          cmake --install cmark-build
       - name: Compile translation catalogs
-        run: '"$(brew --prefix qt@6)/bin/lrelease" translations/*.ts'
+        run: '"$QT_ROOT_DIR/bin/lrelease" translations/*.ts'
       - name: Configure
-        run: cmake --preset macos-clang -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$(brew --prefix qt@6)"
+        run: cmake --preset macos-clang -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$QT_ROOT_DIR;$PWD/cmark-install"
       - run: cmake --build build/macos-clang --parallel 2
       - name: Deploy Qt into the application bundle
-        run: '"$(brew --prefix qt@6)/bin/macdeployqt" build/macos-clang/src/ui/Typist.app -always-overwrite'
+        run: |
+          bundle=build/macos-clang/src/ui/Typist.app
+          "$QT_ROOT_DIR/bin/macdeployqt" "$bundle" -always-overwrite -codesign=-
+          cp "$QT_ROOT_DIR/plugins/platforms/libqoffscreen.dylib" "$bundle/Contents/PlugIns/platforms/"
+          codesign --force --deep --sign - "$bundle"
+          codesign --verify --deep --strict "$bundle"
       - name: Smoke test the deployed application
         timeout-minutes: 1
-        run: QT_QPA_PLATFORM=offscreen build/macos-clang/src/ui/Typist.app/Contents/MacOS/Typist --bench-repaint
+        run: env -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH QT_QPA_PLATFORM=offscreen build/macos-clang/src/ui/Typist.app/Contents/MacOS/Typist --bench-repaint
       - name: Package dmg and portable tarball
         run: cpack --config build/macos-clang/CPackConfig.cmake -G "DragNDrop;TGZ" -C Release -B dist
       - name: Hash
