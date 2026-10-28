@@ -1,23 +1,22 @@
 #pragma once
 
+#include "FileSearch.h"
+
 #include <QObject>
 #include <QThread>
-
 #include <atomic>
-
-#include "FileSearch.h"
 
 namespace typist::platform {
 
 class ScanThread : public QThread {
-public:
+ public:
   SearchRequest request;
   std::atomic<bool> cancelled{false};
   QVector<SearchHit> hits;
   bool wasCancelled = false;
   QString error;
 
-protected:
+ protected:
   void run() override { hits = searchFilesCancellable(request, &error, cancelled, &wasCancelled); }
 };
 
@@ -25,7 +24,7 @@ protected:
 class FolderSearchRunner : public QObject {
   Q_OBJECT
 
-public:
+ public:
   explicit FolderSearchRunner(QObject* parent = nullptr);
   ~FolderSearchRunner() override;
 
@@ -33,13 +32,14 @@ public:
   void cancel();
   bool isRunning() const;
 
-signals:
-  void resultsReady(const QVector<typist::platform::SearchHit>& hits, bool cancelled, const QString& error);
+ signals:
+  void resultsReady(const QVector<typist::platform::SearchHit>& hits, bool cancelled,
+                    const QString& error);
 
-private slots:
+ private slots:
   void reportFinished();
 
-private:
+ private:
   ScanThread* m_thread = nullptr;
 };
 

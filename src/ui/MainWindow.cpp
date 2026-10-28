@@ -1,17 +1,17 @@
 #include "MainWindow.h"
 
 #include "AutoSave.h"
-#include "DocxWriter.h"
 #include "Conflict.h"
-#include "FolderSearchRunner.h"
-#include "SystemTheme.h"
+#include "DocxWriter.h"
 #include "FileOps.h"
 #include "FileSearch.h"
 #include "FileTree.h"
 #include "FileWriter.h"
 #include "FindBar.h"
+#include "FolderSearchRunner.h"
 #include "PdfWriter.h"
 #include "Settings.h"
+#include "SystemTheme.h"
 #include "Theme.h"
 #include "Toc.h"
 #include "ViewSwitch.h"
@@ -29,29 +29,30 @@
 #include <QNetworkRequest>
 #endif
 #include "UpdateChecker.h"
+
 #include <QCloseEvent>
+#include <QColor>
 #include <QDir>
 #include <QDockWidget>
 #include <QDragEnterEvent>
 #include <QDropEvent>
-#include <QListWidget>
-#include <QMimeData>
-#include <QUrl>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QColor>
 #include <QKeySequence>
-#include <QMenuBar>
+#include <QListWidget>
 #include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QPalette>
 #include <QStatusBar>
 #include <QString>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextEdit>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -139,7 +140,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   connect(m_findBar, &ui::FindBar::findPrevious, this, &MainWindow::searchPrevious);
 
   m_autoSave = new ui::AutoSave(this);
-  m_autoSave->setCallback([this] { writeRecoveryDraft(); autoSaveNow(); });
+  m_autoSave->setCallback([this] {
+    writeRecoveryDraft();
+    autoSaveNow();
+  });
 
   m_themePreference = platform::themePreference();
 
@@ -224,8 +228,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_folderSearchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
   editMenu->addAction(m_folderSearchAction);
   connect(m_folderSearchAction, &QAction::triggered, this, &MainWindow::searchInFolder);
-  connect(&m_folderSearch, &platform::FolderSearchRunner::resultsReady, this, &MainWindow::onFolderSearchResults);
-
+  connect(&m_folderSearch, &platform::FolderSearchRunner::resultsReady, this,
+          &MainWindow::onFolderSearchResults);
 
   m_folderAction = new QAction(tr("Open Folder"), this);
   m_folderAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+O")));
@@ -291,7 +295,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   updateTitleAndStatus();
   const int drafts = typist::ui::draftPaths().size();
-  if (drafts > 0) statusBar()->showMessage(tr("%1 drafts can be recovered with File > Recover Draft").arg(drafts));
+  if (drafts > 0)
+    statusBar()->showMessage(
+        tr("%1 drafts can be recovered with File > Recover Draft").arg(drafts));
 }
 
 void MainWindow::openDialog() {
@@ -364,16 +370,18 @@ void MainWindow::saveAs() {
 
 void MainWindow::exportHtml() {
   const QString suggested = m_currentPath.isEmpty()
-      ? QDir::homePath() + QStringLiteral("/untitled.html")
-      : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
-            QFileInfo(m_currentPath).baseName() + QStringLiteral(".html");
+                                ? QDir::homePath() + QStringLiteral("/untitled.html")
+                                : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
+                                      QFileInfo(m_currentPath).baseName() + QStringLiteral(".html");
   const QString path = QFileDialog::getSaveFileName(this, tr("Export HTML"), suggested,
                                                     QStringLiteral("HTML (*.html)"));
   if (path.isEmpty()) return;
 
   const std::string body = typist::core::toHtml(currentMarkdown().toStdString());
-  const std::string css = ui::htmlStyle(ui::resolveTheme(themePreference(), systemPrefersDark())).toStdString();
-  const std::string page = typist::core::wrapHtmlDocument(body, QFileInfo(path).baseName().toStdString(), css);
+  const std::string css =
+      ui::htmlStyle(ui::resolveTheme(themePreference(), systemPrefersDark())).toStdString();
+  const std::string page =
+      typist::core::wrapHtmlDocument(body, QFileInfo(path).baseName().toStdString(), css);
   QString error;
   if (!typist::platform::writeAtomic(path, QString::fromStdString(page), &error)) {
     statusBar()->showMessage(error);
@@ -384,14 +392,15 @@ void MainWindow::exportHtml() {
 
 void MainWindow::exportPdf() {
   if (!typist::platform::pdfExportAvailable()) {
-    statusBar()->showMessage(QStringLiteral("PDF export needs Qt PrintSupport, which this build lacks"));
+    statusBar()->showMessage(
+        QStringLiteral("PDF export needs Qt PrintSupport, which this build lacks"));
     return;
   }
 
   const QString suggested = m_currentPath.isEmpty()
-      ? QDir::homePath() + QStringLiteral("/untitled.pdf")
-      : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
-            QFileInfo(m_currentPath).baseName() + QStringLiteral(".pdf");
+                                ? QDir::homePath() + QStringLiteral("/untitled.pdf")
+                                : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
+                                      QFileInfo(m_currentPath).baseName() + QStringLiteral(".pdf");
   const QString path = QFileDialog::getSaveFileName(this, tr("Export PDF"), suggested,
                                                     QStringLiteral("PDF (*.pdf)"));
   if (path.isEmpty()) return;
@@ -420,9 +429,9 @@ void MainWindow::exportPdf() {
 
 void MainWindow::exportDocx() {
   const QString suggested = m_currentPath.isEmpty()
-      ? QDir::homePath() + QStringLiteral("/untitled.docx")
-      : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
-            QFileInfo(m_currentPath).baseName() + QStringLiteral(".docx");
+                                ? QDir::homePath() + QStringLiteral("/untitled.docx")
+                                : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
+                                      QFileInfo(m_currentPath).baseName() + QStringLiteral(".docx");
   const QString path = QFileDialog::getSaveFileName(this, tr("Export DOCX"), suggested,
                                                     QStringLiteral("Word document (*.docx)"));
   if (path.isEmpty()) return;
@@ -619,14 +628,14 @@ void MainWindow::openFolder() {
   m_tree->setRoot(dir);
   m_sidebarDock->show();
   m_tree->setWatchEnabled(true);
-  statusBar()->showMessage(QStringLiteral("%1 markdown files in %2").arg(m_tree->entryCount()).arg(dir));
+  statusBar()->showMessage(
+      QStringLiteral("%1 markdown files in %2").arg(m_tree->entryCount()).arg(dir));
 }
 
-void MainWindow::openTreeEntry(const QString& path) {
-  openFile(path);
-}
+void MainWindow::openTreeEntry(const QString& path) { openFile(path); }
 
-qint64 MainWindow::searchFolderForBench(const QString& rootDir, const QString& pattern, int* hitsOut) {
+qint64 MainWindow::searchFolderForBench(const QString& rootDir, const QString& pattern,
+                                        int* hitsOut) {
   platform::SearchRequest request;
   request.rootDir = rootDir;
   request.pattern = pattern;
@@ -647,7 +656,8 @@ void MainWindow::searchInFolder() {
     return;
   }
 
-  const QString root = m_currentPath.isEmpty() ? QDir::homePath() : QFileInfo(m_currentPath).absolutePath();
+  const QString root =
+      m_currentPath.isEmpty() ? QDir::homePath() : QFileInfo(m_currentPath).absolutePath();
   platform::SearchRequest request;
   request.rootDir = root;
   request.pattern = pattern;
@@ -657,20 +667,26 @@ void MainWindow::searchInFolder() {
   m_folderSearch.start(request);
 }
 
-void MainWindow::onFolderSearchResults(const QVector<platform::SearchHit>& hits, bool cancelled, const QString& error) {
+void MainWindow::onFolderSearchResults(const QVector<platform::SearchHit>& hits, bool cancelled,
+                                       const QString& error) {
   m_results->clear();
   for (const platform::SearchHit& hit : hits) {
-    QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1:%2  %3").arg(QFileInfo(hit.path).fileName()).arg(hit.line).arg(hit.preview));
+    QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1:%2  %3")
+                                                    .arg(QFileInfo(hit.path).fileName())
+                                                    .arg(hit.line)
+                                                    .arg(hit.preview));
     item->setData(Qt::UserRole, hit.path);
     m_results->addItem(item);
   }
   m_resultsDock->show();
   if (cancelled) {
-    statusBar()->showMessage(tr("Search cancelled after %1 matches in %2").arg(hits.size()).arg(m_searchRoot));
+    statusBar()->showMessage(
+        tr("Search cancelled after %1 matches in %2").arg(hits.size()).arg(m_searchRoot));
     return;
   }
-  statusBar()->showMessage(error.isEmpty() ? tr("%1 matches in %2").arg(hits.size()).arg(m_searchRoot)
-                                                : tr("%1 matches in %2 (%3)").arg(hits.size()).arg(m_searchRoot).arg(error));
+  statusBar()->showMessage(
+      error.isEmpty() ? tr("%1 matches in %2").arg(hits.size()).arg(m_searchRoot)
+                      : tr("%1 matches in %2 (%3)").arg(hits.size()).arg(m_searchRoot).arg(error));
 }
 void MainWindow::openSearchHit() {
   QListWidgetItem* item = m_results->currentItem();
@@ -743,7 +759,8 @@ qint64 MainWindow::measureTypingRepaint() {
 QString MainWindow::themePreference() const { return m_themePreference; }
 
 QString MainWindow::currentMarkdown() const {
-  return m_view->isSourceMode() ? m_editor->toPlainText() : typist::editor::serializeDocument(m_document);
+  return m_view->isSourceMode() ? m_editor->toPlainText()
+                                : typist::editor::serializeDocument(m_document);
 }
 
 void MainWindow::markClean() {
@@ -787,12 +804,14 @@ void MainWindow::checkCurrentFileConflict() {
   const QString disk = QString::fromUtf8(file.readAll());
   file.close();
   const bool diskDiffers = disk != m_savedMarkdown;
-  if (typist::ui::decideConflict(m_dirty, diskDiffers, !m_benchMode) == typist::ui::ConflictChoice::ReloadDisk) {
+  if (typist::ui::decideConflict(m_dirty, diskDiffers, !m_benchMode) ==
+      typist::ui::ConflictChoice::ReloadDisk) {
     if (m_dirty) {
-      const QMessageBox::StandardButton answer = QMessageBox::question(
-          this, tr("File changed on disk"),
-          tr("The file changed on disk while you have unsaved edits. Reload the disk version and discard your edits?"),
-          QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+      const QMessageBox::StandardButton answer =
+          QMessageBox::question(this, tr("File changed on disk"),
+                                tr("The file changed on disk while you have unsaved edits. Reload "
+                                   "the disk version and discard your edits?"),
+                                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
       if (answer != QMessageBox::Yes) {
         statusBar()->showMessage(tr("Keeping your unsaved edits"));
         return;
@@ -802,7 +821,8 @@ void MainWindow::checkCurrentFileConflict() {
     statusBar()->showMessage(tr("Reloaded file changed on disk"));
     return;
   }
-  if (m_dirty && diskDiffers) statusBar()->showMessage(tr("File changed on disk; keeping your unsaved edits"));
+  if (m_dirty && diskDiffers)
+    statusBar()->showMessage(tr("File changed on disk; keeping your unsaved edits"));
 }
 
 void MainWindow::writeRecoveryDraft() {
@@ -815,7 +835,8 @@ void MainWindow::rebuildOutline() {
   m_outlineList->clear();
   const QVector<ui::TocEntry> entries = ui::outlineFromDocument(m_document);
   for (const ui::TocEntry& entry : entries) {
-    QListWidgetItem* item = new QListWidgetItem(QString(entry.level - 1, QLatin1Char(' ')) + entry.text);
+    QListWidgetItem* item =
+        new QListWidgetItem(QString(entry.level - 1, QLatin1Char(' ')) + entry.text);
     item->setData(Qt::UserRole, entry.position);
     m_outlineList->addItem(item);
   }
@@ -889,7 +910,8 @@ void MainWindow::insertImageLink(const QString& path) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
-  if (m_editor != nullptr && watched == m_editor->viewport() && event->type() == QEvent::MouseButtonRelease) {
+  if (m_editor != nullptr && watched == m_editor->viewport() &&
+      event->type() == QEvent::MouseButtonRelease) {
     toggleTaskAtClick(static_cast<QMouseEvent*>(event));
   }
   return QMainWindow::eventFilter(watched, event);
@@ -934,7 +956,9 @@ void MainWindow::handleUpdateReply(QNetworkReply* reply) {
   typist::ui::UpdateFeed feed;
   QString reason;
   if (!typist::ui::parseUpdateFeed(body, &feed, &reason)) {
-    statusBar()->showMessage(reason.isEmpty() ? tr("Update check failed") : QStringLiteral("Update check failed: %1").arg(reason));
+    statusBar()->showMessage(reason.isEmpty()
+                                 ? tr("Update check failed")
+                                 : QStringLiteral("Update check failed: %1").arg(reason));
     return;
   }
   const QString current = QStringLiteral(TYPIST_VERSION);

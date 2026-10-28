@@ -3,8 +3,8 @@
 #include "editor_document.h"
 #include "markdown.h"
 
-#include <QTextEdit>
 #include <QTextDocument>
+#include <QTextEdit>
 
 namespace typist::ui {
 

@@ -1,38 +1,37 @@
-#include "editor_document.h"
-#include "FileSearch.h"
-#include "FileWriter.h"
-#include "PdfWriter.h"
 #include "AutoSave.h"
+#include "Conflict.h"
 #include "DocxWriter.h"
 #include "FileOps.h"
+#include "FileSearch.h"
 #include "FileTree.h"
-#include "Search.h"
-#include "Conflict.h"
+#include "FileWriter.h"
 #include "FolderSearchRunner.h"
 #include "Localization.h"
-#include "Toc.h"
+#include "PdfWriter.h"
 #include "RecoveryStore.h"
+#include "Search.h"
 #include "Settings.h"
 #include "SystemTheme.h"
-#include "ViewSwitch.h"
 #include "Theme.h"
+#include "Toc.h"
 #include "UpdateChecker.h"
+#include "ViewSwitch.h"
+#include "editor_document.h"
 #include "markdown.h"
 
-#include <QtTest>
+#include <QAbstractTextDocumentLayout>
 #include <QDir>
-#include <QSettings>
 #include <QFile>
-#include <QTextCursor>
 #include <QImage>
 #include <QPainter>
+#include <QSettings>
+#include <QTextBlock>
+#include <QTextCursor>
+#include <QTextDocument>
 #include <QTextList>
 #include <QTextTable>
 #include <QUrl>
-#include <QTextBlock>
-#include <QAbstractTextDocumentLayout>
-#include <QTextDocument>
-
+#include <QtTest>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -168,10 +167,11 @@ void EditorSpike::headingsAndParagraphsSurviveDocument() {
 
 void EditorSpike::documentRoundTripMatchesSource() {
   const std::vector<std::string> files = {
-      "headings.md", "paragraphs.md", "lists.md", "nested_ordered.md", "nested_wide.md",
-      "thematic.md", "code.md", "code_info.md", "fences.md", "gfm/table.md",
-      "gfm/table_then_para.md",
-      "gfm/table_escapes.md", "gfm/tasklist.md",
+      "headings.md",       "paragraphs.md",          "lists.md",
+      "nested_ordered.md", "nested_wide.md",         "thematic.md",
+      "code.md",           "code_info.md",           "fences.md",
+      "gfm/table.md",      "gfm/table_then_para.md", "gfm/table_escapes.md",
+      "gfm/tasklist.md",
   };
   for (const std::string& name : files) {
     const auto parsed = typist::core::parseMarkdown(read(name));
@@ -179,7 +179,8 @@ void EditorSpike::documentRoundTripMatchesSource() {
 
     QTextDocument document;
     typist::editor::buildDocument(parsed.blocks, &document);
-    const auto reparsed = typist::core::parseMarkdown(typist::editor::serializeDocument(&document).toStdString());
+    const auto reparsed =
+        typist::core::parseMarkdown(typist::editor::serializeDocument(&document).toStdString());
     QVERIFY2(reparsed.ok, name.c_str());
     QVERIFY2(typist::core::astEqual(parsed.blocks, reparsed.blocks), name.c_str());
   }
@@ -191,7 +192,8 @@ void EditorSpike::taskListRoundTripsThroughDocument() {
 
   QTextDocument document;
   typist::editor::buildDocument(parsed.blocks, &document);
-  const auto reparsed = typist::core::parseMarkdown(typist::editor::serializeDocument(&document).toStdString());
+  const auto reparsed =
+      typist::core::parseMarkdown(typist::editor::serializeDocument(&document).toStdString());
   QVERIFY(reparsed.ok);
   QVERIFY(typist::core::astEqual(parsed.blocks, reparsed.blocks));
   QVERIFY(document.toPlainText().contains("done task"));
@@ -265,10 +267,12 @@ void EditorSpike::sourceToggleRoundTripsWithoutUndoLeak() {
   QVERIFY(document.isUndoAvailable());
 
   QString error;
-  QVERIFY2(typist::editor::loadMarkdown(source, &document, &error), error.isEmpty() ? "parse failed" : qPrintable(error));
+  QVERIFY2(typist::editor::loadMarkdown(source, &document, &error),
+           error.isEmpty() ? "parse failed" : qPrintable(error));
   QVERIFY(!document.isUndoAvailable());
 
-  const auto reparsed = typist::core::parseMarkdown(typist::editor::serializeDocument(&document).toStdString());
+  const auto reparsed =
+      typist::core::parseMarkdown(typist::editor::serializeDocument(&document).toStdString());
   QVERIFY(reparsed.ok);
   QVERIFY(typist::core::astEqual(parsed.blocks, reparsed.blocks));
   QVERIFY(!document.toPlainText().contains("typed edit"));
@@ -352,7 +356,8 @@ void EditorSpike::pdfExportSelectsPaper() {
   if (!typist::platform::pdfExportAvailable()) QSKIP("PDF export unavailable in this build");
   QTextDocument document;
   QString error;
-  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("# Title\n\nBody text\n"), &document, &error));
+  QVERIFY(
+      typist::editor::loadMarkdown(QStringLiteral("# Title\n\nBody text\n"), &document, &error));
 
   const QString a4Path = tempPdfPath(QStringLiteral("typist_a4.pdf"));
   typist::platform::PdfPageOptions options;
@@ -374,7 +379,8 @@ void EditorSpike::pdfExportSelectsPaper() {
   QFile::remove(letterPath);
 }
 void EditorSpike::pdfExportWritesPdfFile() {
-  if (!typist::platform::pdfExportAvailable()) QSKIP("Qt PrintSupport is not available in this build");
+  if (!typist::platform::pdfExportAvailable())
+    QSKIP("Qt PrintSupport is not available in this build");
 
   QTextDocument document;
   const auto parsed = typist::core::parseMarkdown(read("gfm/table.md"));
@@ -427,7 +433,8 @@ void EditorSpike::viewSwitchRebuildsRenderedFromEditedSource() {
 
   QVERIFY(view.switchView(&error));
   // Blank-line differences are normalized by the serializer, so compare ASTs.
-  const auto fromRendered = typist::core::parseMarkdown(typist::editor::serializeDocument(view.rendered()).toStdString());
+  const auto fromRendered =
+      typist::core::parseMarkdown(typist::editor::serializeDocument(view.rendered()).toStdString());
   const auto fromSource = typist::core::parseMarkdown(view.source()->toPlainText().toStdString());
   QVERIFY(fromRendered.ok);
   QVERIFY(fromSource.ok);
@@ -482,7 +489,8 @@ void EditorSpike::themeResolvesPreferenceAndStyles() {
   QVERIFY(typist::ui::resolveTheme(QStringLiteral("system"), false) == typist::ui::Theme::Light);
   QVERIFY(typist::ui::resolveTheme(QStringLiteral("nonsense"), false) == typist::ui::Theme::Light);
 
-  QVERIFY(typist::ui::editorStyleSheet(typist::ui::Theme::Light) != typist::ui::editorStyleSheet(typist::ui::Theme::Dark));
+  QVERIFY(typist::ui::editorStyleSheet(typist::ui::Theme::Light) !=
+          typist::ui::editorStyleSheet(typist::ui::Theme::Dark));
   QVERIFY(typist::ui::htmlStyle(typist::ui::Theme::Dark).contains("#1f2328"));
   QVERIFY(typist::ui::htmlStyle(typist::ui::Theme::Light).contains("#ffffff"));
   QVERIFY(typist::ui::themeName(typist::ui::Theme::Dark) == QStringLiteral("dark"));
@@ -514,8 +522,10 @@ void EditorSpike::htmlExportEmbedsThemeStylesheet() {
 void EditorSpike::writeFileAtomicallyOverwritesTarget() {
   const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_writer_probe.md"));
   QString error;
-  QVERIFY2(typist::platform::writeAtomic(path, QStringLiteral("# One\n"), &error), error.toLatin1().constData());
-  QVERIFY2(typist::platform::writeAtomic(path, QStringLiteral("# Two\n"), &error), error.toLatin1().constData());
+  QVERIFY2(typist::platform::writeAtomic(path, QStringLiteral("# One\n"), &error),
+           error.toLatin1().constData());
+  QVERIFY2(typist::platform::writeAtomic(path, QStringLiteral("# Two\n"), &error),
+           error.toLatin1().constData());
 
   QFile file(path);
   QVERIFY(file.open(QIODevice::ReadOnly));
@@ -533,12 +543,14 @@ void EditorSpike::savedMarkdownMatchesParsedSource() {
 
   const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_save_probe.md"));
   QString error;
-  QVERIFY2(typist::platform::writeAtomic(path, typist::editor::serializeDocument(&document), &error),
-           error.toLatin1().constData());
+  QVERIFY2(
+      typist::platform::writeAtomic(path, typist::editor::serializeDocument(&document), &error),
+      error.toLatin1().constData());
 
   QFile file(path);
   QVERIFY(file.open(QIODevice::ReadOnly));
-  const auto reparsed = typist::core::parseMarkdown(QString::fromUtf8(file.readAll()).toStdString());
+  const auto reparsed =
+      typist::core::parseMarkdown(QString::fromUtf8(file.readAll()).toStdString());
   QVERIFY(reparsed.ok);
   QVERIFY(typist::core::astEqual(parsed.blocks, reparsed.blocks));
   file.close();
@@ -549,7 +561,8 @@ void EditorSpike::pdfExportPaginatesLongDocument() {
   if (!typist::platform::pdfExportAvailable()) QSKIP("PDF export unavailable in this build");
   QString source;
   for (int i = 0; i < 200; ++i) {
-    source += QStringLiteral("Paragraph %1 with enough prose to occupy a couple of lines.\n\n").arg(i);
+    source +=
+        QStringLiteral("Paragraph %1 with enough prose to occupy a couple of lines.\n\n").arg(i);
   }
   QTextDocument document;
   QString error;
@@ -568,7 +581,8 @@ void EditorSpike::pdfExportWiderMarginsProduceMorePages() {
   if (!typist::platform::pdfExportAvailable()) QSKIP("PDF export unavailable in this build");
   QString source;
   for (int i = 0; i < 200; ++i) {
-    source += QStringLiteral("Paragraph %1 with enough prose to occupy a couple of lines.\n\n").arg(i);
+    source +=
+        QStringLiteral("Paragraph %1 with enough prose to occupy a couple of lines.\n\n").arg(i);
   }
   QTextDocument document;
   QString error;
@@ -590,7 +604,8 @@ void EditorSpike::pdfExportWiderMarginsProduceMorePages() {
 void EditorSpike::searchCountsMatchesAcrossViews() {
   typist::ui::ViewSwitch view;
   QString error;
-  QVERIFY(view.loadMarkdownIntoBoth(QStringLiteral("- first item\n- second item\n  - nested item\n- third item\n"), &error));
+  QVERIFY(view.loadMarkdownIntoBoth(
+      QStringLiteral("- first item\n- second item\n  - nested item\n- third item\n"), &error));
   typist::ui::SearchController search;
   QVERIFY(search.countMatches(view.rendered(), QStringLiteral("item")) == 4);
   QVERIFY(search.countMatches(view.source(), QStringLiteral("item")) == 4);
@@ -599,7 +614,8 @@ void EditorSpike::searchCountsMatchesAcrossViews() {
 void EditorSpike::searchWrapsAroundAtBothEnds() {
   QTextDocument document;
   QString error;
-  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("alpha item beta item gamma"), &document, &error));
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("alpha item beta item gamma"), &document,
+                                       &error));
   typist::ui::SearchController search;
   const int first = document.find(QStringLiteral("item"), 0).selectionStart();
   const int last = document.find(QStringLiteral("item"), first + 1).selectionStart();
@@ -634,7 +650,8 @@ void EditorSpike::searchRespectsCaseSensitivity() {
 void EditorSpike::searchReachesTableCells() {
   QTextDocument document;
   QString error;
-  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("| cell | value |\n| --- | --- |\n| aaa | bbb |\n"), &document, &error));
+  QVERIFY(typist::editor::loadMarkdown(
+      QStringLiteral("| cell | value |\n| --- | --- |\n| aaa | bbb |\n"), &document, &error));
   typist::ui::SearchController search;
   QVERIFY(search.countMatches(&document, QStringLiteral("aaa")) == 1);
   QVERIFY(search.countMatches(&document, QStringLiteral("value")) == 1);
@@ -682,7 +699,8 @@ void EditorSpike::fileSearchSkipsHiddenDirectories() {
   QDir().mkpath(dir);
   writeSearchFixture(dir, QStringLiteral("visible.md"), QStringLiteral("needle visible\n"));
   QDir().mkpath(QDir(dir).filePath(QStringLiteral(".git")));
-  writeSearchFixture(QDir(dir).filePath(QStringLiteral(".git")), QStringLiteral("hook.md"), QStringLiteral("needle hidden\n"));
+  writeSearchFixture(QDir(dir).filePath(QStringLiteral(".git")), QStringLiteral("hook.md"),
+                     QStringLiteral("needle hidden\n"));
 
   typist::platform::SearchRequest request;
   request.rootDir = dir;
@@ -749,7 +767,8 @@ void EditorSpike::fileTreeListsMarkdownFilesUnderRoot() {
   const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_tree_a"));
   QDir().mkpath(QDir(dir).filePath(QStringLiteral("b")));
   writeSearchFixture(dir, QStringLiteral("a.md"), QStringLiteral("# A\n"));
-  writeSearchFixture(QDir(dir).filePath(QStringLiteral("b")), QStringLiteral("c.md"), QStringLiteral("# C\n"));
+  writeSearchFixture(QDir(dir).filePath(QStringLiteral("b")), QStringLiteral("c.md"),
+                     QStringLiteral("# C\n"));
   writeSearchFixture(dir, QStringLiteral("notes.txt"), QStringLiteral("ignored\n"));
 
   typist::ui::FileTree tree;
@@ -764,7 +783,8 @@ void EditorSpike::fileTreeSkipsHiddenDirectories() {
   const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_tree_b"));
   QDir().mkpath(QDir(dir).filePath(QStringLiteral(".git")));
   writeSearchFixture(dir, QStringLiteral("visible.md"), QStringLiteral("# V\n"));
-  writeSearchFixture(QDir(dir).filePath(QStringLiteral(".git")), QStringLiteral("hook.md"), QStringLiteral("# H\n"));
+  writeSearchFixture(QDir(dir).filePath(QStringLiteral(".git")), QStringLiteral("hook.md"),
+                     QStringLiteral("# H\n"));
 
   typist::ui::FileTree tree;
   tree.setRoot(dir);
@@ -796,7 +816,8 @@ void EditorSpike::fileTreeRootsSwitchReplacesEntries() {
 void EditorSpike::fileTreeSelectionTracksPath() {
   const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_tree_d"));
   QDir().mkpath(dir);
-  const QString target = writeSearchFixture(dir, QStringLiteral("target.md"), QStringLiteral("# T\n"));
+  const QString target =
+      writeSearchFixture(dir, QStringLiteral("target.md"), QStringLiteral("# T\n"));
   writeSearchFixture(dir, QStringLiteral("other.md"), QStringLiteral("# O\n"));
 
   typist::ui::FileTree tree;
@@ -812,7 +833,8 @@ void EditorSpike::fileTreeGroupsFilesByDirectory() {
   const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_tree_h"));
   QDir().mkpath(QDir(dir).filePath(QStringLiteral("sub")));
   writeSearchFixture(dir, QStringLiteral("top.md"), QStringLiteral("# T\n"));
-  writeSearchFixture(QDir(dir).filePath(QStringLiteral("sub")), QStringLiteral("deep.md"), QStringLiteral("# D\n"));
+  writeSearchFixture(QDir(dir).filePath(QStringLiteral("sub")), QStringLiteral("deep.md"),
+                     QStringLiteral("# D\n"));
 
   typist::ui::FileTree tree;
   tree.setRoot(dir);
@@ -827,7 +849,8 @@ void EditorSpike::fileTreeDirectoryCountMatchesSubdirectories() {
   const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_tree_i"));
   QDir().mkpath(QDir(dir).filePath(QStringLiteral("a")));
   QDir().mkpath(QDir(dir).filePath(QStringLiteral("a/b")));
-  writeSearchFixture(QDir(dir).filePath(QStringLiteral("a/b")), QStringLiteral("deep.md"), QStringLiteral("# D\n"));
+  writeSearchFixture(QDir(dir).filePath(QStringLiteral("a/b")), QStringLiteral("deep.md"),
+                     QStringLiteral("# D\n"));
 
   typist::ui::FileTree tree;
   tree.setRoot(dir);
@@ -846,7 +869,8 @@ void EditorSpike::fileTreeRebuildSeesNewFile() {
   QVERIFY(tree.entryCount() == 1);
 
   QString error;
-  QVERIFY2(typist::platform::createMarkdownFile(dir, QStringLiteral("second"), &error), error.toLatin1().constData());
+  QVERIFY2(typist::platform::createMarkdownFile(dir, QStringLiteral("second"), &error),
+           error.toLatin1().constData());
   tree.setRoot(dir);
   QVERIFY(tree.entryCount() == 2);
   QVERIFY(tree.entryPath(1).endsWith(QStringLiteral("second.md")));
@@ -857,7 +881,8 @@ void EditorSpike::platformFileOpsCreateRenameDelete() {
   const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_ops_a"));
   QDir().mkpath(dir);
   QString error;
-  QVERIFY2(typist::platform::createMarkdownFile(dir, QStringLiteral("note"), &error), error.toLatin1().constData());
+  QVERIFY2(typist::platform::createMarkdownFile(dir, QStringLiteral("note"), &error),
+           error.toLatin1().constData());
   const QString created = QDir(dir).filePath(QStringLiteral("note.md"));
   QVERIFY(QFileInfo::exists(created));
 
@@ -866,7 +891,8 @@ void EditorSpike::platformFileOpsCreateRenameDelete() {
   file.write("body\n");
   file.close();
 
-  QVERIFY2(typist::platform::renameFile(created, QStringLiteral("renamed"), &error), error.toLatin1().constData());
+  QVERIFY2(typist::platform::renameFile(created, QStringLiteral("renamed"), &error),
+           error.toLatin1().constData());
   const QString renamed = QDir(dir).filePath(QStringLiteral("renamed.md"));
   QVERIFY(!QFileInfo::exists(created));
   QVERIFY(QFileInfo::exists(renamed));
@@ -895,7 +921,8 @@ void EditorSpike::platformRenameAppendsMarkdownSuffix() {
   QDir().mkpath(dir);
   const QString source = writeSearchFixture(dir, QStringLiteral("old.md"), QStringLiteral("# O\n"));
   QString error;
-  QVERIFY2(typist::platform::renameFile(source, QStringLiteral("newname"), &error), error.toLatin1().constData());
+  QVERIFY2(typist::platform::renameFile(source, QStringLiteral("newname"), &error),
+           error.toLatin1().constData());
   QVERIFY(QFileInfo::exists(QDir(dir).filePath(QStringLiteral("newname.md"))));
   QDir(dir).removeRecursively();
 }
@@ -925,7 +952,8 @@ void EditorSpike::fileTreeRefreshDetectsContentChange() {
   tree.setRoot(dir);
   QVERIFY(!tree.refreshIfChanged());
 
-  writeSearchFixture(dir, QStringLiteral("note.md"), QStringLiteral("# much longer body\n\nmore text\n"));
+  writeSearchFixture(dir, QStringLiteral("note.md"),
+                     QStringLiteral("# much longer body\n\nmore text\n"));
   QVERIFY(tree.refreshIfChanged());
   QVERIFY(tree.entryCount() == 1);
   QDir(dir).removeRecursively();
@@ -951,7 +979,8 @@ void EditorSpike::fileTreeRefreshPreservesSelection() {
 void EditorSpike::dropTargetPicksMarkdownFile() {
   const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_drop"));
   QDir().mkpath(dir);
-  const QString markdown = writeSearchFixture(dir, QStringLiteral("doc.md"), QStringLiteral("# D\n"));
+  const QString markdown =
+      writeSearchFixture(dir, QStringLiteral("doc.md"), QStringLiteral("# D\n"));
   const QString text = QDir(dir).filePath(QStringLiteral("notes.txt"));
   QFile file(text);
   QVERIFY(file.open(QIODevice::WriteOnly));
@@ -961,7 +990,8 @@ void EditorSpike::dropTargetPicksMarkdownFile() {
   const QList<QUrl> urls = {QUrl::fromLocalFile(text), QUrl::fromLocalFile(markdown)};
   QCOMPARE(typist::platform::firstMarkdownPath(urls), markdown);
   QVERIFY(typist::platform::firstMarkdownPath({QUrl::fromLocalFile(text)}).isEmpty());
-  QVERIFY(typist::platform::firstMarkdownPath({QUrl(QStringLiteral("https://example.com/a.md"))}).isEmpty());
+  QVERIFY(typist::platform::firstMarkdownPath({QUrl(QStringLiteral("https://example.com/a.md"))})
+              .isEmpty());
   QDir(dir).removeRecursively();
 }
 
@@ -969,7 +999,9 @@ void EditorSpike::searchHighlightsEveryMatch() {
   typist::ui::SearchController search;
   QTextDocument document;
   QString error;
-  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("item one\n\nitem two\n\nitem three\n\n| item |\n| --- |\n| item |\n"), &document, &error));
+  QVERIFY(typist::editor::loadMarkdown(
+      QStringLiteral("item one\n\nitem two\n\nitem three\n\n| item |\n| --- |\n| item |\n"),
+      &document, &error));
 
   const QVector<QTextCursor> hits = search.allMatches(&document, QStringLiteral("item"));
   QVERIFY(hits.size() == 5);
@@ -1015,10 +1047,13 @@ QStringList localEntryNames(const QByteArray& data) {
                            (static_cast<unsigned char>(data.at(at + 27)) << 8);
     const int extraLength = static_cast<unsigned char>(data.at(at + 28)) |
                             (static_cast<unsigned char>(data.at(at + 29)) << 8);
-    // Local header layout: sizes sit at +18 (compressed) and +22 (uncompressed); names at +26/+28 lengths.
-    const quint32 compressedSize = static_cast<quint32>(
-        static_cast<unsigned char>(data.at(at + 18)) | (static_cast<unsigned char>(data.at(at + 19)) << 8) |
-        (static_cast<unsigned char>(data.at(at + 20)) << 16) | (static_cast<unsigned char>(data.at(at + 21)) << 24));
+    // Local header layout: sizes sit at +18 (compressed) and +22 (uncompressed); names at +26/+28
+    // lengths.
+    const quint32 compressedSize =
+        static_cast<quint32>(static_cast<unsigned char>(data.at(at + 18)) |
+                             (static_cast<unsigned char>(data.at(at + 19)) << 8) |
+                             (static_cast<unsigned char>(data.at(at + 20)) << 16) |
+                             (static_cast<unsigned char>(data.at(at + 21)) << 24));
     names.append(QString::fromUtf8(data.mid(at + 30, nameLength)));
     from = at + 30 + nameLength + extraLength + compressedSize;
   }
@@ -1030,7 +1065,8 @@ QStringList localEntryNames(const QByteArray& data) {
 void EditorSpike::docxExportWritesEachPackageMemberOnce() {
   const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_once.docx"));
   QString error;
-  QVERIFY(typist::platform::exportDocx(path, QStringLiteral("# Title\n\n- alpha\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n"), &error));
+  QVERIFY(typist::platform::exportDocx(
+      path, QStringLiteral("# Title\n\n- alpha\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n"), &error));
 
   const QByteArray data = readWholeFile(path);
   QVERIFY(data.size() > 400);
@@ -1050,7 +1086,8 @@ void EditorSpike::docxExportWritesEachPackageMemberOnce() {
 void EditorSpike::docxExportReportsHeadingTableAndTaskItem() {
   const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_parts.docx"));
   QString error;
-  QVERIFY(typist::platform::exportDocx(path, QStringLiteral("# Title\n\n- [x] done\n\n| col |\n| --- |\n| v |\n"), &error));
+  QVERIFY(typist::platform::exportDocx(
+      path, QStringLiteral("# Title\n\n- [x] done\n\n| col |\n| --- |\n| v |\n"), &error));
 
   const QByteArray document = readWholeFile(path);
   QVERIFY(document.contains("Heading1"));
@@ -1058,7 +1095,12 @@ void EditorSpike::docxExportReportsHeadingTableAndTaskItem() {
   const QByteArray glyph = QString(QChar(0x2611)).toUtf8();
   const int glyphAt = document.indexOf(glyph);
   const int escAt = document.indexOf("&#");
-  QVERIFY2(glyphAt >= 0, QStringLiteral("glyph=%1 escaped=%2 head=%3").arg(glyphAt).arg(escAt).arg(QString::fromLatin1(document.left(60))).toUtf8().constData());
+  QVERIFY2(glyphAt >= 0, QStringLiteral("glyph=%1 escaped=%2 head=%3")
+                             .arg(glyphAt)
+                             .arg(escAt)
+                             .arg(QString::fromLatin1(document.left(60)))
+                             .toUtf8()
+                             .constData());
   QVERIFY(typist::platform::docxSizeForBench(path, QStringLiteral("# Title\n")) > 400);
   QFile::remove(path);
 }
@@ -1066,7 +1108,11 @@ void EditorSpike::docxExportReportsHeadingTableAndTaskItem() {
 void EditorSpike::docxTableGridWidthsFollowContent() {
   const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_widths.docx"));
   QString error;
-  QVERIFY(typist::platform::exportDocx(path, QStringLiteral("| short | much longer cell text here | mid |\n| --- | --- | --- |\n| a | b | c |\n"), &error));
+  QVERIFY(typist::platform::exportDocx(
+      path,
+      QStringLiteral(
+          "| short | much longer cell text here | mid |\n| --- | --- | --- |\n| a | b | c |\n"),
+      &error));
   const QByteArray data = readWholeFile(path);
   QFile::remove(path);
 
@@ -1100,28 +1146,37 @@ void EditorSpike::pdfTallBlockSplitsAtLineBoundaries() {
   copy->documentLayout()->documentSize();
   const QTextBlock paragraph = copy->firstBlock().next();
   const double height = copy->documentLayout()->blockBoundingRect(paragraph).height();
-  QVERIFY2(height > 935.0, QStringLiteral("paragraph height=%1 expected taller than the page").arg(height).toUtf8().constData());
+  QVERIFY2(height > 935.0, QStringLiteral("paragraph height=%1 expected taller than the page")
+                               .arg(height)
+                               .toUtf8()
+                               .constData());
   QVERIFY(paragraph.layout() != nullptr && paragraph.layout()->lineCount() > 1);
 
   QString error;
   QVERIFY2(typist::platform::exportPdf(path, &document, &error), qPrintable(error));
   const int pages = pdfPageCount(path);
   QFile::remove(path);
-  QVERIFY2(pages >= 3, QStringLiteral("expected the tall block to span pages, got %1").arg(pages).toUtf8().constData());
+  QVERIFY2(pages >= 3, QStringLiteral("expected the tall block to span pages, got %1")
+                           .arg(pages)
+                           .toUtf8()
+                           .constData());
   QVERIFY(pages <= 6);
 }
 
 void EditorSpike::toggleTaskCheckboxFlipsRenderedState() {
   QTextDocument document;
-  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("- [x] done\n- [ ] todo\n"), &document, nullptr));
+  QVERIFY(
+      typist::editor::loadMarkdown(QStringLiteral("- [x] done\n- [ ] todo\n"), &document, nullptr));
 
   int checkedBlock = -1;
   int uncheckedBlock = -1;
   for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
     bool checked = false;
     if (!typist::editor::taskCheckboxState(&document, block.blockNumber(), &checked)) continue;
-    if (checked) checkedBlock = block.blockNumber();
-    else uncheckedBlock = block.blockNumber();
+    if (checked)
+      checkedBlock = block.blockNumber();
+    else
+      uncheckedBlock = block.blockNumber();
   }
   QVERIFY(checkedBlock >= 0);
   QVERIFY(uncheckedBlock >= 0);
@@ -1151,7 +1206,8 @@ void EditorSpike::toggleTaskCheckboxIsOneUndoStep() {
   int taskBlock = -1;
   for (QTextBlock block = document.firstBlock(); block.isValid(); block = block.next()) {
     bool checked = false;
-    if (typist::editor::taskCheckboxState(&document, block.blockNumber(), &checked) && checked) taskBlock = block.blockNumber();
+    if (typist::editor::taskCheckboxState(&document, block.blockNumber(), &checked) && checked)
+      taskBlock = block.blockNumber();
   }
   QVERIFY(typist::editor::toggleTaskCheckbox(&document, taskBlock));
   QVERIFY(typist::editor::serializeDocument(&document).contains(QStringLiteral("- [ ] done")));
@@ -1160,7 +1216,10 @@ void EditorSpike::toggleTaskCheckboxIsOneUndoStep() {
 }
 
 void EditorSpike::updateFeedParsesVersionAndAssets() {
-  const QByteArray json = QByteArrayLiteral("{\"version\":\"0.2.0\",\"assets\":[{\"name\":\"Typist-win64.zip\",\"url\":\"https://example.org/Typist-win64.zip\"},{\"name\":\"Typist-0.2.0.deb\",\"url\":\"https://example.org/Typist-0.2.0.deb\"}]}");
+  const QByteArray json = QByteArrayLiteral(
+      "{\"version\":\"0.2.0\",\"assets\":[{\"name\":\"Typist-win64.zip\",\"url\":\"https://"
+      "example.org/Typist-win64.zip\"},{\"name\":\"Typist-0.2.0.deb\",\"url\":\"https://"
+      "example.org/Typist-0.2.0.deb\"}]}");
   typist::ui::UpdateFeed feed;
   QString error;
   QVERIFY2(typist::ui::parseUpdateFeed(json, &feed, &error), error.toUtf8().constData());
@@ -1176,7 +1235,8 @@ void EditorSpike::updateFeedRejectsMalformedOrIncompleteFeed() {
   QVERIFY(error.contains(QStringLiteral("JSON")));
   QVERIFY(!typist::ui::parseUpdateFeed(QByteArrayLiteral("{\"assets\":[]}"), &feed, &error));
   QVERIFY(error.contains(QStringLiteral("version")));
-  QVERIFY(!typist::ui::parseUpdateFeed(QByteArrayLiteral("{\"version\":\"0.2.0\",\"assets\":[]}"), &feed, &error));
+  QVERIFY(!typist::ui::parseUpdateFeed(QByteArrayLiteral("{\"version\":\"0.2.0\",\"assets\":[]}"),
+                                       &feed, &error));
   QVERIFY(error.contains(QStringLiteral("assets")));
 }
 
@@ -1207,11 +1267,13 @@ void EditorSpike::pdfContinuationPagesRepeatTableHeader() {
   off.repeatTableHeader = false;
   QString error;
   QVERIFY(typist::platform::exportPdf(offPath, &document, off, &error));
-  QVERIFY(typist::platform::exportPdf(onPath, &document, typist::platform::PdfPageOptions(), &error));
+  QVERIFY(
+      typist::platform::exportPdf(onPath, &document, typist::platform::PdfPageOptions(), &error));
   const int offPages = pdfPageCount(offPath);
   const int onPages = pdfPageCount(onPath);
   QVERIFY2(offPages >= 2, qPrintable(QStringLiteral("off pages=%1").arg(offPages)));
-  QVERIFY2(onPages >= offPages, qPrintable(QStringLiteral("off=%1 on=%2").arg(offPages).arg(onPages)));
+  QVERIFY2(onPages >= offPages,
+           qPrintable(QStringLiteral("off=%1 on=%2").arg(offPages).arg(onPages)));
   const qint64 offBytes = QFile(offPath).size();
   const qint64 onBytes = QFile(onPath).size();
   QVERIFY2(onBytes > offBytes,
@@ -1269,7 +1331,10 @@ void EditorSpike::pdfPageStartBlockProbe() {
     const double base = blockRect.y();
     const bool inTable = QTextCursor(block).currentTable() != nullptr;
     const bool hasHeader = !typist::platform::tableHeaderRectFor(&document, block).isNull();
-    report += QStringLiteral("p%1 inTable=%2 header=%3\n").arg(page).arg(inTable ? 1 : 0).arg(hasHeader ? 1 : 0);
+    report += QStringLiteral("p%1 inTable=%2 header=%3\n")
+                  .arg(page)
+                  .arg(inTable ? 1 : 0)
+                  .arg(hasHeader ? 1 : 0);
     if (page > 1 && inTable) {
       QVERIFY2(hasHeader, qPrintable(report));
     }
@@ -1305,19 +1370,25 @@ void EditorSpike::pdfHeaderRowForContinuationPages() {
     QTextTable* table = QTextCursor(block).currentTable();
     if (table == nullptr) continue;
     if (headerCell < 0) headerCell = i;
-    if (block.blockNumber() > table->cellAt(0, 0).firstCursorPosition().block().blockNumber() + 4) deepCell = i;
+    if (block.blockNumber() > table->cellAt(0, 0).firstCursorPosition().block().blockNumber() + 4)
+      deepCell = i;
   }
   QVERIFY(headerCell >= 0);
   QVERIFY(deepCell >= 0);
 
-  const QRectF headerRect = typist::platform::tableHeaderRectFor(&document, document.findBlockByNumber(deepCell));
+  const QRectF headerRect =
+      typist::platform::tableHeaderRectFor(&document, document.findBlockByNumber(deepCell));
   QVERIFY2(!headerRect.isNull(), "continuation blocks report no header row");
   QVERIFY2(headerRect.height() > 0.0 && headerRect.height() < 300.0,
            qPrintable(QStringLiteral("header height=%1").arg(headerRect.height())));
-  const QRectF headerCellRect = document.documentLayout()->blockBoundingRect(document.findBlockByNumber(headerCell));
+  const QRectF headerCellRect =
+      document.documentLayout()->blockBoundingRect(document.findBlockByNumber(headerCell));
   QVERIFY2(qAbs(headerRect.y() - headerCellRect.y()) < 1.0,
-           qPrintable(QStringLiteral("header rect y=%1 cell y=%2").arg(headerRect.y()).arg(headerCellRect.y())));
-  QVERIFY2(typist::platform::tableHeaderRectFor(&document, document.findBlockByNumber(headerCell)).isNull(),
+           qPrintable(QStringLiteral("header rect y=%1 cell y=%2")
+                          .arg(headerRect.y())
+                          .arg(headerCellRect.y())));
+  QVERIFY2(typist::platform::tableHeaderRectFor(&document, document.findBlockByNumber(headerCell))
+               .isNull(),
            "first row reported a header to repeat");
 }
 
@@ -1331,31 +1402,38 @@ void EditorSpike::taskListRendersCheckboxGlyphs() {
   bool checked = false;
   for (int i = 0; i < document.blockCount(); ++i) {
     if (!typist::editor::taskCheckboxState(&document, i, &checked)) continue;
-    if (checked) checkedBlock = i; else uncheckedBlock = i;
+    if (checked)
+      checkedBlock = i;
+    else
+      uncheckedBlock = i;
   }
   QVERIFY(checkedBlock >= 0);
   QVERIFY(uncheckedBlock >= 0);
   const QString checkedText = document.findBlockByNumber(checkedBlock).text();
   const QString uncheckedText = document.findBlockByNumber(uncheckedBlock).text();
-  QVERIFY2(checkedText.startsWith(QChar(0x2611)), qPrintable(QStringLiteral("checked glyph=%1").arg(checkedText.at(0).unicode())));
-  QVERIFY2(uncheckedText.startsWith(QChar(0x2610)), qPrintable(QStringLiteral("unchecked glyph=%1").arg(uncheckedText.at(0).unicode())));
-  QVERIFY2(document.findBlockByNumber(checkedBlock).textList()->format().style() == QTextListFormat::ListStyleUndefined,
+  QVERIFY2(checkedText.startsWith(QChar(0x2611)),
+           qPrintable(QStringLiteral("checked glyph=%1").arg(checkedText.at(0).unicode())));
+  QVERIFY2(uncheckedText.startsWith(QChar(0x2610)),
+           qPrintable(QStringLiteral("unchecked glyph=%1").arg(uncheckedText.at(0).unicode())));
+  QVERIFY2(document.findBlockByNumber(checkedBlock).textList()->format().style() ==
+               QTextListFormat::ListStyleUndefined,
            "task list still carries a bullet style");
 
   const QString serialized = typist::editor::serializeDocument(&document);
-  QVERIFY2(serialized.contains(QStringLiteral("- [x] done")) && serialized.contains(QStringLiteral("- [ ] todo")),
+  QVERIFY2(serialized.contains(QStringLiteral("- [x] done")) &&
+               serialized.contains(QStringLiteral("- [ ] todo")),
            qPrintable(serialized));
   QVERIFY(!serialized.contains(QChar(0x2611)) && !serialized.contains(QChar(0x2610)));
   QVERIFY(typist::core::astEqual(typist::core::parseMarkdown(source.toStdString()).blocks,
-                             typist::core::parseMarkdown(serialized.toStdString()).blocks));
+                                 typist::core::parseMarkdown(serialized.toStdString()).blocks));
 
   QVERIFY(typist::editor::toggleTaskCheckbox(&document, checkedBlock));
   const QString flipped = document.findBlockByNumber(checkedBlock).text();
-  QVERIFY2(flipped.startsWith(QChar(0x2610)), qPrintable(QStringLiteral("glyph after toggle=%1").arg(flipped.at(0).unicode())));
+  QVERIFY2(flipped.startsWith(QChar(0x2610)),
+           qPrintable(QStringLiteral("glyph after toggle=%1").arg(flipped.at(0).unicode())));
   const QString afterToggle = typist::editor::serializeDocument(&document);
   QVERIFY2(afterToggle.contains(QStringLiteral("- [ ] done")), qPrintable(afterToggle));
 }
-
 
 void EditorSpike::sidebarExpandStateSurvivesRebuild() {
   QDir root(QDir::tempPath());
@@ -1387,12 +1465,14 @@ void EditorSpike::sidebarExpandStateSurvivesRebuild() {
 }
 
 void EditorSpike::docxExportEmbedsImageDrawing() {
-  const QString imagePath = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_image.png"));
+  const QString imagePath =
+      QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_image.png"));
   QImage image(24, 18, QImage::Format_ARGB32);
   image.fill(QColor(180, 60, 40));
   QVERIFY(image.save(imagePath, "PNG"));
   const QString markdown = QStringLiteral("![pic](%1)\n").arg(imagePath);
-  const QString docxPath = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_image.docx"));
+  const QString docxPath =
+      QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_image.docx"));
   QString error;
   QVERIFY2(typist::platform::exportDocx(docxPath, markdown, &error), error.toUtf8().constData());
   QFile file(docxPath);
@@ -1404,8 +1484,11 @@ void EditorSpike::docxExportEmbedsImageDrawing() {
   QVERIFY2(data.contains("word/media/image1.png"), "no media part entry");
   QVERIFY2(data.contains("\x89PNG"), "media entry does not carry PNG bytes");
   QVERIFY2(data.contains("<Default Extension=\"png\""), "content types miss png default");
-  QVERIFY2(data.contains("cx=\"228600\"") && data.contains("cy=\"171450\""), "extents do not match 24x18 px in EMU");
-  QVERIFY2(data.contains("<Relationship Id=\"rId1001\"") && data.contains("Target=\"media/image1.png\""), "image relationship missing");
+  QVERIFY2(data.contains("cx=\"228600\"") && data.contains("cy=\"171450\""),
+           "extents do not match 24x18 px in EMU");
+  QVERIFY2(
+      data.contains("<Relationship Id=\"rId1001\"") && data.contains("Target=\"media/image1.png\""),
+      "image relationship missing");
   const QByteArray probePath = qgetenv("TYPIST_DOCX_IMAGE_PROBE");
   if (!probePath.isEmpty()) QFile::copy(docxPath, QString::fromUtf8(probePath));
   QFile::remove(docxPath);
@@ -1413,9 +1496,11 @@ void EditorSpike::docxExportEmbedsImageDrawing() {
 }
 
 void EditorSpike::docxExportFallsBackWhenImageMissing() {
-  const QString docxPath = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_missing_image.docx"));
+  const QString docxPath =
+      QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_missing_image.docx"));
   QString error;
-  QVERIFY2(typist::platform::exportDocx(docxPath, QStringLiteral("![gone](missing.png)\n"), &error), error.toUtf8().constData());
+  QVERIFY2(typist::platform::exportDocx(docxPath, QStringLiteral("![gone](missing.png)\n"), &error),
+           error.toUtf8().constData());
   QFile file(docxPath);
   QVERIFY(file.open(QIODevice::ReadOnly));
   const QByteArray data = file.readAll();
@@ -1427,23 +1512,30 @@ void EditorSpike::docxExportFallsBackWhenImageMissing() {
 }
 
 void EditorSpike::headingInlineStylesRoundTrip() {
-  const QString source = QStringLiteral("# **bold** and *em* with ") + QChar(0x60) + QStringLiteral("code") + QChar(0x60) + QStringLiteral(" and [link](https://example.org/a)") + QStringLiteral("\n\n### ## not a heading\n");
+  const QString source = QStringLiteral("# **bold** and *em* with ") + QChar(0x60) +
+                         QStringLiteral("code") + QChar(0x60) +
+                         QStringLiteral(" and [link](https://example.org/a)") +
+                         QStringLiteral("\n\n### ## not a heading\n");
   const auto parsed = typist::core::parseMarkdown(source.toStdString());
   const QString serialized = QString::fromStdString(typist::core::serializeMarkdown(parsed.blocks));
-  QVERIFY2(serialized.startsWith(QStringLiteral("# **bold** and *em* with ") + QChar(0x60) + QStringLiteral("code") + QChar(0x60) + QStringLiteral(" and [link](https://example.org/a)")), serialized.toUtf8().constData());
-  QVERIFY(typist::core::astEqual(parsed.blocks, typist::core::parseMarkdown(serialized.toStdString()).blocks));
+  QVERIFY2(serialized.startsWith(QStringLiteral("# **bold** and *em* with ") + QChar(0x60) +
+                                 QStringLiteral("code") + QChar(0x60) +
+                                 QStringLiteral(" and [link](https://example.org/a)")),
+           serialized.toUtf8().constData());
+  QVERIFY(typist::core::astEqual(parsed.blocks,
+                                 typist::core::parseMarkdown(serialized.toStdString()).blocks));
 
   QTextDocument document;
   QVERIFY(typist::editor::loadMarkdown(source, &document, nullptr));
   const QString documentText = typist::editor::serializeDocument(&document);
-  QVERIFY2(documentText.contains(QStringLiteral("**bold**")) && documentText.contains(QStringLiteral("*em*"))
-      && documentText.contains(QChar(0x60)) && documentText.contains(QStringLiteral("[link](https://example.org/a)")),
-      documentText.toUtf8().constData());
+  QVERIFY2(documentText.contains(QStringLiteral("**bold**")) &&
+               documentText.contains(QStringLiteral("*em*")) &&
+               documentText.contains(QChar(0x60)) &&
+               documentText.contains(QStringLiteral("[link](https://example.org/a)")),
+           documentText.toUtf8().constData());
   QVERIFY(typist::core::astEqual(typist::core::parseMarkdown(documentText.toStdString()).blocks,
-                             typist::core::parseMarkdown(serialized.toStdString()).blocks));
+                                 typist::core::parseMarkdown(serialized.toStdString()).blocks));
 }
-
-
 
 void EditorSpike::pdfLongTablePaginatesRowByRow() {
   QString source;
@@ -1453,7 +1545,8 @@ void EditorSpike::pdfLongTablePaginatesRowByRow() {
   }
   QTextDocument document;
   QVERIFY(typist::editor::loadMarkdown(source, &document, nullptr));
-  const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_pdf_table_pages.pdf"));
+  const QString path =
+      QDir(QDir::tempPath()).filePath(QStringLiteral("typist_pdf_table_pages.pdf"));
   QString error;
   QVERIFY2(typist::platform::exportPdf(path, &document, &error), error.toUtf8().constData());
   const int pages = pdfPageCount(path);
@@ -1462,8 +1555,8 @@ void EditorSpike::pdfLongTablePaginatesRowByRow() {
 }
 
 void EditorSpike::nestedListsRoundTripAtDepthFour() {
-  const QString source = QStringLiteral(
-      "- one\n  - two\n    - three\n      - four\n        - five\n- next\n");
+  const QString source =
+      QStringLiteral("- one\n  - two\n    - three\n      - four\n        - five\n- next\n");
   const typist::core::ParseResult first = typist::core::parseMarkdown(source.toStdString());
   QVERIFY(first.ok);
   const QString serialized = QString::fromStdString(typist::core::serializeMarkdown(first.blocks));
@@ -1480,13 +1573,15 @@ void EditorSpike::nestedListsRoundTripAtDepthFour() {
 }
 
 void EditorSpike::inlineImageRendersAndRoundTrips() {
-  const QString imagePath = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_inline_pic.png"));
+  const QString imagePath =
+      QDir(QDir::tempPath()).filePath(QStringLiteral("typist_inline_pic.png"));
   QImage image(24, 18, QImage::Format_RGB32);
   image.fill(Qt::blue);
   QVERIFY(image.save(imagePath));
 
   QTextDocument document;
-  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("body\n\n![pic](%1)\n").arg(imagePath), &document, nullptr));
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("body\n\n![pic](%1)\n").arg(imagePath),
+                                       &document, nullptr));
   const QString serialized = typist::editor::serializeDocument(&document);
   QVERIFY(serialized.contains(QStringLiteral("![pic](") + imagePath + QStringLiteral(")")));
   QVERIFY(!serialized.contains(QChar(0xFFFC)));
@@ -1510,7 +1605,8 @@ void EditorSpike::inlineImageRendersAndRoundTrips() {
   QVERIFY(parsed.ok);
   bool imageRun = false;
   for (const typist::core::Block& block : parsed.blocks) {
-    for (const typist::core::InlineRun& run : block.runs) if (run.image) imageRun = true;
+    for (const typist::core::InlineRun& run : block.runs)
+      if (run.image) imageRun = true;
   }
   QVERIFY(imageRun);
   QFile::remove(imagePath);
@@ -1519,18 +1615,28 @@ void EditorSpike::inlineImageRendersAndRoundTrips() {
 void EditorSpike::docxExportWritesHyperlinkRelationships() {
   const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_links.docx"));
   QString error;
-  QVERIFY(typist::platform::exportDocx(path, QStringLiteral("see [docs](https://example.com/docs) and again [docs](https://example.com/docs) plus ![pic](E:/imgs/pic.png)\n"), &error));
+  QVERIFY(typist::platform::exportDocx(
+      path,
+      QStringLiteral("see [docs](https://example.com/docs) and again "
+                     "[docs](https://example.com/docs) plus ![pic](E:/imgs/pic.png)\n"),
+      &error));
   const QByteArray data = readWholeFile(path);
   QFile::remove(path);
 
   int hyperlinks = 0;
   int offset = 0;
-  while ((offset = data.indexOf("<w:hyperlink", offset)) != -1) { ++hyperlinks; offset += 12; }
+  while ((offset = data.indexOf("<w:hyperlink", offset)) != -1) {
+    ++hyperlinks;
+    offset += 12;
+  }
   QCOMPARE(hyperlinks, 3);
 
   int external = 0;
   offset = 0;
-  while ((offset = data.indexOf("TargetMode=\"External\"", offset)) != -1) { ++external; offset += 20; }
+  while ((offset = data.indexOf("TargetMode=\"External\"", offset)) != -1) {
+    ++external;
+    offset += 20;
+  }
   QCOMPARE(external, 2);  // the repeated URL shares one relationship
   QVERIFY(data.contains("https://example.com/docs"));
   QVERIFY(data.contains("E:/imgs/pic.png"));
@@ -1538,7 +1644,8 @@ void EditorSpike::docxExportWritesHyperlinkRelationships() {
 }
 
 void EditorSpike::docxExportFailsWhenPathUnwritable() {
-  const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_missing_dir/out.docx"));
+  const QString path =
+      QDir(QDir::tempPath()).filePath(QStringLiteral("typist_missing_dir/out.docx"));
   QString error;
   QVERIFY(!typist::platform::exportDocx(path, QStringLiteral("# Title\n"), &error));
   QVERIFY(!error.isEmpty());
@@ -1554,13 +1661,15 @@ static QString runDump(const std::vector<typist::core::InlineRun>& runs) {
     if (run.code) flags += QLatin1Char('C');
     if (run.link) flags += QLatin1Char('L');
     if (run.image) flags += QLatin1Char('G');
-    out += QStringLiteral("[") + flags + QStringLiteral("]") + QString::fromStdString(run.text) + QStringLiteral(" ");
+    out += QStringLiteral("[") + flags + QStringLiteral("]") + QString::fromStdString(run.text) +
+           QStringLiteral(" ");
   }
   return out;
 }
 
 void EditorSpike::inlineRunsRoundTripThroughMarkdownSerialize() {
-  const std::string source = "**bold** and *em* ~~gone~~ `code` [link](http://example.com) ![pic](p.png)\n";
+  const std::string source =
+      "**bold** and *em* ~~gone~~ `code` [link](http://example.com) ![pic](p.png)\n";
   const typist::core::ParseResult first = typist::core::parseMarkdown(source);
   QVERIFY(first.ok);
   int styled = 0;
@@ -1588,7 +1697,8 @@ void EditorSpike::inlineRunsRoundTripThroughMarkdownSerialize() {
     }
   }
   QCOMPARE(styled, 6);
-  QVERIFY2(bold && italic && strike && code && link && image, qPrintable(runDump(first.blocks.front().runs)));
+  QVERIFY2(bold && italic && strike && code && link && image,
+           qPrintable(runDump(first.blocks.front().runs)));
   QCOMPARE(linkUrl, QStringLiteral("http://example.com"));
   QCOMPARE(imageUrl, QStringLiteral("p.png"));
 
@@ -1605,7 +1715,8 @@ void EditorSpike::inlineRunsRoundTripThroughMarkdownSerialize() {
 }
 
 void EditorSpike::inlineRunsRoundTripThroughDocument() {
-  const QString source = QStringLiteral("**bold** and *em* ~~gone~~ `code` [link](http://example.com)\n");
+  const QString source =
+      QStringLiteral("**bold** and *em* ~~gone~~ `code` [link](http://example.com)\n");
   QTextDocument doc;
   QVERIFY(typist::editor::loadMarkdown(source, &doc, nullptr));
   const QString serialized = typist::editor::serializeDocument(&doc);
@@ -1620,7 +1731,10 @@ void EditorSpike::inlineRunsRoundTripThroughDocument() {
 
 void EditorSpike::renderedDocumentCarriesInlineFormats() {
   QTextDocument doc;
-  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("plain **bold** *em* ~~gone~~ `code` [link](http://example.com) ![pic](p.png)\n"), &doc, nullptr));
+  QVERIFY(typist::editor::loadMarkdown(
+      QStringLiteral(
+          "plain **bold** *em* ~~gone~~ `code` [link](http://example.com) ![pic](p.png)\n"),
+      &doc, nullptr));
   bool bold = false;
   bool italic = false;
   bool strike = false;
@@ -1632,9 +1746,12 @@ void EditorSpike::renderedDocumentCarriesInlineFormats() {
       if (range.format.fontWeight() >= QFont::Bold) bold = true;
       if (range.format.fontItalic()) italic = true;
       if (range.format.fontStrikeOut()) strike = true;
-      if (range.format.fontFamilies().toStringList().contains(QStringLiteral("Consolas"))) mono = true;
+      if (range.format.fontFamilies().toStringList().contains(QStringLiteral("Consolas")))
+        mono = true;
       if (range.format.hasProperty(typist::editor::kImageProperty)) image = true;
-      if (range.format.isAnchor() && range.format.anchorHref() == QStringLiteral("http://example.com")) link = true;
+      if (range.format.isAnchor() &&
+          range.format.anchorHref() == QStringLiteral("http://example.com"))
+        link = true;
     }
   }
   QVERIFY(bold);
@@ -1652,7 +1769,8 @@ void EditorSpike::pasteMarkdownInsertsBlocksAsOneUndoStep() {
   QTextCursor cursor(&doc);
   cursor.movePosition(QTextCursor::End);
   QString error;
-  QVERIFY(typist::editor::insertMarkdownAtCursor(QStringLiteral("## Title\n\n**em** body\n"), cursor, &error));
+  QVERIFY(typist::editor::insertMarkdownAtCursor(QStringLiteral("## Title\n\n**em** body\n"),
+                                                 cursor, &error));
   const QString after = typist::editor::serializeDocument(&doc);
   QVERIFY(after.contains(QStringLiteral("para")));
   QVERIFY(after.contains(QStringLiteral("## Title")));
@@ -1667,9 +1785,11 @@ void EditorSpike::pasteMarkdownKeepsTableAndTaskItem() {
   QTextCursor cursor(&doc);
   cursor.movePosition(QTextCursor::End);
   QString error;
-  QVERIFY(typist::editor::insertMarkdownAtCursor(QStringLiteral("| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [x] done\n"), cursor, &error));
+  QVERIFY(typist::editor::insertMarkdownAtCursor(
+      QStringLiteral("| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [x] done\n"), cursor, &error));
   const QString serialized = typist::editor::serializeDocument(&doc);
-  const QString expected = QStringLiteral("para\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [x] done\n");
+  const QString expected =
+      QStringLiteral("para\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [x] done\n");
   QVERIFY(!serialized.contains(QStringLiteral("<w:tbl>")));
   QVERIFY(typist::core::astEqual(typist::core::parseMarkdown(expected.toStdString()).blocks,
                                  typist::core::parseMarkdown(serialized.toStdString()).blocks));
@@ -1681,14 +1801,16 @@ void EditorSpike::imageLinkSurvivesDocumentRoundTrip() {
   QTextCursor cursor(&doc);
   cursor.movePosition(QTextCursor::End);
   QString error;
-  QVERIFY(typist::editor::insertMarkdownAtCursor(QStringLiteral("![dog](E:/imgs/dog.png)\n"), cursor, &error));
+  QVERIFY(typist::editor::insertMarkdownAtCursor(QStringLiteral("![dog](E:/imgs/dog.png)\n"),
+                                                 cursor, &error));
   const QString serialized = typist::editor::serializeDocument(&doc);
   QVERIFY(serialized.contains(QStringLiteral("![dog](E:/imgs/dog.png)")));
   const typist::core::ParseResult parsed = typist::core::parseMarkdown(serialized.toStdString());
   QVERIFY(parsed.ok);
   bool image = false;
   for (const typist::core::Block& block : parsed.blocks) {
-    for (const typist::core::InlineRun& run : block.runs) if (run.image) image = true;
+    for (const typist::core::InlineRun& run : block.runs)
+      if (run.image) image = true;
   }
   QVERIFY(image);
 }
@@ -1696,7 +1818,8 @@ void EditorSpike::imageLinkSurvivesDocumentRoundTrip() {
 void EditorSpike::docxInlineEmphasisWritesRunProperties() {
   const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_inline.docx"));
   QString error;
-  QVERIFY(typist::platform::exportDocx(path, QStringLiteral("**bold** *em* ~~gone~~ `code`\n"), &error));
+  QVERIFY(typist::platform::exportDocx(path, QStringLiteral("**bold** *em* ~~gone~~ `code`\n"),
+                                       &error));
   const QByteArray data = readWholeFile(path);
   QVERIFY(data.contains("<w:b/>"));
   QVERIFY(data.contains("<w:i/>"));
@@ -1707,7 +1830,8 @@ void EditorSpike::docxInlineEmphasisWritesRunProperties() {
 
 void EditorSpike::outlineListsHeadingLevelsAndPositions() {
   QTextDocument doc;
-  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("# One\n\n## Two\n\n### Three\n\nbody text\n"), &doc, nullptr));
+  QVERIFY(typist::editor::loadMarkdown(
+      QStringLiteral("# One\n\n## Two\n\n### Three\n\nbody text\n"), &doc, nullptr));
   const QVector<typist::ui::TocEntry> entries = typist::ui::outlineFromDocument(&doc);
   QCOMPARE(entries.size(), 3);
   QCOMPARE(entries.at(0).level, 1);
@@ -1730,10 +1854,12 @@ void EditorSpike::outlineCapsEntryCount() {
 
 void EditorSpike::regexSearchCountsAnchoredHeadingLines() {
   QTextDocument doc;
-  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("# A\n\n## B\n\nplain 12 words\n"), &doc, nullptr));
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("# A\n\n## B\n\nplain 12 words\n"), &doc,
+                                       nullptr));
   typist::ui::SearchController search;
   search.setRegex(true);
-  // Anchors apply to each block of the rendered document, where heading markers are styling, not text.
+  // Anchors apply to each block of the rendered document, where heading markers are styling, not
+  // text.
   QCOMPARE(search.countMatches(&doc, QStringLiteral("^A")), 1);
   QCOMPARE(search.countMatches(&doc, QStringLiteral("^B")), 1);
   QCOMPARE(search.countMatches(&doc, QStringLiteral("[0-9]+")), 1);
@@ -1761,7 +1887,8 @@ void EditorSpike::regexSearchIgnoresInvalidPatterns() {
 
 void EditorSpike::regexSearchStepsAndWrapsAround() {
   QTextDocument doc;
-  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("## first\n\n## second\n\nbody\n"), &doc, nullptr));
+  QVERIFY(typist::editor::loadMarkdown(QStringLiteral("## first\n\n## second\n\nbody\n"), &doc,
+                                       nullptr));
   typist::ui::SearchController search;
   search.setRegex(true);
   const QString pattern = QStringLiteral("first|second");
@@ -1813,7 +1940,8 @@ void EditorSpike::recentFilesKeepNewestFirstAndCap() {
 void EditorSpike::recoveryStoreRoundTripsThroughEnvOverride() {
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
-  qputenv("TYPIST_RECOVERY_DIR", QDir::tempPath() == dir.path() ? QByteArray() : dir.path().toLocal8Bit());
+  qputenv("TYPIST_RECOVERY_DIR",
+          QDir::tempPath() == dir.path() ? QByteArray() : dir.path().toLocal8Bit());
   QVERIFY(typist::ui::recoveryDir() == dir.path());
   QVERIFY(typist::ui::writeDraft(QStringLiteral("/doc.md"), QStringLiteral("# Draft\n\nbody")));
   QString text;
@@ -1830,7 +1958,8 @@ void EditorSpike::recoveryStoreKeysSeparateUntitledAndPaths() {
   QVERIFY(dir.isValid());
   qputenv("TYPIST_RECOVERY_DIR", dir.path().toLocal8Bit());
   QCOMPARE(typist::ui::recoveryKeyFor(QString()), QStringLiteral("untitled"));
-  QVERIFY(typist::ui::recoveryKeyFor(QStringLiteral("/a.md")) != typist::ui::recoveryKeyFor(QStringLiteral("/b.md")));
+  QVERIFY(typist::ui::recoveryKeyFor(QStringLiteral("/a.md")) !=
+          typist::ui::recoveryKeyFor(QStringLiteral("/b.md")));
   QVERIFY(typist::ui::writeDraft(QString(), QStringLiteral("untitled draft")));
   QString text;
   QVERIFY(typist::ui::readDraft(QString(), &text));
@@ -1862,7 +1991,8 @@ void EditorSpike::folderSearchRunnerReportsHitsOffUiThread() {
   runner.start(request);
   QVERIFY(spy.wait(5000));
   QCOMPARE(spy.count(), 1);
-  const QVector<typist::platform::SearchHit> hits = spy.at(0).at(0).value<QVector<typist::platform::SearchHit>>();
+  const QVector<typist::platform::SearchHit> hits =
+      spy.at(0).at(0).value<QVector<typist::platform::SearchHit>>();
   QCOMPARE(hits.size(), 5);
   QVERIFY(spy.at(0).at(1).toBool() == false);
   QVERIFY(runner.isRunning() == false);
@@ -1892,13 +2022,16 @@ void EditorSpike::translationCandidatesFollowLocaleLanguage() {
   QCOMPARE(candidates.size(), 4);
   QVERIFY(candidates.first().endsWith(QStringLiteral("typist_zh.qm")));
   QVERIFY(typist::ui::translationCandidates(QStringLiteral("en_US")).isEmpty());
-  QVERIFY(typist::ui::translationCandidates(QStringLiteral("de_DE")).first().endsWith(QStringLiteral("typist_de.qm")));
+  QVERIFY(typist::ui::translationCandidates(QStringLiteral("de_DE"))
+              .first()
+              .endsWith(QStringLiteral("typist_de.qm")));
 }
 
 void EditorSpike::translationFileCoversMainWindowStrings() {
   const QString tsPath = qEnvironmentVariable("TYPIST_TS_FILE");
   const QString sourcePath = qEnvironmentVariable("TYPIST_UI_SOURCE");
-  if (tsPath.isEmpty() || sourcePath.isEmpty()) QSKIP("Translation consistency check needs TYPIST_TS_FILE and TYPIST_UI_SOURCE.");
+  if (tsPath.isEmpty() || sourcePath.isEmpty())
+    QSKIP("Translation consistency check needs TYPIST_TS_FILE and TYPIST_UI_SOURCE.");
   QFile tsFile(tsPath);
   QVERIFY(tsFile.open(QIODevice::ReadOnly));
   QFile sourceFile(sourcePath);
@@ -1914,7 +2047,8 @@ void EditorSpike::translationFileCoversMainWindowStrings() {
   while (!xml.atEnd()) {
     const QXmlStreamReader::TokenType token = xml.readNext();
     if (xml.hasError()) {
-      QFAIL(qPrintable(QStringLiteral("Translation file is not well-formed XML: ") + xml.errorString()));
+      QFAIL(qPrintable(QStringLiteral("Translation file is not well-formed XML: ") +
+                       xml.errorString()));
     }
     if (token == QXmlStreamReader::StartElement) {
       currentElement = xml.name().toString();
@@ -1932,9 +2066,12 @@ void EditorSpike::translationFileCoversMainWindowStrings() {
       }
       currentElement.clear();
     } else if (token == QXmlStreamReader::Characters && !xml.isWhitespace()) {
-      if (currentElement == QStringLiteral("name")) inMainWindow = xml.text().toString() == QStringLiteral("MainWindow");
-      else if (currentElement == QStringLiteral("source")) source = xml.text().toString();
-      else if (currentElement == QStringLiteral("translation")) translation = xml.text().toString();
+      if (currentElement == QStringLiteral("name"))
+        inMainWindow = xml.text().toString() == QStringLiteral("MainWindow");
+      else if (currentElement == QStringLiteral("source"))
+        source = xml.text().toString();
+      else if (currentElement == QStringLiteral("translation"))
+        translation = xml.text().toString();
     }
   }
   QSet<QString> uniqueTr;
@@ -1959,9 +2096,12 @@ void EditorSpike::translatorFallsBackWhenCatalogMissing() {
 void EditorSpike::systemThemeParsesPlatformHints() {
   QCOMPARE(typist::platform::darkHintFromAppsUseLightTheme(0), typist::platform::DarkHint::Dark);
   QCOMPARE(typist::platform::darkHintFromAppsUseLightTheme(1), typist::platform::DarkHint::Light);
-  QCOMPARE(typist::platform::darkHintFromGtkTheme(QStringLiteral("Adwaita:dark")), typist::platform::DarkHint::Dark);
-  QCOMPARE(typist::platform::darkHintFromGtkTheme(QStringLiteral("Yaru-dark")), typist::platform::DarkHint::Dark);
-  QCOMPARE(typist::platform::darkHintFromGtkTheme(QStringLiteral("Adwaita")), typist::platform::DarkHint::Light);
+  QCOMPARE(typist::platform::darkHintFromGtkTheme(QStringLiteral("Adwaita:dark")),
+           typist::platform::DarkHint::Dark);
+  QCOMPARE(typist::platform::darkHintFromGtkTheme(QStringLiteral("Yaru-dark")),
+           typist::platform::DarkHint::Dark);
+  QCOMPARE(typist::platform::darkHintFromGtkTheme(QStringLiteral("Adwaita")),
+           typist::platform::DarkHint::Light);
   QCOMPARE(typist::platform::darkHintFromGtkTheme(QString()), typist::platform::DarkHint::Unknown);
 }
 

@@ -5,7 +5,6 @@
 #include <QSettings>
 #include <QStringList>
 #include <QVariant>
-
 #include <cstdlib>
 
 #if defined(Q_OS_MACOS)
@@ -14,7 +13,9 @@
 
 namespace typist::platform {
 
-DarkHint darkHintFromAppsUseLightTheme(int value) { return value == 0 ? DarkHint::Dark : DarkHint::Light; }
+DarkHint darkHintFromAppsUseLightTheme(int value) {
+  return value == 0 ? DarkHint::Dark : DarkHint::Light;
+}
 
 DarkHint darkHintFromGtkTheme(const QString& themeValue) {
   if (themeValue.isEmpty()) return DarkHint::Unknown;
@@ -44,15 +45,17 @@ DarkHint hintFromGtkSettingsFile() {
 DarkHint nativeDarkHint() {
 #if defined(Q_OS_WIN)
   QSettings settings(QSettings::NativeFormat, QSettings::UserScope, QStringLiteral("Microsoft"),
-                    QStringLiteral("Windows"));
+                     QStringLiteral("Windows"));
   // QSettings already prefixes Software/<org>/<app>, so the key is relative to that tree.
-  const QVariant value = settings.value(QStringLiteral("CurrentVersion/Themes/Personalize/AppsUseLightTheme"));
+  const QVariant value =
+      settings.value(QStringLiteral("CurrentVersion/Themes/Personalize/AppsUseLightTheme"));
   if (!value.isValid()) return DarkHint::Unknown;
   return darkHintFromAppsUseLightTheme(value.toInt());
 #elif defined(Q_OS_MACOS)
   // The key is absent when the session uses the light appearance, so a failed read means light.
-  const int status = QProcess::execute(QStringLiteral("defaults"),
-                                      {QStringLiteral("read"), QStringLiteral("-g"), QStringLiteral("AppleInterfaceStyle")});
+  const int status = QProcess::execute(
+      QStringLiteral("defaults"),
+      {QStringLiteral("read"), QStringLiteral("-g"), QStringLiteral("AppleInterfaceStyle")});
   if (status != 0) return DarkHint::Light;
   return DarkHint::Dark;
 #elif defined(Q_OS_LINUX)

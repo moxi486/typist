@@ -5,7 +5,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QSettings>
-
 #include <algorithm>
 
 namespace typist::ui {

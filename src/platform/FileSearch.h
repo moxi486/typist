@@ -1,9 +1,9 @@
 #pragma once
 
-#include <atomic>
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <atomic>
 
 namespace typist::platform {
 
@@ -12,7 +12,6 @@ struct SearchHit {
   int line = 0;
   QString preview;
 };
-
 
 struct SearchRequest {
   QString rootDir;
@@ -31,6 +30,7 @@ QVector<SearchHit> searchFilesCancellable(const SearchRequest& request, QString*
                                           const std::atomic<bool>& cancelled, bool* wasCancelled);
 
 // Lists Markdown files under rootDir as absolute paths, sorted by relative path.
-QStringList listMarkdownFiles(const QString& rootDir, int maxEntries = 500, qint64 maxFileBytes = 4 * 1024 * 1024);
+QStringList listMarkdownFiles(const QString& rootDir, int maxEntries = 500,
+                              qint64 maxFileBytes = 4 * 1024 * 1024);
 
 }  // namespace typist::platform

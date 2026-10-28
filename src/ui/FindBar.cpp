@@ -48,12 +48,11 @@ bool FindBar::caseSensitive() const { return m_case->isChecked(); }
 bool FindBar::regex() const { return m_regex->isChecked(); }
 
 void FindBar::setMatchCount(int count) {
-  m_count->setText(count == 0 ? QStringLiteral("No matches") : QStringLiteral("%1 matches").arg(count));
+  m_count->setText(count == 0 ? QStringLiteral("No matches")
+                              : QStringLiteral("%1 matches").arg(count));
 }
 
-void FindBar::setPattern(const QString& pattern) {
-  m_edit->setText(pattern);
-}
+void FindBar::setPattern(const QString& pattern) { m_edit->setText(pattern); }
 
 void FindBar::openFocused() {
   setVisible(true);
@@ -61,9 +60,7 @@ void FindBar::openFocused() {
   m_edit->selectAll();
 }
 
-void FindBar::closeBar() {
-  setVisible(false);
-}
+void FindBar::closeBar() { setVisible(false); }
 
 bool FindBar::eventFilter(QObject* watched, QEvent* event) {
   if (watched == m_edit && event->type() == QEvent::KeyPress) {

@@ -8,7 +8,9 @@ namespace typist::ui {
 
 namespace {
 
-QString languageOf(const QString& localeName) { return localeName.section(QChar(95), 0, 0).toLower(); }
+QString languageOf(const QString& localeName) {
+  return localeName.section(QChar(95), 0, 0).toLower();
+}
 
 }  // namespace
 
@@ -18,7 +20,8 @@ QStringList translationCandidates(const QString& localeName) {
   const QString fileName = QStringLiteral("typist_%1.qm").arg(language);
   QStringList candidates;
   candidates << QDir::currentPath() + QStringLiteral("/translations/") + fileName;
-  candidates << QCoreApplication::applicationDirPath() + QStringLiteral("/translations/") + fileName;
+  candidates << QCoreApplication::applicationDirPath() + QStringLiteral("/translations/") +
+                    fileName;
   candidates << QLibraryInfo::path(QLibraryInfo::TranslationsPath) + QStringLiteral("/") + fileName;
   candidates << QDir::homePath() + QStringLiteral("/.typist/translations/") + fileName;
   return candidates;

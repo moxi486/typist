@@ -5,7 +5,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QStringList>
-
 #include <algorithm>
 
 namespace typist::platform {
@@ -13,7 +12,8 @@ namespace typist::platform {
 namespace {
 
 bool skippedDirectory(const QString& name) {
-  return name.startsWith(QChar(46)) || name == QStringLiteral("build") || name == QStringLiteral("node_modules");
+  return name.startsWith(QChar(46)) || name == QStringLiteral("build") ||
+         name == QStringLiteral("node_modules");
 }
 
 QString previewOf(const QString& text) {
@@ -24,8 +24,8 @@ QString previewOf(const QString& text) {
 
 }  // namespace
 
-QVector<SearchHit> scanFiles(const SearchRequest& request, QString* error, const std::atomic<bool>* cancelled,
-                               bool* wasCancelled) {
+QVector<SearchHit> scanFiles(const SearchRequest& request, QString* error,
+                             const std::atomic<bool>* cancelled, bool* wasCancelled) {
   QVector<SearchHit> hits;
   if (request.pattern.isEmpty()) {
     if (error) *error = QStringLiteral("Search pattern is empty");
@@ -68,7 +68,8 @@ QVector<SearchHit> scanFiles(const SearchRequest& request, QString* error, const
       QString content = newline == -1 ? text.mid(offset) : text.mid(offset, newline - offset);
       if (content.endsWith(QChar(13))) content.chop(1);
       ++line;
-      if (content.contains(request.pattern, request.caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive)) {
+      if (content.contains(request.pattern,
+                           request.caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive)) {
         hits.push_back(SearchHit{path, line, previewOf(content)});
         if (request.maxHits > 0 && hits.size() >= request.maxHits) return hits;
       }
@@ -78,7 +79,6 @@ QVector<SearchHit> scanFiles(const SearchRequest& request, QString* error, const
   }
   return hits;
 }
-
 
 QStringList listMarkdownFiles(const QString& rootDir, int maxEntries, qint64 maxFileBytes) {
   const QDir root(rootDir);

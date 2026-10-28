@@ -1,14 +1,14 @@
 #pragma once
 
-#include <QMainWindow>
-#include <QPalette>
-#include <QString>
-#include <QUrl>
-
 #include "Conflict.h"
 #include "FolderSearchRunner.h"
 #include "RecoveryStore.h"
 #include "Search.h"
+
+#include <QMainWindow>
+#include <QPalette>
+#include <QString>
+#include <QUrl>
 
 class QAction;
 class QCloseEvent;
@@ -27,7 +27,7 @@ class AutoSave;
 class FileTree;
 class FindBar;
 class ViewSwitch;
-}
+}  // namespace typist::ui
 
 namespace typist {
 
@@ -89,7 +89,8 @@ class MainWindow : public QMainWindow {
   void searchPrevious();
   void refreshMatches();
   void searchInFolder();
-  void onFolderSearchResults(const QVector<typist::platform::SearchHit>& hits, bool cancelled, const QString& error);
+  void onFolderSearchResults(const QVector<typist::platform::SearchHit>& hits, bool cancelled,
+                             const QString& error);
   void rebuildRecentMenu();
   void rebuildOutline();
   void toggleOutline();
@@ -112,7 +113,7 @@ class MainWindow : public QMainWindow {
   void treeFileRenamed(const QString& oldPath, const QString& newPath);
   void treeFileRemoved(const QString& path);
 
-  protected:
+ protected:
   bool eventFilter(QObject* watched, QEvent* event) override;
   void dragEnterEvent(QDragEnterEvent* event) override;
   void dropEvent(QDropEvent* event) override;

@@ -18,21 +18,25 @@ QTextDocument::FindFlags SearchController::flags() const {
 }
 
 QRegularExpression SearchController::regexPattern(const QString& pattern) const {
-  const QRegularExpression::PatternOption option = m_caseSensitive ? QRegularExpression::UseUnicodePropertiesOption
-                                                                : QRegularExpression::CaseInsensitiveOption;
+  const QRegularExpression::PatternOption option =
+      m_caseSensitive ? QRegularExpression::UseUnicodePropertiesOption
+                      : QRegularExpression::CaseInsensitiveOption;
   return QRegularExpression(pattern, option);
 }
 
-QVector<QPair<int, int>> SearchController::regexRanges(const QTextDocument* document, const QString& pattern) const {
+QVector<QPair<int, int>> SearchController::regexRanges(const QTextDocument* document,
+                                                       const QString& pattern) const {
   QVector<QPair<int, int>> ranges;
   const QRegularExpression expression = regexPattern(pattern);
-  if (!expression.isValid()) return ranges;  // an invalid pattern matches nothing rather than throwing
+  if (!expression.isValid())
+    return ranges;  // an invalid pattern matches nothing rather than throwing
   for (QTextBlock block = document->firstBlock(); block.isValid(); block = block.next()) {
     QRegularExpressionMatchIterator it = expression.globalMatch(block.text());
     while (it.hasNext()) {
       const QRegularExpressionMatch match = it.next();
       if (match.capturedLength() == 0) continue;  // empty matches would stack at the same position
-      ranges.append(qMakePair(block.position() + match.capturedStart(), block.position() + match.capturedEnd()));
+      ranges.append(qMakePair(block.position() + match.capturedStart(),
+                              block.position() + match.capturedEnd()));
     }
   }
   return ranges;
@@ -54,7 +58,8 @@ int SearchController::countMatches(const QTextDocument* document, const QString&
   return count;
 }
 
-QVector<QTextCursor> SearchController::allMatches(const QTextDocument* document, const QString& pattern, int maxHighlights) const {
+QVector<QTextCursor> SearchController::allMatches(const QTextDocument* document,
+                                                  const QString& pattern, int maxHighlights) const {
   QVector<QTextCursor> hits;
   if (document == nullptr || pattern.isEmpty()) return hits;
   if (m_regex) {
@@ -89,7 +94,10 @@ bool SearchController::selectNext(QTextCursor& cursor, const QString& pattern) c
     const int from = cursor.selectionEnd();
     int chosen = 0;
     for (int i = 0; i < ranges.size(); ++i) {
-      if (ranges.at(i).first >= from) { chosen = i; break; }
+      if (ranges.at(i).first >= from) {
+        chosen = i;
+        break;
+      }
     }
     cursor = QTextCursor(const_cast<QTextDocument*>(document));
     cursor.setPosition(ranges.at(chosen).first, QTextCursor::MoveAnchor);
@@ -112,7 +120,10 @@ bool SearchController::selectPrevious(QTextCursor& cursor, const QString& patter
     const int from = cursor.selectionStart();
     int chosen = ranges.size() - 1;
     for (int i = ranges.size() - 1; i >= 0; --i) {
-      if (ranges.at(i).first < from) { chosen = i; break; }
+      if (ranges.at(i).first < from) {
+        chosen = i;
+        break;
+      }
     }
     cursor = QTextCursor(document);
     cursor.setPosition(ranges.at(chosen).first);
