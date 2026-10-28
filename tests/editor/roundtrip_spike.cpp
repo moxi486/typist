@@ -1141,6 +1141,10 @@ void EditorSpike::pdfTallBlockSplitsAtLineBoundaries() {
   QStringList lines;
   for (int i = 0; i < 600; ++i) lines << QStringLiteral("line %1 of a long paragraph").arg(i);
   QTextDocument document;
+  // Keep the page-count bounds independent of the platform's default font and DPI.
+  QFont font(QStringLiteral("Arial"));
+  font.setPixelSize(12);
+  document.setDefaultFont(font);
   QVERIFY(typist::editor::loadMarkdown(lines.join(QStringLiteral("\n")), &document, nullptr));
 
   const std::unique_ptr<QTextDocument> copy(document.clone());
@@ -1162,7 +1166,7 @@ void EditorSpike::pdfTallBlockSplitsAtLineBoundaries() {
                            .arg(pages)
                            .toUtf8()
                            .constData());
-  QVERIFY(pages <= 6);
+  QVERIFY2(pages <= 6, qPrintable(QStringLiteral("unexpected page count: %1").arg(pages)));
 }
 
 void EditorSpike::toggleTaskCheckboxFlipsRenderedState() {
