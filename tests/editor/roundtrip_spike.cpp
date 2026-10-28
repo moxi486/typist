@@ -24,6 +24,8 @@
 #include <QFile>
 #include <QImage>
 #include <QPainter>
+#include <QRegularExpression>
+#include <QSet>
 #include <QSettings>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -2038,6 +2040,18 @@ void EditorSpike::translationFileCoversMainWindowStrings() {
   QVERIFY(sourceFile.open(QIODevice::ReadOnly));
   const QString sourceCode = QString::fromUtf8(sourceFile.readAll());
   sourceFile.close();
+  // Formatting can wrap tr() calls and split a message into adjacent C++ literals.
+  const QRegularExpression trCall(QStringLiteral(R"tr(\btr\s*\(\s*((?:"(?:\\.|[^"\\])*"\s*)+))tr"));
+  const QRegularExpression stringLiteral(QStringLiteral(R"tr("((?:\\.|[^"\\])*)")tr"));
+  QSet<QString> uniqueTr;
+  auto calls = trCall.globalMatch(sourceCode);
+  while (calls.hasNext()) {
+    const QString arguments = calls.next().captured(1);
+    auto literals = stringLiteral.globalMatch(arguments);
+    QString text;
+    while (literals.hasNext()) text += literals.next().captured(1);
+    uniqueTr.insert(text);
+  }
   QXmlStreamReader xml(&tsFile);
   int messages = 0;
   bool inMainWindow = false;
@@ -2061,7 +2075,8 @@ void EditorSpike::translationFileCoversMainWindowStrings() {
         QVERIFY(inMainWindow);
         QVERIFY(!source.isEmpty());
         QVERIFY(!translation.isEmpty());
-        QVERIFY(sourceCode.contains(QStringLiteral("tr(\"") + source + QStringLiteral("\")")));
+        QVERIFY2(uniqueTr.contains(source),
+                 qPrintable(QStringLiteral("missing tr for: ") + source));
         ++messages;
       }
       currentElement.clear();
@@ -2073,14 +2088,6 @@ void EditorSpike::translationFileCoversMainWindowStrings() {
       else if (currentElement == QStringLiteral("translation"))
         translation = xml.text().toString();
     }
-  }
-  QSet<QString> uniqueTr;
-  int cursor = sourceCode.indexOf(QStringLiteral("tr(\""));
-  while (cursor >= 0) {
-    const QString rest = sourceCode.mid(cursor + 5);
-    const int closing = rest.indexOf(QChar(34));
-    if (closing >= 0) uniqueTr.insert(rest.left(closing));
-    cursor = sourceCode.indexOf(QStringLiteral("tr(\""), cursor + 5 + closing);
   }
   QCOMPARE(messages, uniqueTr.size());
   QVERIFY(messages >= 30);

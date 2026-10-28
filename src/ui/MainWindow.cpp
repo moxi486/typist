@@ -939,7 +939,7 @@ void MainWindow::checkForUpdates() {
     m_network = new QNetworkAccessManager(this);
     connect(m_network, &QNetworkAccessManager::finished, this, &MainWindow::handleUpdateReply);
   }
-  QNetworkRequest request(QUrl(typist::ui::updateFeedUrl()));
+  QNetworkRequest request{QUrl{typist::ui::updateFeedUrl()}};
   request.setTransferTimeout(5000);
   statusBar()->showMessage(tr("Checking for updates"));
   m_network->get(request);
