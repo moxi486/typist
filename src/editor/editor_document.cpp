@@ -1,25 +1,23 @@
 #include "editor_document.h"
 
+#include <QFileInfo>
 #include <QFont>
-#include <QFont>
+#include <QImageReader>
 #include <QString>
 #include <QStringList>
 #include <QTextBlock>
 #include <QTextBlockFormat>
 #include <QTextCharFormat>
 #include <QTextCursor>
-#include <QFileInfo>
-#include <QImageReader>
 #include <QTextImageFormat>
 #include <QTextLayout>
-#include <QUrl>
 #include <QTextList>
 #include <QTextListFormat>
 #include <QTextTable>
 #include <QTextTableFormat>
+#include <QUrl>
 #include <QVariant>
 #include <QVector>
-
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -39,7 +37,6 @@ void insertTaggedBlock(QTextCursor& cursor, const QString& text, uint property,
   cursor.insertText(text, charFormat);
 }
 
-
 // Inline runs carry styling that Qt models as character formats: weight, slant,
 // strike, a monospace family for code, and an anchor for links and images.
 QTextCharFormat formatForRun(const typist::core::InlineRun& run) {
@@ -52,11 +49,13 @@ QTextCharFormat formatForRun(const typist::core::InlineRun& run) {
     fmt.setProperty(kImageProperty, QVariant(QString::fromStdString(run.url)));
     fmt.setAnchor(true);
     fmt.setAnchorHref(QString::fromStdString(run.url));
-    fmt.setProperty(QTextFormat::TextUnderlineStyle, QVariant::fromValue(QTextCharFormat::SingleUnderline));
+    fmt.setProperty(QTextFormat::TextUnderlineStyle,
+                    QVariant::fromValue(QTextCharFormat::SingleUnderline));
   } else if (run.link) {
     fmt.setAnchor(true);
     fmt.setAnchorHref(QString::fromStdString(run.url));
-    fmt.setProperty(QTextFormat::TextUnderlineStyle, QVariant::fromValue(QTextCharFormat::SingleUnderline));
+    fmt.setProperty(QTextFormat::TextUnderlineStyle,
+                    QVariant::fromValue(QTextCharFormat::SingleUnderline));
   }
   return fmt;
 }
@@ -77,8 +76,10 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
       QImageReader reader(target);
       QSize natural = reader.size();
       if (natural.width() > 640 || natural.height() > 480) {
-        const double scale = qMin(640.0 / double(natural.width()), 480.0 / double(natural.height()));
-        natural = QSize(int(double(natural.width()) * scale), int(double(natural.height()) * scale));
+        const double scale =
+            qMin(640.0 / double(natural.width()), 480.0 / double(natural.height()));
+        natural =
+            QSize(int(double(natural.width()) * scale), int(double(natural.height()) * scale));
       }
       const QImage loaded = reader.read();
       const QUrl resourceUrl = QUrl::fromLocalFile(target);
@@ -203,7 +204,7 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
       ++ctx.groupCounter;
       for (const typist::core::Block& child : block.children) {
         insertTaggedInline(cursor, child.runs, QString::fromStdString(child.text), kQuoteProperty,
-                            QVariant(ctx.groupCounter));
+                           QVariant(ctx.groupCounter));
       }
       break;
     case typist::core::BlockType::Table:
@@ -219,8 +220,9 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
         if (!item.task) allTasks = false;
       }
       QTextListFormat listFormat;
-      listFormat.setStyle(allTasks ? QTextListFormat::ListStyleUndefined
-                                   : (block.ordered ? QTextListFormat::ListDecimal : QTextListFormat::ListDisc));
+      listFormat.setStyle(
+          allTasks ? QTextListFormat::ListStyleUndefined
+                   : (block.ordered ? QTextListFormat::ListDecimal : QTextListFormat::ListDisc));
       listFormat.setIndent(static_cast<uint>(depth + 1));
       for (const typist::core::Block& item : block.children) {
         cursor.insertList(listFormat);
@@ -230,7 +232,8 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
           cursor.setBlockFormat(itemFormat);
           QTextCharFormat markFormat = cursor.charFormat();
           markFormat.setProperty(kTaskMarkProperty, QVariant(item.checked));
-          cursor.insertText(item.checked ? QString(QChar(0x2611)) : QString(QChar(0x2610)), markFormat);
+          cursor.insertText(item.checked ? QString(QChar(0x2611)) : QString(QChar(0x2610)),
+                            markFormat);
           cursor.insertText(QStringLiteral(" "), markFormat);
         }
         insertInline(item.runs, QString::fromStdString(item.text), cursor);
@@ -253,7 +256,6 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
   }
 }
 
-
 struct MarkdownRun {
   QString text;
   QString url;
@@ -269,7 +271,8 @@ void pushMarkdownRun(QVector<MarkdownRun>& runs, const MarkdownRun& run) {
   if (run.text.isEmpty()) return;
   if (!runs.empty() && runs.back().bold == run.bold && runs.back().italic == run.italic &&
       runs.back().strike == run.strike && runs.back().code == run.code &&
-      runs.back().link == run.link && runs.back().image == run.image && runs.back().url == run.url) {
+      runs.back().link == run.link && runs.back().image == run.image &&
+      runs.back().url == run.url) {
     runs.back().text += run.text;
     return;
   }
@@ -280,11 +283,15 @@ QString wrapCodeText(const QString& text) {
   int longest = 0;
   int current = 0;
   for (const QChar ch : text) {
-    if (ch == QLatin1Char('`')) ++current; else current = 0;
+    if (ch == QLatin1Char('`'))
+      ++current;
+    else
+      current = 0;
     longest = std::max(longest, current);
   }
   const QString marker(longest + 1, QLatin1Char('`'));
-  const bool pad = !text.isEmpty() && (text.front() == QLatin1Char('`') || text.back() == QLatin1Char('`'));
+  const bool pad =
+      !text.isEmpty() && (text.front() == QLatin1Char('`') || text.back() == QLatin1Char('`'));
   if (pad) return marker + QLatin1Char(' ') + text + QLatin1Char(' ') + marker;
   return marker + text + marker;
 }
@@ -295,8 +302,10 @@ QString wrapMarkdownRun(const MarkdownRun& run) {
   if (run.bold) body = QStringLiteral("**") + body + QStringLiteral("**");
   if (run.italic) body = QLatin1Char('*') + body + QLatin1Char('*');
   if (run.strike) body = QStringLiteral("~~") + body + QStringLiteral("~~");
-  if (run.image) return QStringLiteral("![") + body + QStringLiteral("](") + run.url + QStringLiteral(")");
-  if (run.link) return QStringLiteral("[") + body + QStringLiteral("](") + run.url + QStringLiteral(")");
+  if (run.image)
+    return QStringLiteral("![") + body + QStringLiteral("](") + run.url + QStringLiteral(")");
+  if (run.link)
+    return QStringLiteral("[") + body + QStringLiteral("](") + run.url + QStringLiteral(")");
   return body;
 }
 
@@ -456,7 +465,8 @@ QString serializeDocument(const QTextDocument* document) {
     if (format.property(kCodeBlockProperty).toInt() > 0) {
       const int groupId = format.property(kCodeBlockProperty).toInt();
       QTextBlock current = block;
-      out += QStringLiteral("```") + format.property(kCodeInfoProperty).toString() + QStringLiteral("\n");
+      out += QStringLiteral("```") + format.property(kCodeInfoProperty).toString() +
+             QStringLiteral("\n");
       while (current.isValid() &&
              current.blockFormat().property(kCodeBlockProperty).toInt() == groupId) {
         out += current.text() + QStringLiteral("\n");
@@ -504,15 +514,16 @@ QString serializeDocument(const QTextDocument* document) {
       while (current.isValid()) {
         const QTextBlockFormat itemFormat = current.blockFormat();
         QTextList* itemList = current.textList();
-        if (itemList == nullptr ||
-            static_cast<int>(itemList->format().indent()) - 1 != depth ||
+        if (itemList == nullptr || static_cast<int>(itemList->format().indent()) - 1 != depth ||
             (itemList->format().style() == QTextListFormat::ListDecimal) != ordered) {
           break;
         }
         QString itemText = inlineFromBlock(current);
         const bool isTaskItem = itemFormat.property(kTaskProperty).isValid();
-        if (isTaskItem && (itemText.startsWith(QChar(0x2611)) || itemText.startsWith(QChar(0x2610)))) {
-          // The checkbox glyph stands in for the Markdown marker and never goes back into the source.
+        if (isTaskItem &&
+            (itemText.startsWith(QChar(0x2611)) || itemText.startsWith(QChar(0x2610)))) {
+          // The checkbox glyph stands in for the Markdown marker and never goes back into the
+          // source.
           itemText = itemText.mid(2);
         }
         if (itemText.isEmpty() && !isTaskItem) {
@@ -525,7 +536,7 @@ QString serializeDocument(const QTextDocument* document) {
         out += ordered ? QString::number(index++) + QStringLiteral(". ") : QStringLiteral("- ");
         if (isTaskItem) {
           out += itemFormat.property(kTaskProperty).toBool() ? QStringLiteral("[x] ")
-                                                                  : QStringLiteral("[ ] ");
+                                                             : QStringLiteral("[ ] ");
         }
         out += itemText + QStringLiteral("\n");
         current = current.next();
@@ -547,7 +558,8 @@ QString serializeDocument(const QTextDocument* document) {
     if (format.headingLevel() > 0) {
       // Heading content keeps its inline runs; the plain block text would drop bold, emphasis,
       // code spans and links.
-      out += QString(format.headingLevel(), QLatin1Char('#')) + QStringLiteral(" ") + inlineFromBlock(block);
+      out += QString(format.headingLevel(), QLatin1Char('#')) + QStringLiteral(" ") +
+             inlineFromBlock(block);
       out += QStringLiteral("\n\n");
       prevWasList = false;
       block = block.next();

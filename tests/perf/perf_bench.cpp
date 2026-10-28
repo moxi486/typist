@@ -1,16 +1,15 @@
 #include "editor_document.h"
 #include "markdown.h"
 
+#include <QAbstractTextDocumentLayout>
 #include <QApplication>
 #include <QElapsedTimer>
-#include <QAbstractTextDocumentLayout>
-#include <algorithm>
-#include <limits>
 #include <QString>
 #include <QTextDocument>
-
+#include <algorithm>
 #include <cstddef>
 #include <cstdio>
+#include <limits>
 #include <string>
 
 namespace {
@@ -71,7 +70,8 @@ ShapeResult measureShape(bool withTables) {
   result.serializeMs = static_cast<long long>(timer.elapsed());
 
   const auto reparsed = typist::core::parseMarkdown(serialized.toStdString());
-  result.fidelity = parsed.ok && reparsed.ok && typist::core::astEqual(parsed.blocks, reparsed.blocks);
+  result.fidelity =
+      parsed.ok && reparsed.ok && typist::core::astEqual(parsed.blocks, reparsed.blocks);
   if (!parsed.ok) std::printf("error=%s\n", parsed.error.c_str());
   return result;
 }
@@ -100,9 +100,12 @@ ShapeResult measureBestOfThree(bool withTables) {
 }
 
 void report(const char* label, const ShapeResult& result) {
-  std::printf("%s bytes=%zu blocks=%zu tables=%zu parse_ms=%lld build_ms=%lld serialize_ms=%lld layout_full_ms=%lld total_ms=%lld fidelity=%s attempts=3\n",
-              label, result.bytes, result.blocks, result.tables, result.parseMs, result.buildMs, result.serializeMs, result.layoutMs,
-              result.parseMs + result.buildMs + result.serializeMs, result.fidelity ? "ok" : "fail");
+  std::printf(
+      "%s bytes=%zu blocks=%zu tables=%zu parse_ms=%lld build_ms=%lld serialize_ms=%lld "
+      "layout_full_ms=%lld total_ms=%lld fidelity=%s attempts=3\n",
+      label, result.bytes, result.blocks, result.tables, result.parseMs, result.buildMs,
+      result.serializeMs, result.layoutMs, result.parseMs + result.buildMs + result.serializeMs,
+      result.fidelity ? "ok" : "fail");
 }
 
 }  // namespace

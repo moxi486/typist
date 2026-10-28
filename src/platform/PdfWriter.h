@@ -2,8 +2,8 @@
 
 #include <QPair>
 #include <QRectF>
-#include <QVector>
 #include <QString>
+#include <QVector>
 
 class QTextBlock;
 class QTextDocument;
@@ -14,8 +14,8 @@ namespace typist::platform {
 struct PdfPageOptions {
   QString paper = QStringLiteral("a4");  // a4 or letter
   double marginMm = 20.0;
-  QString header;  // empty leaves no header band
-  QString footer;  // a # in the template is replaced by the page number
+  QString header;                 // empty leaves no header band
+  QString footer;                 // a # in the template is replaced by the page number
   bool repeatTableHeader = true;  // continuation pages redraw the first row of a split table
 };
 
@@ -24,7 +24,8 @@ struct PdfPageOptions {
 // editor is currently in. Returns false and leaves the target untouched when the output
 // cannot be produced.
 bool exportPdf(const QString& path, const QTextDocument* document, QString* error);
-bool exportPdf(const QString& path, const QTextDocument* document, const PdfPageOptions& options, QString* error);
+bool exportPdf(const QString& path, const QTextDocument* document, const PdfPageOptions& options,
+               QString* error);
 
 // Rect of the first row of the table that block belongs to; empty when the block is
 // outside a table or already sits in that row. Continuation pages redraw this rect so a
