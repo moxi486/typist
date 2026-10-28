@@ -1141,11 +1141,16 @@ void EditorSpike::pdfTallBlockSplitsAtLineBoundaries() {
   QStringList lines;
   for (int i = 0; i < 600; ++i) lines << QStringLiteral("line %1 of a long paragraph").arg(i);
   QTextDocument document;
+  QVERIFY(typist::editor::loadMarkdown(lines.join(QStringLiteral("\n")), &document, nullptr));
   // Keep the page-count bounds independent of the platform's default font and DPI.
   QFont font(QStringLiteral("Arial"));
   font.setPixelSize(12);
   document.setDefaultFont(font);
-  QVERIFY(typist::editor::loadMarkdown(lines.join(QStringLiteral("\n")), &document, nullptr));
+  QTextCursor fontCursor(&document);
+  fontCursor.select(QTextCursor::Document);
+  QTextCharFormat fixedFont;
+  fixedFont.setFont(font);
+  fontCursor.mergeCharFormat(fixedFont);
 
   const std::unique_ptr<QTextDocument> copy(document.clone());
   copy->setPageSize(QSizeF(719.0, 935.0));
@@ -1166,7 +1171,11 @@ void EditorSpike::pdfTallBlockSplitsAtLineBoundaries() {
                            .arg(pages)
                            .toUtf8()
                            .constData());
-  QVERIFY2(pages <= 6, qPrintable(QStringLiteral("unexpected page count: %1").arg(pages)));
+  QVERIFY2(pages <= 6, qPrintable(QStringLiteral("pages=%1 lines=%2 height=%3 font=%4")
+                                      .arg(pages)
+                                      .arg(paragraph.layout()->lineCount())
+                                      .arg(height)
+                                      .arg(paragraph.layout()->font().toString())));
 }
 
 void EditorSpike::toggleTaskCheckboxFlipsRenderedState() {
