@@ -62,11 +62,21 @@ jobs:
         run: |
           Compress-Archive -Path stage\* -DestinationPath Typist-win64.zip -Force
           Get-FileHash -Algorithm SHA256 Typist-win64.zip | ForEach-Object { "$($_.Hash.ToLower())  Typist-win64.zip" } | Set-Content checksums.txt
+      - name: Build NSIS installer
+        shell: pwsh
+        run: |
+          choco install nsis -y
+          $ver = if ($env:GITHUB_REF_NAME -like 'v*') { $env:GITHUB_REF_NAME.Substring(1) } else { '0.1.0' }
+          $makensis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
+          if (-not $makensis) { $makensis = 'C:\NSIS\makensis.exe' }
+          & $makensis /DSTAGE_DIR=stage /DVERSION=$ver packaging\windows\typist.nsi
+          Get-FileHash -Algorithm SHA256 Typist-$ver-win64-installer.exe | ForEach-Object { "$($_.Hash.ToLower())  Typist-$ver-win64-installer.exe" } | Add-Content checksums.txt
       - uses: actions/upload-artifact@v4
         with:
           name: typist-windows
           path: |
             Typist-win64.zip
+            Typist-*-win64-installer.exe
             checksums.txt
 
   linux:
@@ -80,8 +90,21 @@ jobs:
       - run: cmake --build build/linux
       - name: Package deb, rpm and portable tarball
         run: cpack -G "DEB;RPM;TGZ" -C Release -b build/linux
+      - name: Stage the distribution tree
+        run: cmake --install build/linux --prefix "$PWD/stage"
+      - name: Build AppImage with linuxdeploy
+        env:
+          LINUXDEPLOY_OUTPUT_VERSION: ${{ github.ref_name }}
+        run: |
+          curl -L -o linuxdeploy.AppImage https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -L -o linuxdeploy-plugin-qt.AppImage https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy.AppImage linuxdeploy-plugin-qt.AppImage
+          ./linuxdeploy.AppImage --appdir stage/appimage --plugin qt \
+            --desktop-file packaging/linux/typist.desktop \
+            --icon-file packaging/linux/typist.png \
+            --output appimage
       - name: Hash
-        run: sha256sum Typist-*.deb Typist-*.rpm Typist-*.tar.gz > checksums.txt
+        run: sha256sum Typist-*.deb Typist-*.rpm Typist-*.tar.gz Typist-*.AppImage > checksums.txt
       - uses: actions/upload-artifact@v4
         with:
           name: typist-linux
@@ -89,6 +112,7 @@ jobs:
             Typist-*.deb
             Typist-*.rpm
             Typist-*.tar.gz
+            Typist-*.AppImage
             checksums.txt
 
   macos:
@@ -126,8 +150,8 @@ jobs:
       - name: Consolidate checksums and the update feed
         run: |
           mkdir -p out
-          find artifacts \( -name '*.zip' -o -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' -o -name '*.dmg' \) -type f | sort | tee out/assets.txt
-          ( cd artifacts && find . \( -name '*.zip' -o -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' -o -name '*.dmg' \) -type f -exec cp {} ../out/ \; )
+          find artifacts \( -name '*.zip' -o -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*-installer.exe' \) -type f | sort | tee out/assets.txt
+          ( cd artifacts && find . \( -name '*.zip' -o -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*-installer.exe' \) -type f -exec cp {} ../out/ \; )
           ( cd out && sha256sum * | sort > checksums.txt )
           version="${GITHUB_REF_NAME#v}"
           {
@@ -146,6 +170,6 @@ jobs:
           files: |
             out/*
           body: |
-            Typist 桌面版发布包：Windows zip（含 Qt 运行时 DLL）、Linux deb/rpm/tar.gz、macOS dmg/tar.gz。
+            Typist 桌面版发布包：Windows zip 与 NSIS 安装器（含 Qt 运行时 DLL）、Linux deb/rpm/tar.gz/AppImage、macOS dmg/tar.gz。
             每个包都有 SHA-256（checksums.txt），下载后先核对哈希再安装。
             未配置签名证书时二进制未签名（见 docs/Release.md）

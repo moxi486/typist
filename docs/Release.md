@@ -7,6 +7,9 @@ Typist 的发布包由 `.github/workflows/release.yml` 在打 `v*` 标签时构�
 - Linux：`Typist-*.deb`、`Typist-*.rpm`、`Typist-*.tar.gz`，由 CPack 生成（生成器与安装前缀在根 `CMakeLists.txt` 里设定）。
 - macOS：`Typist-*.dmg`、`Typist-*.tar.gz`，由 CPack 生成。
 - 每个包都有 `checksums.txt`（SHA-256），`release` 作业还会写 `latest.json`（版本号、发布时间、资产 URL），作为更新源的清单。
+- Windows 还有 NSIS 安装器：runner 上 `choco install nsis`，脚本 `packaging/windows/typist.nsi` 把 staging 树装进 `$PROGRAMFILES64\Typist`，写卸载与 App Paths 注册表项、开始菜单与桌面快捷方式。
+- Linux 还有 AppImage：runner 下载 linuxdeploy 与其 Qt 插件的 continuous 版，用 `packaging/linux/typist.desktop` 与 `packaging/linux/typist.png` 打包 staging 树。
+- 本机没有 NSIS、linuxdeploy、AppImage 工具链（按既有习惯不装依赖），这两类包只能在 runner 上验证；图标是手写 SVG 与 bundled Pillow 画的 PNG。
 - 安装树内容：`bin/typist`、`share/typist/themes/default.qss`、`share/typist/translations/*.qm`（由作业里的 `lrelease` 编译，本机没装 Linguist 时该文件缺失是预期）、`share/typist/docs/`、`share/typist/LICENSE`、`share/typist/NOTICE`。
 
 ## 签名

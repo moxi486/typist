@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Typist
+GenericName=Markdown Editor
+Comment=WYSIWYG Markdown editor built on Qt 6
+Exec=typist %f
+Icon=typist
+Terminal=false
+Categories=Utility;TextEditor;
+MimeType=text/markdown;text/plain;
