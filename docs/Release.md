@@ -17,7 +17,7 @@ Typist 的发布包由 `.github/workflows/release.yml` 在打 `v*` 标签时构�
 
 ## 自动更新
 - 更新通道是 GitHub Releases：`latest.json` 给出版本与资产地址。应用内已实现检查（Ctrl+Shift+U：抓 `latest.json`、比对版本、状态栏提示有新版本或已是最新，超时 5 秒），但不自动下载与安装；下载后必须先核对 `checksums.txt` 里的 SHA-256 再安装。
-- 默认更新源写死为 `https://github.com/typist-editor/typist/releases/latest/download/latest.json`（占位仓库地址，按假设记录），fork 用环境变量 `TYPIST_UPDATE_URL` 覆盖自己的发布通道。
+- 默认更新源写死为 `https://github.com/moxi486/typist/releases/latest/download/latest.json`（真实上游仓库），fork 用环境变量 `TYPIST_UPDATE_URL` 覆盖自己的发布通道。
 
 ## 本机验证到什么程度
 - 本机（Windows + MSYS2 + MinGW）跑通了 `cmake --install` 暂存树、`windeployqt`、逐文件 SHA-256 与 tar 打包（脚本 `.deps/pkg_stage.sh`），实测暂存 24 个文件、包约 12.97MB。
