@@ -13,3 +13,6 @@ else()
   set_tests_properties(editor_roundtrip PROPERTIES
     ENVIRONMENT "TYPIST_CORPUS_DIR=${CMAKE_SOURCE_DIR}/tests/corpus;TYPIST_TS_FILE=${CMAKE_SOURCE_DIR}/translations/typist_zh.ts;TYPIST_UI_SOURCE=${CMAKE_SOURCE_DIR}/src/ui/MainWindow.cpp;QT_QPA_PLATFORM=offscreen")
 endif()
+
+# QtTest otherwise sends Windows assertion messages only to the debugger.
+set_property(TEST editor_roundtrip APPEND PROPERTY ENVIRONMENT "QT_FORCE_STDERR_LOGGING=1")
