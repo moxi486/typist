@@ -6,10 +6,8 @@
 #include <QElapsedTimer>
 #include <QString>
 #include <QTextDocument>
-#include <algorithm>
 #include <cstddef>
 #include <cstdio>
-#include <limits>
 #include <string>
 
 namespace {
@@ -77,24 +75,18 @@ ShapeResult measureShape(bool withTables) {
 }
 
 // Timing on a loaded machine swings by more than the CI budget, so the reported
-// numbers are the best of three attempts; one noisy run must not fail the gate.
+// numbers come from the fastest complete opening attempt, not a mix of phases
+// from different attempts. Every attempt must still preserve the document.
 ShapeResult measureBestOfThree(bool withTables) {
   ShapeResult best;
-  best.parseMs = std::numeric_limits<long long>::max();
-  best.buildMs = std::numeric_limits<long long>::max();
-  best.serializeMs = std::numeric_limits<long long>::max();
 
   for (int attempt = 0; attempt < 3; ++attempt) {
     const ShapeResult attemptResult = measureShape(withTables);
     if (!attemptResult.fidelity) return attemptResult;
-    best.bytes = attemptResult.bytes;
-    best.blocks = attemptResult.blocks;
-    best.tables = attemptResult.tables;
-    best.fidelity = true;
-    best.parseMs = std::min(best.parseMs, attemptResult.parseMs);
-    best.buildMs = std::min(best.buildMs, attemptResult.buildMs);
-    best.serializeMs = std::min(best.serializeMs, attemptResult.serializeMs);
-    best.layoutMs = std::min(best.layoutMs, attemptResult.layoutMs);
+    if (attempt == 0 ||
+        attemptResult.parseMs + attemptResult.buildMs < best.parseMs + best.buildMs) {
+      best = attemptResult;
+    }
   }
   return best;
 }
@@ -102,10 +94,10 @@ ShapeResult measureBestOfThree(bool withTables) {
 void report(const char* label, const ShapeResult& result) {
   std::printf(
       "%s bytes=%zu blocks=%zu tables=%zu parse_ms=%lld build_ms=%lld serialize_ms=%lld "
-      "layout_full_ms=%lld total_ms=%lld fidelity=%s attempts=3\n",
+      "layout_full_ms=%lld open_ms=%lld total_ms=%lld fidelity=%s attempts=3\n",
       label, result.bytes, result.blocks, result.tables, result.parseMs, result.buildMs,
-      result.serializeMs, result.layoutMs, result.parseMs + result.buildMs + result.serializeMs,
-      result.fidelity ? "ok" : "fail");
+      result.serializeMs, result.layoutMs, result.parseMs + result.buildMs,
+      result.parseMs + result.buildMs + result.serializeMs, result.fidelity ? "ok" : "fail");
 }
 
 }  // namespace
@@ -121,8 +113,12 @@ int main(int argc, char* argv[]) {
   report("tableheavy", tableHeavy);
 
   if (!realistic.fidelity || !tableHeavy.fidelity) return 1;
-  // The acceptance budget is open 1MB md < 250ms; it is asserted on the realistic shape.
-  if (realistic.parseMs + realistic.buildMs + realistic.serializeMs > 250) return 1;
+  // Opening parses Markdown and builds the document; serialization is a save operation.
+  // Keep the 250ms opening budget and report serialization separately.
+  if (realistic.parseMs + realistic.buildMs > 250) {
+    std::fprintf(stderr, "realistic opening exceeded the 250ms budget\n");
+    return 1;
+  }
   // The adversarial shape only guards against gross regressions; CI machines vary.
   if (tableHeavy.parseMs + tableHeavy.buildMs + tableHeavy.serializeMs > 1500) return 1;
   return 0;

@@ -44,6 +44,8 @@
 
 ## 性能预算（验收数字）
 
+`perf_baseline` 的 `open_ms` 是同一次测量的 Markdown 解析与文档构建耗时之和，按三次完整测量中打开最快的一次验收。保存时的序列化耗时另列为 `serialize_ms`，每次测量均要求往返保真；表格压力场景保留 1500ms 的解析、构建、序列化总预算。
+
 - 冷启动 < 400ms（本机 Windows Release 实测 295ms；offscreen 的 17ms 只作 proxy）
 - 常驻内存 < 80MB（本机实测工作集 21.7MB）
 - 打开 1MB Markdown < 250ms（本机实测 realistic 155ms、tableheavy 274ms，取三次尝试最优值）
