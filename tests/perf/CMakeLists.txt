@@ -5,7 +5,7 @@ add_test(NAME file_search_baseline COMMAND $<TARGET_FILE:typist> --bench-file-se
 add_test(NAME tree_baseline COMMAND $<TARGET_FILE:typist> --bench-tree)
 add_test(NAME docx_baseline COMMAND $<TARGET_FILE:typist> --bench-docx)
 target_link_libraries(perf_bench PRIVATE typist::core typist::editor Qt6::Widgets)
-target_compile_options(perf_bench PRIVATE -Wall -Wextra)
+target_compile_options(perf_bench PRIVATE ${TYPIST_WARNING_OPTIONS})
 add_test(NAME perf_baseline COMMAND perf_bench)
 
 add_test(NAME repaint_baseline COMMAND $<TARGET_FILE:typist> --bench-repaint)
