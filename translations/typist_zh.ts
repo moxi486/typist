@@ -687,6 +687,30 @@
         <source>EPUB exported. Some resources or links were kept as text.</source>
         <translation>EPUB 已导出。部分资源或链接已保留为文字。</translation>
     </message>
+    <message>
+        <source>Import HTML...</source>
+        <translation>导入 HTML…</translation>
+    </message>
+    <message>
+        <source>Import HTML</source>
+        <translation>导入 HTML</translation>
+    </message>
+    <message>
+        <source>Imported HTML into an unsaved Markdown document</source>
+        <translation>HTML 已导入为未保存的 Markdown 文档</translation>
+    </message>
+    <message>
+        <source>Paste HTML as Markdown</source>
+        <translation>将 HTML 粘贴为 Markdown</translation>
+    </message>
+    <message>
+        <source>The clipboard does not contain HTML</source>
+        <translation>剪贴板中没有 HTML 内容</translation>
+    </message>
+    <message>
+        <source>Pasted HTML as Markdown; web page styling is simplified</source>
+        <translation>已将 HTML 粘贴为 Markdown；网页样式已简化</translation>
+    </message>
 </context>
 <context>
     <name>FindBar</name>
@@ -1155,6 +1179,84 @@
     <message>
         <source>Could not encode EPUB image</source>
         <translation>无法编码 EPUB 图片</translation>
+    </message>
+</context>
+<context>
+    <name>HtmlImportDialog</name>
+    <message>
+        <source>Import HTML</source>
+        <translation>导入 HTML</translation>
+    </message>
+    <message>
+        <source>Preview converted Markdown</source>
+        <translation>预览转换后的 Markdown</translation>
+    </message>
+    <message>
+        <source>Converted document preview</source>
+        <translation>转换后的文档预览</translation>
+    </message>
+    <message>
+        <source>Import creates an unsaved Markdown document. The HTML source stays unchanged.</source>
+        <translation>导入后将创建未保存的 Markdown 文档，原 HTML 文件不会被修改。</translation>
+    </message>
+    <message>
+        <source>Import</source>
+        <translation>导入</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+</context>
+<context>
+    <name>HtmlImporter</name>
+    <message>
+        <source>HTML exceeds the 8 MiB limit</source>
+        <translation>HTML 超过 8 MiB 限制</translation>
+    </message>
+    <message>
+        <source>No HTML content to import</source>
+        <translation>没有可导入的 HTML 内容</translation>
+    </message>
+    <message>
+        <source>HTML appearance is simplified to Markdown; review the imported content.</source>
+        <translation>HTML 外观会简化为 Markdown，请检查导入后的内容。</translation>
+    </message>
+    <message>
+        <source>Scripts, styles and embedded content are not imported.</source>
+        <translation>脚本、样式和嵌入内容不会导入。</translation>
+    </message>
+    <message>
+        <source>Image</source>
+        <translation>图片</translation>
+    </message>
+    <message>
+        <source>Embedded or unresolved images are kept as alternate text.</source>
+        <translation>嵌入图片或无法解析的图片已保留为替代文字。</translation>
+    </message>
+    <message>
+        <source>Unresolved or unsupported links are kept as text.</source>
+        <translation>无法解析或不支持的链接已保留为文字。</translation>
+    </message>
+    <message>
+        <source>Remote images remain links and are not downloaded.</source>
+        <translation>远程图片保留为链接，不会下载。</translation>
+    </message>
+    <message>
+        <source>Merged table cells are flattened; only the first cell keeps the content.</source>
+        <translation>合并单元格会展开，仅在起始单元格保留内容。</translation>
+    </message>
+    <message>
+        <source>No readable content was found in this HTML</source>
+        <translation>此 HTML 中没有可读取的内容</translation>
+    </message>
+    <message>
+        <source>Converted Markdown exceeds the 8 MiB limit</source>
+        <translation>转换后的 Markdown 超过 8 MiB 限制</translation>
+    </message>
+    <message>
+        <source>The HTML text encoding could not be decoded</source>
+        <translation>无法解码 HTML 文本编码</translation>
     </message>
 </context>
 </TS>

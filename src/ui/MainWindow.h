@@ -28,6 +28,9 @@ class QNetworkReply;
 class QTextDocument;
 class QTextEdit;
 class QTimer;
+namespace typist::editor {
+struct HtmlImportResult;
+}
 
 namespace typist::ui {
 class AutoSave;
@@ -46,6 +49,7 @@ class MainWindow : public QMainWindow {
   explicit MainWindow(QWidget* parent = nullptr);
 
   void openFile(const QString& path);
+  bool importHtmlFile(const QString& path);
 
  public slots:
   void followLink(const QString& target);
@@ -115,6 +119,8 @@ class MainWindow : public QMainWindow {
   void writeRecoveryDraft();
   void recoverLatestDraft();
   void pasteAsMarkdown();
+  void pasteHtmlAsMarkdown();
+  void importHtmlDialog();
   void toggleTaskAtClick(const QMouseEvent* event);
 #ifdef TYPIST_HAS_NETWORK
   void checkForUpdates();
@@ -145,6 +151,7 @@ class MainWindow : public QMainWindow {
   void retranslateUi();
   void createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMenu* settings);
   bool maybeSaveBeforeNavigate();
+  bool adoptHtmlImport(const editor::HtmlImportResult& result);
   bool pasteImages(const QMimeData* source);
   bool insertImageMarkdown(const QStringList& images);
   void newDocument();
