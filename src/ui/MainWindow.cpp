@@ -620,6 +620,14 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
           [editor] { editor->changeListIndent(1); });
   command(paragraph, QStringLiteral("outdent"), tr("Outdent"), QStringLiteral("Ctrl+]"),
           [editor] { editor->changeListIndent(-1); });
+  auto* taskStatus = paragraph->addMenu(tr("Task Status"));
+  command(taskStatus, QStringLiteral("task_toggle"), tr("Toggle Task Status"),
+          QStringLiteral("Ctrl+Shift+Space"),
+          [editor] { editor->changeTaskStatus(editor::TaskStatus::Toggle); });
+  command(taskStatus, QStringLiteral("task_done"), tr("Mark as Complete"), QString(),
+          [editor] { editor->changeTaskStatus(editor::TaskStatus::Done); });
+  command(taskStatus, QStringLiteral("task_todo"), tr("Mark as Incomplete"), QString(),
+          [editor] { editor->changeTaskStatus(editor::TaskStatus::Todo); });
 
   auto* format = new QMenu(tr("Format"), menuBar());
   menuBar()->insertMenu(view->menuAction(), format);

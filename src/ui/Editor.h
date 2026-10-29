@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editing.h"
+#include "ListEditing.h"
 #include "SpecialContent.h"
 #include "SyntaxHighlighter.h"
 #include "editor_document.h"
@@ -90,6 +91,7 @@ class Editor : public QTextEdit {
   void createTable(int rows, int columns);
   bool changeTable(editor::TableCommand command);
   void changeListIndent(int delta);
+  bool changeTaskStatus(editor::TaskStatus status);
   void setFocusMode(bool enabled) {
     m_focusMode = enabled;
     updateDecorations();

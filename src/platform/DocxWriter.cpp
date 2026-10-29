@@ -150,8 +150,9 @@ QString runXml(const QString& text, bool bold = false, bool italic = false, bool
     if (underline) props += QStringLiteral("<w:u w:val=\"single\"/>");
     props += QStringLiteral("</w:rPr>");
   }
-  return QStringLiteral("<w:r>%1<w:t xml:space=\"preserve\">%2</w:t></w:r>")
-      .arg(props, escapeXml(text));
+  QString content = escapeXml(text);
+  content.replace(QLatin1Char('\n'), QStringLiteral("</w:t><w:br/><w:t xml:space=\"preserve\">"));
+  return QStringLiteral("<w:r>%1<w:t xml:space=\"preserve\">%2</w:t></w:r>").arg(props, content);
 }
 
 struct ImageAttachment {

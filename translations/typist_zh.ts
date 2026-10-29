@@ -651,6 +651,22 @@
         <source>Exit Table</source>
         <translation>退出表格</translation>
     </message>
+    <message>
+        <source>Task Status</source>
+        <translation>任务状态</translation>
+    </message>
+    <message>
+        <source>Toggle Task Status</source>
+        <translation>切换任务状态</translation>
+    </message>
+    <message>
+        <source>Mark as Complete</source>
+        <translation>标记为已完成</translation>
+    </message>
+    <message>
+        <source>Mark as Incomplete</source>
+        <translation>标记为未完成</translation>
+    </message>
 </context>
 <context>
     <name>FindBar</name>

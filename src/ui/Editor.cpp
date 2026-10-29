@@ -767,6 +767,15 @@ void Editor::changeListIndent(int delta) {
   setTextCursor(cursor);
 }
 
+bool Editor::changeTaskStatus(editor::TaskStatus status) {
+  if (!m_rendered || m_paragraphSourceActive) return false;
+  auto cursor = textCursor();
+  if (!editor::setTaskStatus(cursor, status)) return false;
+  setTextCursor(cursor);
+  setFocus();
+  return true;
+}
+
 void Editor::setTypewriterMode(bool enabled) {
   m_typewriterMode = enabled;
   if (enabled)
@@ -910,6 +919,10 @@ void Editor::keyPressEvent(QKeyEvent* event) {
   const bool special =
       m_rendered && cursor.blockFormat().hasProperty(editor::kSpecialBlockProperty);
   const bool returnKey = event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter;
+  if (m_rendered && control && event->key() == Qt::Key_Space &&
+      event->modifiers().testFlag(Qt::ShiftModifier) &&
+      !event->modifiers().testFlag(Qt::AltModifier) && changeTaskStatus(editor::TaskStatus::Toggle))
+    return;
   const bool code = m_rendered && cursor.blockFormat().hasProperty(editor::kCodeBlockProperty);
   if (m_rendered && cursor.currentTable() && control && returnKey &&
       !event->modifiers().testFlag(Qt::AltModifier)) {
@@ -988,18 +1001,28 @@ void Editor::keyPressEvent(QKeyEvent* event) {
     }
   }
   const bool enter = event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter;
-  if (m_rendered && plain && !cursor.hasSelection()) {
-    const QString text = cursor.block().text();
+  if (m_rendered && plain) {
     if ((event->key() == Qt::Key_Tab || event->key() == Qt::Key_Backtab) &&
-        cursor.block().textList()) {
+        editor::selectionHasList(cursor)) {
       changeListIndent(
           event->key() == Qt::Key_Backtab || event->modifiers().testFlag(Qt::ShiftModifier) ? -1
                                                                                             : 1);
       return;
     }
+    if (event->key() == Qt::Key_Home && cursor.blockFormat().hasProperty(editor::kTaskProperty)) {
+      cursor.setPosition(editor::listContentStart(cursor.block()),
+                         event->modifiers().testFlag(Qt::ShiftModifier) ? QTextCursor::KeepAnchor
+                                                                        : QTextCursor::MoveAnchor);
+      setTextCursor(cursor);
+      return;
+    }
+  }
+  if (m_rendered && plain && !cursor.hasSelection()) {
+    const QString text = cursor.block().text();
     if (event->key() == Qt::Key_Backspace &&
-        (cursor.atBlockStart() || (cursor.blockFormat().hasProperty(editor::kTaskProperty) &&
-                                   cursor.positionInBlock() == 2)) &&
+        (cursor.atBlockStart() ||
+         (cursor.blockFormat().hasProperty(editor::kTaskProperty) &&
+          cursor.position() <= editor::listContentStart(cursor.block()))) &&
         (cursor.block().textList() || cursor.blockFormat().headingLevel() ||
          cursor.blockFormat().hasProperty(editor::kQuoteProperty) || code)) {
       if (cursor.block().textList() && cursor.block().textList()->format().indent() > 1)
@@ -1109,24 +1132,7 @@ void Editor::keyPressEvent(QKeyEvent* event) {
         return;
       }
       if (!shift && cursor.block().textList()) {
-        const bool task = cursor.blockFormat().hasProperty(editor::kTaskProperty);
-        const bool empty = text.trimmed().isEmpty() || (task && text.mid(2).trimmed().isEmpty());
-        if (empty) {
-          formatParagraph(editor::ParagraphStyle::Body);
-          return;
-        }
-        cursor.beginEditBlock();
-        QTextBlockFormat format = cursor.blockFormat();
-        format.setProperty(editor::kTaskProperty, false);
-        if (!task) format.clearProperty(editor::kTaskProperty);
-        cursor.insertBlock(format, QTextCharFormat());
-        if (task) {
-          QTextCharFormat marker;
-          marker.setProperty(editor::kTaskMarkProperty, false);
-          cursor.insertText(QString(QChar(0x2610)) + QLatin1Char(' '), marker);
-          cursor.setCharFormat(QTextCharFormat());
-        }
-        cursor.endEditBlock();
+        editor::insertListItem(cursor);
         setTextCursor(cursor);
         return;
       }
