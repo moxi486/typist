@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QFileSystemWatcher>
 #include <QMenu>
+#include <QSaveFile>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -227,6 +228,36 @@ class FileBrowserTests : public QObject {
     QVERIFY(watcher->files().isEmpty());
     tree.setWatchEnabled(false);
     QVERIFY(watcher->directories().isEmpty());
+    QVERIFY(writeFile(other.filePath("while-hidden.md")));
+    tree.setWatchEnabled(true);
+    QCOMPARE(tree.entryCount(), 1);
+    QCOMPARE(tree.entryPath(0), other.filePath("while-hidden.md"));
+  }
+
+  void atomicSaveRestoresWatchWhenMetadataUnchanged() {
+    QTemporaryDir directory;
+    const auto path = directory.filePath("note.md");
+    QVERIFY(writeFile(path, "old", 1600000000));
+    FileTree tree;
+    FileBrowserOptions options;
+    options.sort = FileBrowserSort::Modified;
+    tree.setOptions(options);
+    tree.setRoot(directory.path());
+    tree.setWatchEnabled(true);
+    auto* watcher = tree.findChild<QFileSystemWatcher*>();
+    QVERIFY(watcher && watcher->files().contains(path));
+    QSignalSpy refreshed(&tree, &FileTree::directoryChanged);
+    QSaveFile save(path);
+    QVERIFY(save.open(QIODevice::WriteOnly));
+    QCOMPARE(save.write("NEW"), qint64(3));
+    QVERIFY(save.flush());
+    QVERIFY(save.setFileTime(QDateTime::fromSecsSinceEpoch(1600000000),
+                             QFileDevice::FileModificationTime));
+    QVERIFY(save.commit());
+    QTRY_VERIFY(refreshed.count() > 0);
+    QVERIFY(watcher->files().contains(path));
+    QVERIFY(writeFile(path, "more", 1800000000));
+    QTRY_VERIFY(refreshed.count() > 1);
   }
 };
 

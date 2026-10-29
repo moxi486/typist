@@ -241,6 +241,8 @@ bool FileTree::refreshIfChanged() {
 }
 void FileTree::refresh() {
   refreshIfChanged();
+  // Atomic replacement can drop a file watch even when size and timestamp are unchanged.
+  if (m_watchEnabled) watchCurrentDirectories();
   emit directoryChanged();
 }
 void FileTree::watchCurrentDirectories() {
@@ -273,6 +275,7 @@ void FileTree::stopDebounce() {
   if (m_debounce) m_debounce->stop();
 }
 void FileTree::setWatchEnabled(bool enabled) {
+  const bool wasEnabled = m_watchEnabled;
   m_watchEnabled = enabled;
   if (!enabled) {
     stopDebounce();
@@ -287,6 +290,7 @@ void FileTree::setWatchEnabled(bool enabled) {
     connect(m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] { scheduleRefresh(); });
     connect(m_watcher, &QFileSystemWatcher::fileChanged, this, [this] { scheduleRefresh(); });
   }
+  if (!wasEnabled) refreshIfChanged();
   watchCurrentDirectories();
 }
 
