@@ -2,6 +2,8 @@
 #include "Editor.h"
 #include "EpubDialog.h"
 #include "FindBar.h"
+#include "HtmlImportDialog.h"
+#include "HtmlImporter.h"
 #include "LinkDialog.h"
 #include "LinkNavigation.h"
 #include "MainWindow.h"
@@ -28,6 +30,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollBar>
@@ -1172,6 +1175,214 @@ class WindowTests : public QObject {
              QStringLiteral("Writer"));
     QCOMPARE(QSettings().value(QStringLiteral("export/epubLanguage")).toString(),
              QStringLiteral("en"));
+  }
+
+  void htmlImportNewBufferSaveAndPreview() {
+    QTemporaryDir directory;
+    const auto path = directory.filePath(QStringLiteral("source.html"));
+    QFile source(path);
+    const QByteArray bytes =
+        "<html><meta charset='utf-8'><h1>Imported title</h1><p>A <b>bold</b> "
+        "paragraph.</p><pre>one\n  "
+        "two</pre><table><tr><th>Name</th></tr><tr><td>Value</td></tr></table></html>";
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    source.write(bytes);
+    source.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.show();
+    QVERIFY(window.importHtmlFile(path));
+    QVERIFY(window.windowTitle().contains('*'));
+    QVERIFY(!window.windowTitle().contains(QStringLiteral("source.html")));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(editor);
+    const auto markdown = typist::editor::serializeDocument(editor->document());
+    QVERIFY(markdown.contains(QStringLiteral("# Imported title")));
+    QVERIFY(markdown.contains(QStringLiteral("**bold**")));
+    QVERIFY(!editor->document()->isUndoAvailable());
+    const auto parsed = typist::core::parseMarkdown(markdown.toStdString());
+    const auto target = directory.filePath(QStringLiteral("saved.md"));
+    QVERIFY(window.saveDocumentAs(target));
+    QVERIFY(source.open(QIODevice::ReadOnly));
+    QCOMPARE(source.readAll(), bytes);
+    source.close();
+    QFile saved(target);
+    QVERIFY(saved.open(QIODevice::ReadOnly));
+    QVERIFY(typist::core::astEqual(
+        parsed.blocks, typist::core::parseMarkdown(saved.readAll().toStdString()).blocks));
+    QVERIFY(window.exportEpubForBench(directory.filePath(QStringLiteral("imported.epub")),
+                                      {QStringLiteral("Imported"), {}, QStringLiteral("en")}) >
+            400);
+    QVERIFY(window.exportDocxForBench(directory.filePath(QStringLiteral("imported.docx"))) > 400);
+    const auto output = qEnvironmentVariable("TYPIST_HTML_OUTPUT");
+    for (const auto& preference : {QStringLiteral("en"), QStringLiteral("zh")}) {
+      window.findChild<QAction*>(QStringLiteral("language_") + preference)->trigger();
+      window
+          .findChild<QAction*>(preference == QStringLiteral("en")
+                                   ? QStringLiteral("appearance_light")
+                                   : QStringLiteral("appearance_dark"))
+          ->trigger();
+      const auto result = typist::editor::importHtmlFile(path);
+      typist::ui::HtmlImportDialog preview(result, &window);
+      preview.show();
+      QTest::qWait(10);
+      QVERIFY(preview.findChild<QTextEdit*>(QStringLiteral("htmlImportPreview"))->isReadOnly());
+      QCOMPARE(preview.windowTitle(), preference == QStringLiteral("en")
+                                          ? QStringLiteral("Import HTML")
+                                          : QStringLiteral("导入 HTML"));
+      QCOMPARE(
+          preview.findChild<QPushButton*>(QStringLiteral("confirmHtmlImport"))->text(),
+          preference == QStringLiteral("en") ? QStringLiteral("Import") : QStringLiteral("导入"));
+      if (!output.isEmpty())
+        QVERIFY(preview.grab().save(output + QStringLiteral("/preview-") + preference +
+                                    QStringLiteral(".png")));
+      preview.findChild<QPushButton*>(QStringLiteral("cancelHtmlImport"))->click();
+      QCOMPARE(preview.result(), int(QDialog::Rejected));
+      QCOMPARE(typist::editor::serializeDocument(editor->document()), markdown);
+    }
+  }
+  void htmlImportCancellationAndErrorsKeepDraft() {
+    QTemporaryDir directory;
+    QFile source(directory.filePath(QStringLiteral("source.html")));
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    source.write("<h1>Replacement</h1>");
+    source.close();
+    QSettings().setValue(QStringLiteral("editor/autoSave"), false);
+    typist::MainWindow window;
+    window.show();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    editor->insertPlainText(QStringLiteral("Original **draft**."));
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    draft->setPlainText(QStringLiteral("Pending **snapshot**."));
+    bool cancelClicked = false;
+    QTimer::singleShot(0, &window, [&] {
+      if (auto* message = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+        cancelClicked = true;
+        message->button(QMessageBox::Cancel)->click();
+      }
+    });
+    QVERIFY(!window.importHtmlFile(source.fileName()));
+    QVERIFY(cancelClicked);
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Pending **snapshot**."));
+    QVERIFY(!window.importHtmlFile(directory.filePath(QStringLiteral("missing.html"))));
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Pending **snapshot**."));
+    window.setBenchMode(true);
+  }
+  void htmlClipboardPasteUndoAndLiteralContexts() {
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    editor->insertPlainText(QStringLiteral("Before TAIL"));
+    auto cursor = editor->textCursor();
+    cursor.setPosition(7);
+    editor->setTextCursor(cursor);
+    const auto before = typist::editor::serializeDocument(editor->document());
+    auto* mime = new QMimeData;
+    mime->setHtml(QStringLiteral("<h2>Pasted</h2><p><b>Bold</b> and <i>italic</i>.</p>"));
+    mime->setText(QStringLiteral("Pasted\nBold and italic."));
+    QApplication::clipboard()->setMimeData(mime);
+    QVERIFY(QMetaObject::invokeMethod(&window, "pasteHtmlAsMarkdown", Qt::DirectConnection));
+    const auto pasted = typist::editor::serializeDocument(editor->document());
+    QVERIFY(pasted.contains(QStringLiteral("## Pasted")));
+    QVERIFY(pasted.contains(QStringLiteral("**Bold**")));
+    QVERIFY(pasted.contains(QStringLiteral("TAIL")));
+    editor->undo();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    editor->redo();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), pasted);
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    cursor = editor->textCursor();
+    cursor.movePosition(QTextCursor::End);
+    editor->setTextCursor(cursor);
+    const auto sourceBefore = editor->toPlainText();
+    QVERIFY(QMetaObject::invokeMethod(&window, "pasteHtmlAsMarkdown", Qt::DirectConnection));
+    QVERIFY(editor->toPlainText().mid(sourceBefore.size()).contains(QStringLiteral("## Pasted")));
+    editor->undo();
+    QCOMPARE(editor->toPlainText(), sourceBefore);
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    cursor = editor->textCursor();
+    cursor.setPosition(0);
+    editor->setTextCursor(cursor);
+    editor->formatParagraph(typist::editor::ParagraphStyle::Code);
+    const auto codeBefore = typist::editor::serializeDocument(editor->document());
+    QVERIFY(QMetaObject::invokeMethod(&window, "pasteHtmlAsMarkdown", Qt::DirectConnection));
+    QVERIFY(!editor->textCursor().blockFormat().headingLevel());
+    QVERIFY(typist::editor::serializeDocument(editor->document())
+                .contains(QStringLiteral("Pasted\nBold and italic.")));
+    editor->undo();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), codeBefore);
+    QApplication::clipboard()->setText(QStringLiteral("No HTML"));
+    QVERIFY(QMetaObject::invokeMethod(&window, "pasteHtmlAsMarkdown", Qt::DirectConnection));
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), codeBefore);
+  }
+  void htmlPasteIntoParagraphDraftIsLiteral() {
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    editor->insertPlainText(QStringLiteral("Original paragraph"));
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    draft->selectAll();
+    auto* mime = new QMimeData;
+    mime->setHtml(QStringLiteral("<script>Nothing readable</script>"));
+    mime->setText(QStringLiteral("Literal <tag> & **Markdown**"));
+    QApplication::clipboard()->setMimeData(mime);
+    QVERIFY(QMetaObject::invokeMethod(&window, "pasteHtmlAsMarkdown", Qt::DirectConnection));
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Literal <tag> & **Markdown**"));
+    QVERIFY(QMetaObject::invokeMethod(&window, "undo", Qt::DirectConnection));
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Original paragraph"));
+  }
+  void htmlImportMenuPreviewCancelAndAccept() {
+    QTemporaryDir directory;
+    const auto path = directory.filePath(QStringLiteral("menu.html"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("<h1>Menu import</h1><p>A paragraph.</p>");
+    file.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    editor->insertPlainText(QStringLiteral("Keep this buffer"));
+    const auto before = typist::editor::serializeDocument(editor->document());
+    const bool previous = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+    bool selected = false, reviewed = false, accepting = false;
+    QTimer automation, safety;
+    automation.setInterval(10);
+    connect(&automation, &QTimer::timeout, &window, [&] {
+      if (auto* selector = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+        selector->selectFile(path);
+        selected = true;
+        QMetaObject::invokeMethod(selector, "accept", Qt::DirectConnection);
+      } else if (auto* preview = qobject_cast<typist::ui::HtmlImportDialog*>(
+                     QApplication::activeModalWidget())) {
+        reviewed = true;
+        if (accepting)
+          preview->accept();
+        else
+          preview->reject();
+      }
+    });
+    connect(&safety, &QTimer::timeout, &window, [] {
+      if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+        dialog->reject();
+    });
+    automation.start();
+    safety.start(3000);
+    auto* action = window.findChild<QAction*>(QStringLiteral("importHtml"));
+    const bool actionFound = action;
+    if (action) action->trigger();
+    const bool cancelledUnchanged = typist::editor::serializeDocument(editor->document()) == before;
+    accepting = true;
+    if (action) action->trigger();
+    automation.stop();
+    safety.stop();
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, previous);
+    QVERIFY(actionFound && selected && reviewed && cancelledUnchanged);
+    QVERIFY(typist::editor::serializeDocument(editor->document())
+                .contains(QStringLiteral("# Menu import")));
   }
 
  private:

@@ -271,7 +271,8 @@ void insertTable(const typist::core::Block& table, QTextCursor& cursor) {
   tableFormat.setHeaderRowCount(1);
   tableFormat.setTopMargin(8);
   tableFormat.setBottomMargin(16);
-  cursor.insertBlock();
+  // The spacer belongs to the table, not to the preceding code/quote/list block.
+  cursor.insertBlock(bodyFormat(), QTextCharFormat());
   QTextTable* qtTable = cursor.insertTable(rows, cols, tableFormat);
   if (qtTable == nullptr) return;
 

@@ -40,16 +40,25 @@ int main(int argc, char* argv[]) {
   const bool benchTree = args.contains(QStringLiteral("--bench-tree"));
   const bool benchDocx = args.contains(QStringLiteral("--bench-docx"));
   const bool benchEpub = args.contains(QStringLiteral("--bench-epub"));
+  const bool benchHtmlImport = args.contains(QStringLiteral("--bench-import-html"));
 
   typist::MainWindow window;
   window.setBenchMode(benchStartup || benchRepaint || benchViewSwitch || benchSearch ||
-                      benchFolderSearch || benchTree || benchDocx || benchEpub);
+                      benchFolderSearch || benchTree || benchDocx || benchEpub || benchHtmlImport);
+  bool htmlImported = false;
+  const auto openInput = [&](const QString& path) {
+    const auto suffix = QFileInfo(path).suffix().toLower();
+    if (suffix == QLatin1String("html") || suffix == QLatin1String("htm"))
+      htmlImported = window.importHtmlFile(path);
+    else
+      window.openFile(path);
+  };
   const QByteArray benchFile = qgetenv("TYPIST_BENCH_FILE");
-  if (!benchFile.isEmpty()) window.openFile(QString::fromUtf8(benchFile));
+  if (!benchFile.isEmpty()) openInput(QString::fromUtf8(benchFile));
   if (benchFile.isEmpty()) {
     for (const QString& argument : args.mid(1)) {
       if (!argument.startsWith(QStringLiteral("--")) && QFileInfo(argument).isFile()) {
-        window.openFile(argument);
+        openInput(argument);
         break;
       }
     }
@@ -67,13 +76,14 @@ int main(int argc, char* argv[]) {
   qint64 epubBytes = 0;
 
   if (benchStartup || benchRepaint || benchViewSwitch || benchSearch || benchFolderSearch ||
-      benchTree || benchDocx || benchEpub) {
+      benchTree || benchDocx || benchEpub || benchHtmlImport) {
     QTimer::singleShot(
         0, &application,
         [&startup, &application, &window, benchStartup, benchRepaint, benchViewSwitch, benchSearch,
          benchFolderSearch, benchTree, benchDocx, &repaintBudgetBreaches, &undoKept, &searchMatches,
          &folderHits, &folderScanMs, &treeEntries, &treeDirectories, &docxBytes, benchEpub,
-         &epubBytes] {
+         &epubBytes, benchHtmlImport, htmlImported] {
+          if (benchHtmlImport) std::printf("html_import_ok=%d\n", htmlImported ? 1 : 0);
           if (benchStartup) {
             std::printf("startup_ms=%lld\n", static_cast<long long>(startup.elapsed()));
           }
@@ -139,5 +149,6 @@ int main(int argc, char* argv[]) {
   if (benchTree && treeEntries == 0) return 1;
   if (benchDocx && docxBytes < 400) return 1;
   if (benchEpub && epubBytes < 400) return 1;
+  if (benchHtmlImport && !htmlImported) return 1;
   return code;
 }

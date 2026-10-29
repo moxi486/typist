@@ -11,6 +11,8 @@
 #include "FileWriter.h"
 #include "FindBar.h"
 #include "FolderSearchRunner.h"
+#include "HtmlImportDialog.h"
+#include "HtmlImporter.h"
 #include "ImageAssets.h"
 #include "ImageResources.h"
 #include "LinkDialog.h"
@@ -249,6 +251,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   openAction->setShortcut(QKeySequence::Open);
   fileMenu->addAction(openAction);
   connect(openAction, &QAction::triggered, this, &MainWindow::openDialog);
+  auto* importAction = fileMenu->addAction(tr("Import HTML..."));
+  importAction->setObjectName(QStringLiteral("importHtml"));
+  connect(importAction, &QAction::triggered, this, &MainWindow::importHtmlDialog);
 
   QAction* saveAction = new QAction(tr("Save"), this);
   saveAction->setShortcut(QKeySequence::Save);
@@ -540,6 +545,8 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   command(edit, QStringLiteral("pastePlain"), tr("Paste as Plain Text"),
           QStringLiteral("Ctrl+Alt+Shift+V"),
           [editor] { editor->insertPlainText(QApplication::clipboard()->text()); });
+  command(edit, QStringLiteral("pasteHtml"), tr("Paste HTML as Markdown"),
+          QStringLiteral("Ctrl+Alt+V"), [this] { pasteHtmlAsMarkdown(); });
   command(edit, QStringLiteral("replace"), tr("Replace"), QStringLiteral("Ctrl+H"), [this] {
     static_cast<ui::Editor*>(m_editor)->finishParagraphSourceEdit();
     m_findBar->openReplace();
@@ -999,6 +1006,51 @@ void MainWindow::openFile(const QString& path) {
   if (m_sidebarDock->isVisible()) {
     m_tree->setWatchEnabled(true);
   }
+}
+
+bool MainWindow::adoptHtmlImport(const editor::HtmlImportResult& result) {
+  if (!result.ok()) {
+    statusBar()->showMessage(result.error);
+    return false;
+  }
+  if (!maybeSaveBeforeNavigate()) return false;
+  static_cast<ui::Editor*>(m_editor)->finishParagraphSourceEdit(false);
+  QString error;
+  if (!m_view->loadMarkdownIntoBoth(result.markdown, &error)) {
+    statusBar()->showMessage(error);
+    return false;
+  }
+  m_autoSave->cancelPending();
+  m_currentPath.clear();
+  m_view->rendered()->setBaseUrl(QUrl());
+  m_document = m_view->active();
+  m_sourceMode = false;
+  m_view->showActiveIn(m_editor);
+  m_savedMarkdown.clear();
+  m_dirty = true;
+  if (!m_benchMode) m_autoSave->notifyChanged();
+  m_editor->moveCursor(QTextCursor::Start);
+  updateTitleAndStatus();
+  rebuildOutline();
+  if (m_findBar->isVisible()) refreshMatches();
+  m_editor->setFocus();
+  statusBar()->showMessage(tr("Imported HTML into an unsaved Markdown document"));
+  return true;
+}
+bool MainWindow::importHtmlFile(const QString& path) {
+  return adoptHtmlImport(editor::importHtmlFile(path));
+}
+void MainWindow::importHtmlDialog() {
+  const auto path = QFileDialog::getOpenFileName(this, tr("Import HTML"), {},
+                                                 QStringLiteral("HTML (*.html *.htm)"));
+  if (path.isEmpty()) return;
+  const auto result = editor::importHtmlFile(path);
+  if (!result.ok()) {
+    statusBar()->showMessage(result.error);
+    return;
+  }
+  ui::HtmlImportDialog preview(result, this);
+  if (preview.exec() == QDialog::Accepted) adoptHtmlImport(result);
 }
 
 void MainWindow::save() {
@@ -1768,6 +1820,40 @@ void MainWindow::pasteAsMarkdown() {
   }
   m_editor->setTextCursor(cursor);
   statusBar()->showMessage(tr("Pasted Markdown"));
+}
+
+void MainWindow::pasteHtmlAsMarkdown() {
+  const auto* mime = QApplication::clipboard()->mimeData();
+  if (!mime || !mime->hasHtml()) {
+    statusBar()->showMessage(tr("The clipboard does not contain HTML"));
+    return;
+  }
+  auto* writingEditor = static_cast<ui::Editor*>(m_editor);
+  if (mime->hasText() && writingEditor->pasteTableText(mime->text())) return;
+  const bool literal = writingEditor->paragraphSourceActive() ||
+                       (!m_sourceMode && m_editor->textCursor().blockFormat().hasProperty(
+                                             editor::kCodeBlockProperty));
+  if (literal && mime->hasText()) {
+    writingEditor->insertPlainText(mime->text());
+    return;
+  }
+  const auto imported = editor::importHtml(mime->html());
+  if (!imported.ok()) {
+    statusBar()->showMessage(imported.error);
+    return;
+  }
+  if (m_sourceMode || literal) {
+    writingEditor->insertPlainText(imported.markdown);
+  } else {
+    auto cursor = m_editor->textCursor();
+    QString error;
+    if (!editor::insertMarkdownAtCursor(imported.markdown, cursor, &error)) {
+      statusBar()->showMessage(error);
+      return;
+    }
+    m_editor->setTextCursor(cursor);
+  }
+  statusBar()->showMessage(tr("Pasted HTML as Markdown; web page styling is simplified"), 6000);
 }
 
 void MainWindow::insertImageLink(const QString& path) {
