@@ -545,7 +545,19 @@ std::vector<ImageSource> imageSources(std::string_view source) {
           std::min(source.size(), lines[std::size_t(endLine - 1)] + std::size_t(endColumn));
       if (start < end && source.substr(start, 2) == "![") {
         const auto span = source.substr(start, end - start);
-        const auto opening = span.rfind("](");
+        std::size_t opening = std::string_view::npos;
+        int brackets = 1;
+        for (std::size_t i = 2; i < span.size(); ++i) {
+          if (span[i] == '\\' && i + 1 < span.size()) {
+            ++i;
+            continue;
+          }
+          if (span[i] == '[') ++brackets;
+          if (span[i] == ']' && --brackets == 0) {
+            if (i + 1 < span.size() && span[i + 1] == '(') opening = i;
+            break;
+          }
+        }
         if (opening != std::string_view::npos) {
           std::size_t first = opening + 2;
           while (first < span.size() &&
@@ -564,7 +576,10 @@ std::vector<ImageSource> imageSources(std::string_view source) {
                 continue;
               }
               if (ch == '(') ++depth;
-              if (ch == ')' && !depth--) break;
+              if (ch == ')') {
+                if (!depth) break;
+                --depth;
+              }
               if ((ch == ' ' || ch == '\n' || ch == '\t') && depth == 0) break;
             }
           }

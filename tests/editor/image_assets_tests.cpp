@@ -119,7 +119,7 @@ class ImageAssetsTests : public QObject {
   }
   void findsOnlyRealImageDestinationsAndPreservesTitlesAndUnicode() {
     const QString source = QStringLiteral(
-        "前缀 ![照片](a%20b.png \"caption\") 后缀\n\n"
+        "前缀 ![照片](a%20b.png \"caption ](text\") 后缀\n\n"
         "`![literal](fake.png)`\n\n```md\n![fence](fake.png)\n```\n\n"
         "| Image |\n|---|\n| ![表](<a(b).png>) |\n\n![ref][r]\n\n[r]: reference.png\n");
     const auto utf8 = source.toUtf8();
@@ -364,6 +364,9 @@ class ImageAssetsTests : public QObject {
     const auto markdown = editor::serializeDocument(editor->document());
     QCOMPARE(images(editor->document()).size(), 1);
     QVERIFY(markdown.contains("One paste, one undo."));
+    for (auto block = editor->document()->begin(); block.isValid(); block = block.next())
+      if (block.text() == QString(QChar::ObjectReplacementCharacter))
+        QCOMPARE(block.blockFormat().lineHeight(), 100.0);
     QTest::qWait(30);
     QVERIFY(window.grab().save(QDir(out).filePath("images-light.png")));
     window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();

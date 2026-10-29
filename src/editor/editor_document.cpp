@@ -163,6 +163,18 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
   }
 }
 
+void fitImageParagraph(QTextCursor& cursor) {
+  const QString text = cursor.block().text();
+  if (!text.contains(QChar::ObjectReplacementCharacter)) return;
+  for (const auto ch : text)
+    if (ch != QChar::ObjectReplacementCharacter && !ch.isSpace()) return;
+  auto format = cursor.blockFormat();
+  if (format.hasProperty(kSpecialBlockProperty)) return;
+  // Proportional text leading would add a fraction of the whole image height as
+  // blank space. The image already defines the line's natural height.
+  format.setLineHeight(100, QTextBlockFormat::ProportionalHeight);
+  cursor.setBlockFormat(format);
+}
 void insertTaggedInline(QTextCursor& cursor, const std::vector<typist::core::InlineRun>& runs,
                         const QString& text, uint property, const QVariant& value) {
   QTextBlockFormat blockFormat = bodyFormat();
@@ -170,6 +182,7 @@ void insertTaggedInline(QTextCursor& cursor, const std::vector<typist::core::Inl
   if (property == kQuoteProperty) blockFormat.setLeftMargin(20);
   cursor.insertBlock(blockFormat, QTextCharFormat());
   insertInline(runs, text, cursor);
+  fitImageParagraph(cursor);
 }
 void insertCodeBlock(const std::string& code, const std::string& info, QTextCursor& cursor,
                      BuildContext& ctx) {
@@ -948,6 +961,7 @@ bool insertMarkdownAtCursor(const QString& source, QTextCursor& cursor, QString*
       cursor.setBlockFormat(temporary.begin().blockFormat());
   }
   cursor.insertFragment(QTextDocumentFragment(&temporary));
+  fitImageParagraph(cursor);
   typist::render::installDocumentObjects(cursor.document());
   cursor.endEditBlock();
   return true;
