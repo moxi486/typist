@@ -72,3 +72,9 @@ qt_add_resources(image_assets_tests "image_test_assets" PREFIX "/" BASE "${CMAKE
   FILES "${CMAKE_SOURCE_DIR}/translations/typist_zh.ts")
 add_test(NAME image_assets COMMAND image_assets_tests)
 set_tests_properties(image_assets PROPERTIES ENVIRONMENT "${editor_test_environment}" TIMEOUT 45)
+
+qt_add_executable(table_workflow_tests table_workflow_tests.cpp)
+set_target_properties(table_workflow_tests PROPERTIES AUTOMOC ON)
+target_link_libraries(table_workflow_tests PRIVATE typist::ui_viewswitch typist::platform Qt6::Test Qt6::Widgets)
+add_test(NAME table_workflow COMMAND table_workflow_tests)
+set_tests_properties(table_workflow PROPERTIES ENVIRONMENT "${editor_test_environment}" TIMEOUT 45)

@@ -283,6 +283,13 @@ QString runsXml(const std::vector<typist::core::InlineRun>& runs, const QString&
   QString out;
   for (const typist::core::InlineRun& run : runs) {
     const QString text = QString::fromStdString(run.text);
+    if (run.html && QRegularExpression(QStringLiteral("^<br\\s*/?>$"),
+                                       QRegularExpression::CaseInsensitiveOption)
+                        .match(text)
+                        .hasMatch()) {
+      out += QStringLiteral("<w:r><w:br/></w:r>");
+      continue;
+    }
     if (run.math) {
       const auto result = typist::render::math(text);
       const int relId =

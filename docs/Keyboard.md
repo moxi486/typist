@@ -23,6 +23,8 @@
 | 列表缩进 / 取消缩进 | Tab / Shift+Tab（也可 Ctrl+[ / Ctrl+]） |
 | 插入表格 | Ctrl+T |
 | 表格下一格 / 上一格 | Tab / Shift+Tab；末行最后一格 Tab 新增一行 |
+| 退出表格，继续正文 | Ctrl+Enter |
+| 矩形表格选区复制 / 剪切 / 清空 | Ctrl+C / Ctrl+X / Delete（或 Backspace） |
 | 专注模式 / 打字机模式 / 全屏 | F8 / F9 / F11 |
 | 放大 / 缩小 / 实际大小 | Ctrl+Shift+= / Ctrl+Shift+- / Ctrl+Shift+0 |
 | 主题循环（light/dark/system） | Ctrl+Shift+D |
@@ -40,4 +42,4 @@
 
 `Ctrl+Shift+M` 插入独立数学公式；「格式 → 行内公式」插入行内公式。闭合的 `$…$` 与 `[^id]` 引用可就地渲染；`[TOC]` 后按 Enter 创建自动目录。双击公式或 Mermaid 图表打开源码与实时预览。其他语法边界见 [Advanced-Markdown.md](Advanced-Markdown.md)。
 
-`Ctrl+Enter` 编辑当前正文段落或标题的 Markdown；在就地源码框中再次 `Ctrl+Enter` 应用、`Esc` 取消；在代码块中则退出代码块并继续正文。代码块工具条可选择语言、复制整块原文和退出；语言也可在「段落 → 代码语言」修改，高亮开关在「设置 → 语法高亮」。代码块支持 Enter 自动缩进、Tab / Shift+Tab 多行缩进、缩进 Backspace 和智能 Home。详见 [Writing-Experience.md](Writing-Experience.md)。
+`Ctrl+Enter` 编辑当前正文段落或标题的 Markdown；在就地源码框中再次 `Ctrl+Enter` 应用、`Esc` 取消；在代码块或表格中则退出当前块并继续正文。代码块工具条可选择语言、复制整块原文和退出；语言也可在「段落 → 代码语言」修改，高亮开关在「设置 → 语法高亮」。代码块支持 Enter 自动缩进、Tab / Shift+Tab 多行缩进、缩进 Backspace 和智能 Home。详见 [Writing-Experience.md](Writing-Experience.md)；表格选区及电子表格粘贴见 [Tables.md](Tables.md)。

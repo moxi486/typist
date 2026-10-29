@@ -19,7 +19,8 @@ void pushRun(std::vector<InlineRun>& runs, const InlineRun& run) {
   if (!runs.empty() && runs.back().bold == run.bold && runs.back().italic == run.italic &&
       runs.back().strike == run.strike && runs.back().code == run.code &&
       runs.back().link == run.link && runs.back().image == run.image && !run.math &&
-      !run.footnote && !runs.back().math && !runs.back().footnote && runs.back().url == run.url) {
+      !run.footnote && !runs.back().math && !runs.back().footnote && !run.html &&
+      !runs.back().html && runs.back().url == run.url) {
     runs.back().text += run.text;
     return;
   }
@@ -53,9 +54,10 @@ void collectInline(cmark_node* node, const InlineRun& base, std::vector<InlineRu
       InlineRun run = base;
       run.text = "\n";
       pushRun(runs, run);
-    } else if (type == "html" && literal != nullptr) {
+    } else if (cmark_node_get_type(child) == CMARK_NODE_HTML_INLINE && literal != nullptr) {
       InlineRun run = base;
       run.text = literal;
+      run.html = true;
       pushRun(runs, run);
     } else if (type == "emph" || type == "emphasis") {  // cmark-gfm reports emph, not emphasis
       InlineRun run = base;
@@ -138,6 +140,22 @@ std::string renderRun(const InlineRun& run) {
     return "![" + alt + "](" + run.url + ")";
   }
   std::string body = run.text;
+  if (!run.code && !run.html) {
+    std::string escaped;
+    const auto word = [](unsigned char ch) {
+      return ch >= 128 || (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') ||
+             (ch >= 'A' && ch <= 'Z');
+    };
+    for (std::size_t i = 0; i < body.size(); ++i) {
+      const char ch = body[i];
+      const bool innerUnderscore =
+          ch == '_' && i > 0 && i + 1 < body.size() && word(body[i - 1]) && word(body[i + 1]);
+      if (!innerUnderscore && std::string_view("\\`*_[]<>!~$&").find(ch) != std::string_view::npos)
+        escaped += '\\';
+      escaped += ch;
+    }
+    body = std::move(escaped);
+  }
   if (!run.code) {
     std::size_t position = 0;
     while ((position = body.find('\n', position)) != std::string::npos) {
@@ -708,7 +726,7 @@ bool runsEqual(const std::vector<InlineRun>& lhs, const std::vector<InlineRun>& 
     const InlineRun& b = rhs[i];
     if (a.text != b.text || a.url != b.url || a.bold != b.bold || a.italic != b.italic ||
         a.strike != b.strike || a.code != b.code || a.link != b.link || a.image != b.image ||
-        a.math != b.math || a.footnote != b.footnote) {
+        a.math != b.math || a.footnote != b.footnote || a.html != b.html) {
       return false;
     }
   }

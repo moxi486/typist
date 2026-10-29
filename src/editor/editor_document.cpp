@@ -87,6 +87,17 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
   }
   for (const typist::core::InlineRun& run : runs) {
     const QString text = QString::fromStdString(run.text);
+    if (run.html) {
+      auto format = base;
+      format.merge(formatForRun(run));
+      format.setProperty(kRawHtmlProperty, text);
+      static const QRegularExpression lineBreak(QStringLiteral("^<br\\s*/?>$"),
+                                                QRegularExpression::CaseInsensitiveOption);
+      cursor.insertText(lineBreak.match(text).hasMatch() ? QString(QChar::LineSeparator) : text,
+                        format);
+      cursor.setCharFormat(base);
+      continue;
+    }
     if (run.math) {
       const auto rendered = typist::render::math(text, false,
                                                  cursor.document()->property("typistDark").toBool()
@@ -395,8 +406,12 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
                              QVariant(ctx.groupCounter));
         } else {
           const QString raw = QString::fromStdString(core::serializeMarkdown({child})).trimmed();
-          for (const QString& line : raw.split(QLatin1Char('\n')))
+          for (const QString& line : raw.split(QLatin1Char('\n'))) {
             insertTaggedInline(cursor, {}, line, kQuoteProperty, QVariant(ctx.groupCounter));
+            auto format = cursor.blockFormat();
+            format.setProperty(kRawBlockSourceProperty, true);
+            cursor.setBlockFormat(format);
+          }
         }
       }
       break;
@@ -469,6 +484,8 @@ struct MarkdownRun {
   bool image = false;
   bool math = false;
   bool footnote = false;
+  bool literal = false;
+  bool html = false;
   QString specialType;
 };
 
@@ -476,7 +493,8 @@ void pushMarkdownRun(QVector<MarkdownRun>& runs, const MarkdownRun& run) {
   if (run.text.isEmpty() && run.specialType.isEmpty()) return;
   if (!runs.empty() && runs.back().bold == run.bold && runs.back().italic == run.italic &&
       runs.back().strike == run.strike && runs.back().code == run.code &&
-      runs.back().link == run.link && runs.back().image == run.image && !run.math &&
+      runs.back().link == run.link && runs.back().image == run.image &&
+      runs.back().html == run.html && runs.back().literal == run.literal && !run.math &&
       !run.footnote && !runs.back().math && !runs.back().footnote && run.specialType.isEmpty() &&
       runs.back().specialType.isEmpty() && runs.back().url == run.url) {
     runs.back().text += run.text;
@@ -523,7 +541,7 @@ QString wrapMarkdownRun(const MarkdownRun& run) {
   return body;
 }
 
-QString wrapMarkdownRuns(const QVector<MarkdownRun>& runs) {
+QString wrapMarkdownRuns(const QVector<MarkdownRun>& runs, bool rawSource = false) {
   QString out;
   std::vector<core::InlineRun> inlineRuns;
   const auto flush = [&] {
@@ -547,6 +565,7 @@ QString wrapMarkdownRuns(const QVector<MarkdownRun>& runs) {
     span.image = run.image;
     span.math = run.math;
     span.footnote = run.footnote;
+    span.html = run.html || rawSource;
     inlineRuns.push_back(std::move(span));
   }
   flush();
@@ -589,6 +608,10 @@ QString inlineFromBlock(const QTextBlock& block) {
     run.bold = fmt.fontWeight() >= QFont::Bold && !fmt.boolProperty(kPresentationBoldProperty);
     run.italic = fmt.fontItalic();
     run.strike = fmt.fontStrikeOut();
+    run.literal = fmt.boolProperty(kLiteralTextProperty);
+    run.html = fmt.hasProperty(kRawHtmlProperty);
+    if (run.html && run.text.contains(QChar::LineSeparator))
+      run.text = fmt.property(kRawHtmlProperty).toString();
     run.code = isInlineCodeFormat(fmt);
     if (fmt.hasProperty(kSpecialSourceProperty)) {
       run.specialType = fmt.property(kSpecialTypeProperty).toString();
@@ -623,7 +646,9 @@ QString inlineFromBlock(const QTextBlock& block) {
     tail.text = text.mid(pos);
     pushMarkdownRun(runs, tail);
   }
-  return wrapMarkdownRuns(runs).replace(QChar::LineSeparator, QStringLiteral("  \n"));
+  const bool rawSource = block.blockFormat().hasProperty(kFootnoteDefinitionProperty) ||
+                         block.blockFormat().boolProperty(kRawBlockSourceProperty);
+  return wrapMarkdownRuns(runs, rawSource).replace(QChar::LineSeparator, QStringLiteral("  \n"));
 }
 }  // namespace
 
@@ -719,6 +744,7 @@ QString serializeDocument(const QTextDocument* document, int paragraphPosition,
             // merge, so only the origin cell keeps the text and the rest go empty.
             if (cell.row() != row || cell.column() != col) cellText.clear();
             cellText.replace(QLatin1Char('|'), QStringLiteral("\\|"));
+            cellText.replace(QStringLiteral("  \n"), QStringLiteral("<br>"));
             cellText.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
             if (cellText.isEmpty()) cellText = QStringLiteral(" ");
             out += QLatin1Char(' ');

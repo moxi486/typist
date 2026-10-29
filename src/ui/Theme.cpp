@@ -60,6 +60,11 @@ QString editorStyleSheet(Theme theme) {
     QScrollBar::handle:vertical:hover { background: %4; }
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+    QScrollBar:horizontal { background: transparent; height: 7px; margin: 1px; }
+    QScrollBar::handle:horizontal { background: %5; border-radius: 2px; min-width: 30px; }
+    QScrollBar::handle:horizontal:hover { background: %4; }
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+    QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
     QToolTip { background: %2; color: %3; border: 1px solid %5; padding: 6px; }
   )qss")
       .arg(canvas, surface, text, muted, border, hover, accent);

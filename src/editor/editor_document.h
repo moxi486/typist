@@ -25,6 +25,9 @@ constexpr uint kImageAltProperty =
 constexpr uint kTaskMarkProperty = 0x100008;  // value: checked state of the rendered checkbox glyph
 constexpr uint kPresentationBoldProperty = 0x100009;  // visual weight, not Markdown emphasis
 constexpr uint kTableAlignmentProperty = 0x10000a;    // 0=default, 1=left, 2=center, 3=right
+constexpr uint kLiteralTextProperty = 0x100013;  // Spreadsheet paste stays literal Markdown text.
+constexpr uint kRawHtmlProperty = 0x100014;
+constexpr uint kRawBlockSourceProperty = 0x100015;
 constexpr uint kMathSourceProperty = 0x10000b;
 constexpr uint kSpecialBlockProperty = 0x10000c;  // math, mermaid or toc
 constexpr uint kSpecialSourceProperty = 0x10000d;
