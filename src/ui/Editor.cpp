@@ -3,6 +3,8 @@
 #include "CodeBlockBar.h"
 #include "CodeEditing.h"
 #include "ParagraphSourcePanel.h"
+#include "TableBar.h"
+#include "TableEditing.h"
 #include "markdown.h"
 
 #include <QApplication>
@@ -196,18 +198,34 @@ QString Editor::paragraphSourceSelection() const {
                                  : QString();
 }
 void Editor::cut() {
+  if (m_rendered && !m_paragraphSourceActive && textCursor().hasComplexSelection()) {
+    copy();
+    QTextCursor cursor = textCursor();
+    editor::clearTableCells(cursor);
+    setTextCursor(cursor);
+    return;
+  }
   if (m_paragraphSourceActive)
     m_paragraphPanel->input()->cut();
   else
     QTextEdit::cut();
 }
 void Editor::copy() {
+  if (m_rendered && !m_paragraphSourceActive && textCursor().hasComplexSelection()) {
+    auto* data = new QMimeData;
+    data->setText(editor::tableTsv(textCursor(), true));
+    data->setData(QStringLiteral("text/tab-separated-values"), data->text().toUtf8());
+    QApplication::clipboard()->setMimeData(data);
+    return;
+  }
   if (m_paragraphSourceActive)
     m_paragraphPanel->input()->copy();
   else
     QTextEdit::copy();
 }
 void Editor::paste() {
+  const auto* source = QApplication::clipboard()->mimeData();
+  if (source && source->hasText() && pasteTableText(source->text())) return;
   if (m_imagePasteHandler && m_imagePasteHandler(QApplication::clipboard()->mimeData())) return;
   if (m_paragraphSourceActive)
     m_paragraphPanel->input()->paste();
@@ -287,6 +305,83 @@ bool Editor::exitCodeBlock() {
 }
 void Editor::updateCodeBlockTheme() {
   if (m_codeBar) m_codeBar->setDark(m_dark);
+}
+bool Editor::copyTable(bool spreadsheet) {
+  if (!m_rendered || !textCursor().currentTable()) return false;
+  const auto text =
+      spreadsheet ? editor::tableTsv(textCursor()) : editor::tableMarkdown(textCursor());
+  auto* data = new QMimeData;
+  data->setText(text);
+  if (spreadsheet) data->setData(QStringLiteral("text/tab-separated-values"), text.toUtf8());
+  QApplication::clipboard()->setMimeData(data);
+  return true;
+}
+bool Editor::exitTable() {
+  if (!m_rendered) return false;
+  auto cursor = textCursor();
+  if (!editor::exitTable(cursor)) return false;
+  setTextCursor(cursor);
+  setCurrentCharFormat(QTextCharFormat());
+  setFocus();
+  ensureCursorVisible();
+  updateTableBar();
+  return true;
+}
+bool Editor::pasteTableText(const QString& text) {
+  if (!m_rendered || m_paragraphSourceActive ||
+      textCursor().blockFormat().hasProperty(editor::kCodeBlockProperty))
+    return false;
+  auto cursor = textCursor();
+  QString error;
+  if (!editor::pasteTableCells(cursor, text, &error)) {
+    if (error.isEmpty()) return false;
+    emit tablePasteRejected(error);
+    return true;
+  }
+  setTextCursor(cursor);
+  auto typing = cursor.block().charFormat();
+  typing.clearProperty(editor::kLiteralTextProperty);
+  setCurrentCharFormat(typing);
+  updateTableBar();
+  return true;
+}
+void Editor::updateTableTheme() {
+  if (m_tableBar) m_tableBar->setDark(m_dark);
+}
+void Editor::updateTableBar() {
+  const auto cursor = textCursor();
+  const auto cells = editor::tableCells(cursor);
+  if (!m_rendered || !cells.valid() || m_paragraphSourceActive || viewport()->width() < 360) {
+    if (m_tableBar) m_tableBar->hide();
+    return;
+  }
+  if (!m_tableBar) {
+    m_tableBar = new TableBar(this);
+    connect(m_tableBar, &TableBar::operationRequested, this,
+            [this](editor::TableCommand operation) {
+              changeTable(operation);
+              setFocus();
+            });
+    connect(m_tableBar, &TableBar::copyRequested, this,
+            [this](bool spreadsheet) { copyTable(spreadsheet); });
+    connect(m_tableBar, &TableBar::exitRequested, this, [this] { exitTable(); });
+    updateTableTheme();
+  }
+  auto* table = cursor.currentTable();
+  int alignment = table->cellAt(0, cells.column)
+                      .firstCursorPosition()
+                      .blockFormat()
+                      .intProperty(editor::kTableAlignmentProperty);
+  for (int column = cells.column + 1; column < cells.column + cells.columns; ++column)
+    if (table->cellAt(0, column).firstCursorPosition().blockFormat().intProperty(
+            editor::kTableAlignmentProperty) != alignment)
+      alignment = 0;
+  m_tableBar->setTableState(table->rows(), table->columns(), cells.row, cells.column, cells.rows,
+                            cells.columns, alignment);
+  const int width = qMin(viewport()->width(), m_tableBar->sizeHint().width());
+  m_tableBar->setGeometry(viewport()->geometry().right() - width + 1, 3, width, 28);
+  m_tableBar->show();
+  m_tableBar->raise();
 }
 void Editor::updateCodeBlockBar(bool reset) {
   if (reset && m_codeBar) {
@@ -632,6 +727,7 @@ bool Editor::changeTable(editor::TableCommand command) {
   QTextCursor cursor = textCursor();
   const bool result = editor::editTable(cursor, command);
   setTextCursor(cursor);
+  updateTableBar();
   return result;
 }
 
@@ -698,6 +794,7 @@ void Editor::inputMethodEvent(QInputMethodEvent* event) {
 }
 
 void Editor::insertFromMimeData(const QMimeData* source) {
+  if (source->hasText() && pasteTableText(source->text())) return;
   clearImageTypingFormat();
   if (m_imagePasteHandler && m_imagePasteHandler(source)) return;
   if (m_rendered && source->hasText()) {
@@ -769,6 +866,18 @@ void Editor::dropEvent(QDropEvent* event) {
 }
 
 void Editor::keyPressEvent(QKeyEvent* event) {
+  if (event->matches(QKeySequence::Copy)) {
+    copy();
+    return;
+  }
+  if (event->matches(QKeySequence::Cut)) {
+    cut();
+    return;
+  }
+  if (event->matches(QKeySequence::Paste)) {
+    paste();
+    return;
+  }
   if (!event->text().isEmpty()) clearImageTypingFormat();
   QTextCursor cursor = textCursor();
   const bool control = event->modifiers().testFlag(Qt::ControlModifier) ||
@@ -802,6 +911,25 @@ void Editor::keyPressEvent(QKeyEvent* event) {
       m_rendered && cursor.blockFormat().hasProperty(editor::kSpecialBlockProperty);
   const bool returnKey = event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter;
   const bool code = m_rendered && cursor.blockFormat().hasProperty(editor::kCodeBlockProperty);
+  if (m_rendered && cursor.currentTable() && control && returnKey &&
+      !event->modifiers().testFlag(Qt::AltModifier)) {
+    exitTable();
+    return;
+  }
+  if (m_rendered && cursor.currentTable() && plain) {
+    if ((event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) &&
+        editor::clearTableCells(cursor)) {
+      setTextCursor(cursor);
+      return;
+    }
+    if (event->key() == Qt::Key_Tab || event->key() == Qt::Key_Backtab) {
+      editor::moveTableCell(cursor, event->key() == Qt::Key_Backtab ||
+                                        event->modifiers().testFlag(Qt::ShiftModifier));
+      setTextCursor(cursor);
+      setCurrentCharFormat(cursor.block().charFormat());
+      return;
+    }
+  }
   if (code && control && returnKey && !event->modifiers().testFlag(Qt::AltModifier)) {
     exitCodeBlock();
     return;
@@ -862,20 +990,6 @@ void Editor::keyPressEvent(QKeyEvent* event) {
   const bool enter = event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter;
   if (m_rendered && plain && !cursor.hasSelection()) {
     const QString text = cursor.block().text();
-    if ((event->key() == Qt::Key_Tab || event->key() == Qt::Key_Backtab) && cursor.currentTable()) {
-      QTextTable* table = cursor.currentTable();
-      const QTextTableCell cell = table->cellAt(cursor.position());
-      const bool backwards =
-          event->key() == Qt::Key_Backtab || event->modifiers().testFlag(Qt::ShiftModifier);
-      if (!backwards && cell.row() == table->rows() - 1 && cell.column() == table->columns() - 1) {
-        cursor.beginEditBlock();
-        table->appendRows(1);
-        cursor = table->cellAt(table->rows() - 1, 0).firstCursorPosition();
-        cursor.endEditBlock();
-        setTextCursor(cursor);
-        return;
-      }
-    }
     if ((event->key() == Qt::Key_Tab || event->key() == Qt::Key_Backtab) &&
         cursor.block().textList()) {
       changeListIndent(
@@ -1079,7 +1193,8 @@ void Editor::clearImageTypingFormat() {
   const auto current = currentCharFormat();
   if (!current.isImageFormat() && !current.hasProperty(editor::kImageProperty) &&
       !current.hasProperty(editor::kSpecialSourceProperty) &&
-      !current.hasProperty(editor::kMathSourceProperty))
+      !current.hasProperty(editor::kMathSourceProperty) &&
+      !current.hasProperty(editor::kRawHtmlProperty))
     return;
   QTextCharFormat typing;
   const int heading = textCursor().blockFormat().headingLevel();

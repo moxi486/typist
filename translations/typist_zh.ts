@@ -639,6 +639,18 @@
         <source>Place the cursor outside a code block to insert an image</source>
         <translation>请将光标移出代码块后插入图片</translation>
     </message>
+    <message>
+        <source>Copy Table as Markdown</source>
+        <translation>复制表格为 Markdown</translation>
+    </message>
+    <message>
+        <source>Copy Table for Spreadsheet</source>
+        <translation>复制表格用于电子表格</translation>
+    </message>
+    <message>
+        <source>Exit Table</source>
+        <translation>退出表格</translation>
+    </message>
 </context>
 <context>
     <name>FindBar</name>
@@ -860,6 +872,104 @@
     <message>
         <source>Save As cannot relocate this image reference; use an inline image link</source>
         <translation>另存为无法迁移此引用式图片，请先改为直接图片链接</translation>
+    </message>
+</context>
+<context>
+    <name>TableBar</name>
+    <message>
+        <source>Rows</source>
+        <translation>行</translation>
+    </message>
+    <message>
+        <source>Columns</source>
+        <translation>列</translation>
+    </message>
+    <message>
+        <source>Align</source>
+        <translation>对齐</translation>
+    </message>
+    <message>
+        <source>Copy</source>
+        <translation>复制</translation>
+    </message>
+    <message>
+        <source>Insert row above</source>
+        <translation>在上方插入行</translation>
+    </message>
+    <message>
+        <source>Insert row below</source>
+        <translation>在下方插入行</translation>
+    </message>
+    <message>
+        <source>Delete selected rows</source>
+        <translation>删除选中行</translation>
+    </message>
+    <message>
+        <source>Insert column left</source>
+        <translation>在左侧插入列</translation>
+    </message>
+    <message>
+        <source>Insert column right</source>
+        <translation>在右侧插入列</translation>
+    </message>
+    <message>
+        <source>Delete selected columns</source>
+        <translation>删除选中列</translation>
+    </message>
+    <message>
+        <source>Align columns left</source>
+        <translation>整列左对齐</translation>
+    </message>
+    <message>
+        <source>Align columns center</source>
+        <translation>整列居中</translation>
+    </message>
+    <message>
+        <source>Align columns right</source>
+        <translation>整列右对齐</translation>
+    </message>
+    <message>
+        <source>Copy for spreadsheet</source>
+        <translation>复制用于电子表格</translation>
+    </message>
+    <message>
+        <source>Copy as Markdown</source>
+        <translation>复制为 Markdown</translation>
+    </message>
+    <message>
+        <source>Exit table</source>
+        <translation>退出表格</translation>
+    </message>
+    <message>
+        <source>Continue in a normal paragraph · Ctrl+Enter</source>
+        <translation>继续编辑正文 · Ctrl+Enter</translation>
+    </message>
+    <message>
+        <source>Rows × columns, including the header</source>
+        <translation>行数 × 列数（包含表头）</translation>
+    </message>
+    <message>
+        <source>%1 rows and %2 columns</source>
+        <translation>%1 行 %2 列</translation>
+    </message>
+    <message>
+        <source>Current cell: row %1, column %2</source>
+        <translation>当前单元格：第 %1 行，第 %2 列</translation>
+    </message>
+</context>
+<context>
+    <name>TableEditing</name>
+    <message>
+        <source>The table data contains an unfinished quoted cell</source>
+        <translation>表格数据中的引号单元格未正确闭合</translation>
+    </message>
+    <message>
+        <source>A table can contain up to 500 rows and 40 columns</source>
+        <translation>表格最多支持 500 行、40 列</translation>
+    </message>
+    <message>
+        <source>The table data is too large</source>
+        <translation>表格数据过大</translation>
     </message>
 </context>
 </TS>

@@ -1,5 +1,6 @@
 #include "Editing.h"
 
+#include "TableEditing.h"
 #include "editor_document.h"
 
 #include <QFontDatabase>
@@ -233,7 +234,7 @@ bool indentList(QTextCursor& cursor, int delta) {
   return true;
 }
 
-void insertTable(QTextCursor& cursor, int rows, int columns) {
+QTextTable* insertTable(QTextCursor& cursor, int rows, int columns) {
   cursor.beginEditBlock();
   QTextTableFormat format;
   format.setWidth(QTextLength(QTextLength::PercentageLength, 100));
@@ -263,41 +264,48 @@ void insertTable(QTextCursor& cursor, int rows, int columns) {
   }
   cursor = table->cellAt(0, 0).firstCursorPosition();
   cursor.endEditBlock();
+  return table;
 }
 
 bool editTable(QTextCursor& cursor, TableCommand command) {
   QTextTable* table = cursor.currentTable();
   if (!table) return false;
-  const QTextTableCell cell = table->cellAt(cursor.position());
-  if (!cell.isValid()) return false;
-  const int row = cell.row(), column = cell.column();
+  const auto cells = tableCells(cursor);
+  if (!cells.valid()) return false;
+  const int row = cells.row, column = cells.column;
+  if ((command == TableCommand::RowAbove || command == TableCommand::RowBelow) &&
+      table->rows() >= kMaxTableRows)
+    return false;
+  if ((command == TableCommand::ColumnBefore || command == TableCommand::ColumnAfter) &&
+      table->columns() >= kMaxTableColumns)
+    return false;
   cursor.beginEditBlock();
   switch (command) {
     case TableCommand::RowAbove:
       table->insertRows(qMax(1, row), 1);
       break;
     case TableCommand::RowBelow:
-      table->insertRows(row + 1, 1);
+      table->insertRows(row + cells.rows, 1);
       break;
     case TableCommand::DeleteRow:
-      if (row == 0 || table->rows() <= 2) {
+      if (row == 0 || table->rows() - cells.rows < 2) {
         cursor.endEditBlock();
         return false;
       }
-      table->removeRows(row, 1);
+      table->removeRows(row, cells.rows);
       break;
     case TableCommand::ColumnBefore:
       table->insertColumns(column, 1);
       break;
     case TableCommand::ColumnAfter:
-      table->insertColumns(column + 1, 1);
+      table->insertColumns(column + cells.columns, 1);
       break;
     case TableCommand::DeleteColumn:
-      if (table->columns() <= 1) {
+      if (table->columns() - cells.columns < 1) {
         cursor.endEditBlock();
         return false;
       }
-      table->removeColumns(column, 1);
+      table->removeColumns(column, cells.columns);
       break;
     case TableCommand::DeleteTable: {
       const int start = table->firstPosition() - 1;
@@ -312,18 +320,20 @@ bool editTable(QTextCursor& cursor, TableCommand command) {
       const int alignment = command == TableCommand::AlignCenter  ? 2
                             : command == TableCommand::AlignRight ? 3
                                                                   : 1;
-      for (int index = 0; index < table->rows(); ++index) {
-        QTextCursor text = table->cellAt(index, column).firstCursorPosition();
-        QTextBlockFormat format = text.blockFormat();
-        format.setAlignment(alignment == 2   ? Qt::AlignHCenter
-                            : alignment == 3 ? Qt::AlignRight
-                                             : Qt::AlignLeft);
-        format.setProperty(kTableAlignmentProperty, alignment);
-        text.setBlockFormat(format);
-      }
+      for (int selectedColumn = column; selectedColumn < column + cells.columns; ++selectedColumn)
+        for (int index = 0; index < table->rows(); ++index) {
+          QTextCursor text = table->cellAt(index, selectedColumn).firstCursorPosition();
+          QTextBlockFormat format = text.blockFormat();
+          format.setAlignment(alignment == 2   ? Qt::AlignHCenter
+                              : alignment == 3 ? Qt::AlignRight
+                                               : Qt::AlignLeft);
+          format.setProperty(kTableAlignmentProperty, alignment);
+          text.setBlockFormat(format);
+        }
       break;
     }
   }
+  styleTable(table);
   if (table->rows() > 0 && table->columns() > 0)
     cursor = table->cellAt(qMin(row, table->rows() - 1), qMin(column, table->columns() - 1))
                  .firstCursorPosition();
@@ -341,7 +351,7 @@ bool renderInlineMarkdown(QTextCursor& cursor) {
     const QTextCharFormat format = it.fragment().charFormat();
     if ((format.fontWeight() >= QFont::Bold && !format.boolProperty(kPresentationBoldProperty)) ||
         format.fontItalic() || format.fontStrikeOut() || format.isAnchor() ||
-        format.isImageFormat() ||
+        format.boolProperty(kLiteralTextProperty) || format.isImageFormat() ||
         format.fontFamilies().toStringList().contains(QStringLiteral("Consolas")))
       start = qMin(cursor.position(), it.fragment().position() + it.fragment().length());
   }

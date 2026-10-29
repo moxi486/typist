@@ -37,6 +37,7 @@ struct InlineRun {
   bool image = false;
   bool math = false;
   bool footnote = false;
+  bool html = false;  // Preserve inline HTML separately from escaped literal text.
 };
 
 struct Block {

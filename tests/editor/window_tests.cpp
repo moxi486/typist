@@ -4,6 +4,8 @@
 #include "MainWindow.h"
 #include "PdfWriter.h"
 #include "Settings.h"
+#include "SpecialContent.h"
+#include "TableEditing.h"
 #include "Toc.h"
 #include "editor_document.h"
 #include "markdown.h"
@@ -28,6 +30,7 @@
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextEdit>
+#include <QTextTable>
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
@@ -649,6 +652,114 @@ class WindowTests : public QObject {
     window.resize(800, 650);
     QTest::qWait(20);
     QVERIFY(window.grab().save(out + QStringLiteral("/code-toolbar-compact-zh.png")));
+  }
+  void tableToolbarLanguagePasteSaveAndSource() {
+    QTemporaryDir directory;
+    const auto path = directory.filePath(QStringLiteral("table.md"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("Before\n\n| Name | Value |\n|---|---:|\n| one | 1 |\n| two | 2 |\n\nTAIL\n");
+    file.close();
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::platform::setThemePreference(QStringLiteral("light"));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.openFile(path);
+    window.resize(1000, 750);
+    window.show();
+    window.activateWindow();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QTextTable* table = nullptr;
+    for (auto block = editor->document()->begin(); block.isValid() && !table; block = block.next())
+      table = QTextCursor(block).currentTable();
+    QVERIFY(table);
+    editor->setTextCursor(table->cellAt(1, 0).firstCursorPosition());
+    editor->setFocus();
+    QTest::qWait(10);
+    auto* bar = editor->findChild<QFrame*>(QStringLiteral("tableBar"));
+    QVERIFY(bar && bar->isVisible());
+    auto* rows = bar->findChild<QToolButton*>(QStringLiteral("tableRowsMenu"));
+    QVERIFY(rows);
+    QCOMPARE(rows->text(), QStringLiteral("Rows"));
+    const auto original = typist::editor::serializeDocument(editor->document());
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("appearance_dark"))->trigger();
+    QTest::qWait(10);
+    QCOMPARE(rows->text(), QStringLiteral("行"));
+    QCOMPARE(bar->findChild<QAction*>(QStringLiteral("tableBarCopyMarkdown"))->text(),
+             QStringLiteral("复制为 Markdown"));
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+    QVERIFY(!editor->document()->isUndoAvailable());
+    QApplication::clipboard()->setText(QStringLiteral("**literal**\t10\n中文\t20\n"));
+    actionBySource(window, QStringLiteral("Paste Markdown"))->trigger();
+    QCOMPARE(table->rows(), 3);
+    QCOMPARE(table->columns(), 2);
+    const auto snapshot = typist::editor::serializeDocument(editor->document());
+    QVERIFY(snapshot.contains("\\*\\*literal\\*\\*"));
+    QVERIFY(QMetaObject::invokeMethod(&window, "save", Qt::DirectConnection));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), snapshot.toUtf8());
+    file.close();
+    window.findChild<QAction*>(QStringLiteral("table_copy_markdown"))->trigger();
+    QVERIFY(QApplication::clipboard()->text().startsWith("| Name"));
+    QTest::keyClick(editor, Qt::Key_Return, Qt::ControlModifier);
+    QVERIFY(!editor->textCursor().currentTable());
+    QVERIFY(!editor->paragraphSourceActive());
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    QVERIFY(!bar->isVisible());
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), snapshot);
+    window.findChild<QAction*>(QStringLiteral("language_en"))->trigger();
+    QTest::qWait(5);
+    QCOMPARE(rows->text(), QStringLiteral("Rows"));
+  }
+  void tableWorkflowVisuals() {
+    const auto out = qEnvironmentVariable("TYPIST_TABLE_OUTPUT");
+    if (out.isEmpty()) QSKIP("Set TYPIST_TABLE_OUTPUT to retain table writing specimens.");
+    QVERIFY(QDir().mkpath(out));
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::platform::setThemePreference(QStringLiteral("light"));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.resize(1180, 850);
+    window.openFile(QStringLiteral(TYPIST_SOURCE_DIR "/tests/corpus/table-writing.md"));
+    window.show();
+    window.activateWindow();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QTextTable* table = nullptr;
+    for (auto block = editor->document()->begin(); block.isValid() && !table; block = block.next())
+      table = QTextCursor(block).currentTable();
+    QVERIFY(table);
+    editor->setTextCursor(table->cellAt(1, 1).firstCursorPosition());
+    editor->setFocus();
+    QTest::qWait(25);
+    QVERIFY(window.grab().save(out + QStringLiteral("/table-light.png")));
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("appearance_dark"))->trigger();
+    QTest::qWait(15);
+    QVERIFY(window.grab().save(out + QStringLiteral("/table-dark-zh.png")));
+    auto* rows = editor->findChild<QToolButton*>(QStringLiteral("tableRowsMenu"));
+    rows->menu()->popup(rows->mapToGlobal(QPoint(0, rows->height())));
+    QTRY_VERIFY(rows->menu()->isVisible());
+    QTest::qWait(40);
+    QVERIFY(rows->menu()->grab().save(out + QStringLiteral("/table-row-menu-dark-zh.png")));
+    QVERIFY(window.grab().save(out + QStringLiteral("/table-menu-dark-zh.png")));
+    rows->menu()->hide();
+    window.resize(800, 650);
+    QTest::qWait(15);
+    QVERIFY(window.grab().save(out + QStringLiteral("/table-compact-zh.png")));
+    const auto markdown = typist::editor::serializeDocument(editor->document());
+    QString error;
+    QFile html(out + QStringLiteral("/table.html"));
+    QVERIFY(html.open(QIODevice::WriteOnly));
+    html.write(QByteArray::fromStdString(typist::core::wrapHtmlDocument(
+        typist::render::html(markdown).toStdString(), "Table writing")));
+    html.close();
+    QVERIFY2(
+        typist::platform::exportPdf(out + QStringLiteral("/table.pdf"), editor->document(), &error),
+        qPrintable(error));
+    QVERIFY2(typist::platform::exportDocx(out + QStringLiteral("/table.docx"), markdown, &error),
+             qPrintable(error));
   }
 
  private:

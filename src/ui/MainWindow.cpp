@@ -163,6 +163,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
       [this](const QMimeData* source) { return pasteImages(source); });
   connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::markdownFileDropped, this,
           &MainWindow::openFile);
+  connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::tablePasteRejected, this,
+          [this](const QString& error) { statusBar()->showMessage(error, 4000); });
   m_findBar = new ui::FindBar(this);
 
   auto* central = new QWidget(this);
@@ -533,6 +535,7 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   });
   command(edit, QStringLiteral("editParagraphSource"), tr("Edit Paragraph Markdown"),
           QStringLiteral("Ctrl+Return"), [this, editor] {
+            if (editor->exitTable()) return;
             if (editor->exitCodeBlock()) return;
             if (!editor->startParagraphSourceEdit())
               statusBar()->showMessage(tr("Place the cursor in a normal paragraph or heading"),
@@ -682,6 +685,13 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
               editor::TableCommand::AlignRight);
   tableAction(QStringLiteral("table_delete"), tr("Delete Table"),
               editor::TableCommand::DeleteTable);
+  table->addSeparator();
+  command(table, QStringLiteral("table_copy_markdown"), tr("Copy Table as Markdown"), QString(),
+          [editor] { editor->copyTable(); });
+  command(table, QStringLiteral("table_copy_spreadsheet"), tr("Copy Table for Spreadsheet"),
+          QString(), [editor] { editor->copyTable(true); });
+  command(table, QStringLiteral("table_exit"), tr("Exit Table"), QString(),
+          [editor] { editor->exitTable(); });
 
   view->addSeparator();
   QAction* focus =
@@ -1615,6 +1625,10 @@ void MainWindow::openOutlineEntry() {
 }
 
 void MainWindow::pasteAsMarkdown() {
+  const auto* source = QApplication::clipboard()->mimeData();
+  if (source && source->hasText() &&
+      static_cast<ui::Editor*>(m_editor)->pasteTableText(source->text()))
+    return;
   if (pasteImages(QApplication::clipboard()->mimeData())) return;
   if (static_cast<ui::Editor*>(m_editor)->paragraphSourceActive() ||
       (!m_sourceMode &&

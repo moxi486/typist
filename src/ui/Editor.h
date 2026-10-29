@@ -19,6 +19,7 @@
 namespace typist::ui {
 class ParagraphSourcePanel;
 class CodeBlockBar;
+class TableBar;
 
 // Keep a readable writing column while retaining native QTextEdit editing and scrolling.
 class Editor : public QTextEdit {
@@ -34,6 +35,7 @@ class Editor : public QTextEdit {
     });
     connect(this, &QTextEdit::cursorPositionChanged, this, [this] {
       updateCodeBlockBar();
+      updateTableBar();
       if (m_focusMode) updateDecorations();
       if (m_typewriterMode) centerWritingLine();
     });
@@ -53,10 +55,12 @@ class Editor : public QTextEdit {
         if (m_rendered) typist::render::invalidateToc(document());
         updateDecorations();
         updateCodeBlockBar();
+        updateTableBar();
       });
     });
     updateDecorations();
     updateCodeBlockBar(true);
+    updateTableBar();
     if (m_rendered) editor::refreshSpecialContent(document(), m_dark);
     render::installSyntaxHighlighter(document(), !m_rendered, m_dark, m_syntaxHighlight);
     if (m_rendered && textCursor().block().text().isEmpty() &&
@@ -72,6 +76,7 @@ class Editor : public QTextEdit {
     viewport()->update();
     updateParagraphSourceTheme();
     updateCodeBlockTheme();
+    updateTableTheme();
   }
 
   void setSearchHighlights(const QList<ExtraSelection>& highlights) {
@@ -109,6 +114,9 @@ class Editor : public QTextEdit {
   bool setCodeLanguage(const QString& language);
   bool exitCodeBlock();
   bool copyCodeBlock();
+  bool copyTable(bool spreadsheet = false);
+  bool exitTable();
+  bool pasteTableText(const QString& text);
   bool startParagraphSourceEdit();
   bool flushParagraphSourceEdit(bool keepOpen = true);
   void finishParagraphSourceEdit(bool apply = true);
@@ -129,6 +137,7 @@ class Editor : public QTextEdit {
   void paragraphSourceChanged();
   void paragraphSourceClosed();
   void markdownFileDropped(const QString& path);
+  void tablePasteRejected(const QString& error);
 
  protected:
   void keyPressEvent(QKeyEvent* event) override;
@@ -155,6 +164,7 @@ class Editor : public QTextEdit {
     updateDecorations();
     updateParagraphSourceGeometry();
     updateCodeBlockBar();
+    updateTableBar();
     if (m_typewriterMode) centerWritingLine();
   }
 
@@ -220,6 +230,9 @@ class Editor : public QTextEdit {
   void clearImageTypingFormat();
   void updateCodeBlockBar(bool reset = false);
   void updateCodeBlockTheme();
+  void updateTableBar();
+  void updateTableTheme();
+  TableBar* m_tableBar = nullptr;
   CodeBlockBar* m_codeBar = nullptr;
   std::function<bool(const QMimeData*)> m_imagePasteHandler;
   ParagraphSourcePanel* m_paragraphPanel = nullptr;

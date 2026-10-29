@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QTextCursor>
+class QTextTable;
 
 namespace typist::editor {
 
@@ -23,7 +24,7 @@ bool setParagraphStyle(QTextCursor& cursor, ParagraphStyle style, int heading = 
 void toggleInlineStyle(QTextCursor& cursor, InlineStyle style);
 void setLink(QTextCursor& cursor, const QString& destination, const QString& label = QString());
 bool indentList(QTextCursor& cursor, int delta);
-void insertTable(QTextCursor& cursor, int rows, int columns);
+QTextTable* insertTable(QTextCursor& cursor, int rows, int columns);
 bool editTable(QTextCursor& cursor, TableCommand command);
 bool renderInlineMarkdown(QTextCursor& cursor);
 QString selectedMarkdown(const QTextCursor& cursor);
