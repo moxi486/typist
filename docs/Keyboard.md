@@ -7,6 +7,7 @@
 | 打开 / 保存 / 另存为 | Ctrl+O / Ctrl+S / Ctrl+Shift+S |
 | 导出 HTML / PDF / DOCX | Ctrl+Shift+E / Ctrl+Shift+P / Ctrl+Shift+X |
 | 导出 EPUB | 文件 → 导出 EPUB（无默认快捷键） |
+| PDF 页面设置与预览 | Ctrl+Shift+P（选项与逐页预览后选择保存位置） |
 | 导入 HTML / 将 HTML 粘贴为 Markdown | 文件 → 导入 HTML / Ctrl+Alt+V |
 | 撤销 / 重做 | Ctrl+Z / Ctrl+Y（macOS Ctrl+Shift+Z） |
 | 查找 / 下一个 / 上一个 / 关闭 | Ctrl+F / Enter / Shift+Enter / Esc（F3 与 Shift+F3 也能步进） |

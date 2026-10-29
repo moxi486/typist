@@ -16,5 +16,6 @@ Typist 是一个开源的所见即所得 Markdown 编辑器：源码与渲染在
 3. `ctest --test-dir build/<preset>`：往返保真、性能基线与 UI 接线都在测试里。
 4. 运行 `typist`：直接编辑 Markdown，`Ctrl+/` 切换源码视图，`Ctrl+Shift+E/P/X` 导出 HTML/PDF/DOCX；通过文件菜单 [导出 EPUB 电子书](EPUB.md)。
 5. 通过文件菜单 [导入 HTML](Import.md) 预览网页内容，或用 `Ctrl+Alt+V` 将网页富文本粘贴为 Markdown。
+6. [PDF 页面设置与预览](PDF.md)：导出前检查纸张、方向、页边距、页眉页脚和分页。
 
 许可：应用为 MIT；Qt 以 LGPLv3 动态链接并提供可重链接说明；cmark-gfm 为 BSD-2。第三方许可声明见仓库根目录的 `NOTICE`。

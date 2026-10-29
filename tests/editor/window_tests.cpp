@@ -7,6 +7,7 @@
 #include "LinkDialog.h"
 #include "LinkNavigation.h"
 #include "MainWindow.h"
+#include "PdfExportDialog.h"
 #include "PdfWriter.h"
 #include "Settings.h"
 #include "SpecialContent.h"
@@ -17,11 +18,13 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QClipboard>
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileDialog>
 #include <QLabel>
@@ -1389,6 +1392,170 @@ class WindowTests : public QObject {
     QVERIFY(actionFound && cancelledReviewed && selected && reviewed && cancelledUnchanged);
     QVERIFY(typist::editor::serializeDocument(editor->document())
                 .contains(QStringLiteral("# Menu import")));
+  }
+
+  void pdfSetupPreviewThemeLanguageAndCancel() {
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::platform::setThemePreference(QStringLiteral("light"));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.show();
+    QTextDocument document;
+    QString source = QStringLiteral("# Export preview\n\n");
+    for (int i = 0; i < 100; ++i)
+      source += QStringLiteral("Paragraph %1 / 一段可阅读的中文与英文。\n\n").arg(i + 1);
+    QVERIFY(typist::editor::loadMarkdown(source, &document, nullptr));
+    const auto before = typist::editor::serializeDocument(&document);
+    typist::platform::PdfPageOptions initial;
+    initial.title = QStringLiteral("Document");
+    initial.header = QStringLiteral("{title}");
+    initial.footer = QStringLiteral("Page #");
+    const auto output = qEnvironmentVariable("TYPIST_PDF_OUTPUT");
+    for (const auto& language : {QStringLiteral("en"), QStringLiteral("zh")}) {
+      window.findChild<QAction*>(QStringLiteral("language_") + language)->trigger();
+      window
+          .findChild<QAction*>(language == QLatin1String("en") ? QStringLiteral("appearance_light")
+                                                               : QStringLiteral("appearance_dark"))
+          ->trigger();
+      typist::ui::PdfExportDialog dialog(&document, initial, &window);
+      dialog.show();
+      auto* exportButton = dialog.findChild<QPushButton*>(QStringLiteral("confirmPdfExport"));
+      QTRY_VERIFY(exportButton->isEnabled());
+      auto* next = dialog.findChild<QPushButton*>(QStringLiteral("pdfNextPage"));
+      auto* previous = dialog.findChild<QPushButton*>(QStringLiteral("pdfPreviousPage"));
+      QVERIFY(next->isEnabled());
+      QVERIFY(!previous->isEnabled());
+      next->click();
+      QVERIFY(previous->isEnabled());
+      previous->click();
+      auto* orientation = dialog.findChild<QComboBox*>(QStringLiteral("pdfOrientation"));
+      orientation->setCurrentIndex(1);
+      dialog.findChild<QComboBox*>(QStringLiteral("pdfPaper"))->setCurrentIndex(1);
+      dialog.findChild<QDoubleSpinBox*>(QStringLiteral("pdfMargin"))->setValue(12.5);
+      dialog.findChild<QLineEdit*>(QStringLiteral("pdfHeader"))
+          ->setText(QStringLiteral("Custom #"));
+      QTRY_VERIFY(exportButton->isEnabled());
+      const auto options = dialog.options();
+      QVERIFY(options.landscape);
+      QCOMPARE(options.paper, QStringLiteral("letter"));
+      QCOMPARE(options.marginMm, 12.5);
+      QCOMPARE(options.header, QStringLiteral("Custom #"));
+      QCOMPARE(dialog.windowTitle(), language == QLatin1String("en") ? QStringLiteral("Export PDF")
+                                                                     : QStringLiteral("导出 PDF"));
+      QCOMPARE(exportButton->text(),
+               language == QLatin1String("en") ? QStringLiteral("Export") : QStringLiteral("导出"));
+      if (!output.isEmpty())
+        QVERIFY(dialog.grab().save(output + QStringLiteral("/setup-") + language +
+                                   QStringLiteral(".png")));
+      dialog.findChild<QPushButton*>(QStringLiteral("cancelPdfExport"))->click();
+      QCOMPARE(dialog.result(), int(QDialog::Rejected));
+      QCOMPARE(typist::editor::serializeDocument(&document), before);
+    }
+  }
+  void pdfMenuPersistsOnlyAfterSuccessfulSave() {
+    QTemporaryDir directory;
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    editor->insertPlainText(QStringLiteral("A document to export."));
+    const auto before = typist::editor::serializeDocument(editor->document());
+    const auto old = typist::platform::pdfOptions(QStringLiteral("Old"));
+    QTimer::singleShot(0, &window, [&] {
+      if (auto* dialog =
+              qobject_cast<typist::ui::PdfExportDialog*>(QApplication::activeModalWidget())) {
+        dialog->findChild<QComboBox*>(QStringLiteral("pdfPaper"))->setCurrentIndex(1);
+        dialog->reject();
+      }
+    });
+    QVERIFY(QMetaObject::invokeMethod(&window, "exportPdf", Qt::DirectConnection));
+    QCOMPARE(typist::platform::pdfOptions(QStringLiteral("Old")).paper, old.paper);
+    const bool previous = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+    bool configured = false, setupAccepted = false, fileAccepted = false, cancelDestination = true;
+    QTimer automation, safety;
+    automation.setInterval(10);
+    connect(&automation, &QTimer::timeout, &window, [&] {
+      if (auto* dialog =
+              qobject_cast<typist::ui::PdfExportDialog*>(QApplication::activeModalWidget())) {
+        if (!configured) {
+          dialog->findChild<QComboBox*>(QStringLiteral("pdfPaper"))->setCurrentIndex(1);
+          dialog->findChild<QComboBox*>(QStringLiteral("pdfOrientation"))->setCurrentIndex(1);
+          dialog->findChild<QDoubleSpinBox*>(QStringLiteral("pdfMargin"))->setValue(12.5);
+          dialog->findChild<QLineEdit*>(QStringLiteral("pdfHeader"))
+              ->setText(QStringLiteral("Header #"));
+          dialog->findChild<QCheckBox*>(QStringLiteral("pdfRepeatHeader"))->setChecked(false);
+          configured = true;
+        }
+        auto* button = dialog->findChild<QPushButton*>(QStringLiteral("confirmPdfExport"));
+        if (button->isEnabled()) {
+          setupAccepted = true;
+          button->click();
+        }
+      } else if (auto* selector = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+        if (cancelDestination) {
+          fileAccepted = true;
+          selector->reject();
+          return;
+        }
+        if (auto* name = selector->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"))) {
+          name->setText(directory.filePath(QStringLiteral("menu-pdf")));
+          fileAccepted = true;
+          QMetaObject::invokeMethod(selector, "accept", Qt::DirectConnection);
+        }
+      }
+    });
+    connect(&safety, &QTimer::timeout, &window, [] {
+      if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+        dialog->reject();
+    });
+    automation.start();
+    safety.start(3000);
+    const bool cancelled = QMetaObject::invokeMethod(&window, "exportPdf", Qt::DirectConnection) &&
+                           setupAccepted && fileAccepted;
+    const auto afterCancel = typist::platform::pdfOptions(QStringLiteral("Old"));
+    cancelDestination = false;
+    configured = setupAccepted = fileAccepted = false;
+    const bool invoked = QMetaObject::invokeMethod(&window, "exportPdf", Qt::DirectConnection);
+    automation.stop();
+    safety.stop();
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, previous);
+    QVERIFY(invoked && setupAccepted && fileAccepted);
+    QVERIFY(cancelled);
+    QCOMPARE(afterCancel.header, old.header);
+    QCOMPARE(afterCancel.paper, old.paper);
+    QFile pdf(directory.filePath(QStringLiteral("menu-pdf.pdf")));
+    QVERIFY(pdf.open(QIODevice::ReadOnly));
+    QVERIFY(pdf.readAll().startsWith("%PDF-"));
+    const auto saved = typist::platform::pdfOptions(QStringLiteral("New"));
+    QVERIFY(saved.landscape);
+    QCOMPARE(saved.paper, QStringLiteral("letter"));
+    QCOMPARE(saved.marginMm, 12.5);
+    QCOMPARE(saved.header, QStringLiteral("Header #"));
+    QVERIFY(!saved.repeatTableHeader);
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    typist::platform::setPdfOptions(old);
+  }
+  void pdfUsesParagraphSnapshotWithoutApplying() {
+    QTemporaryDir directory;
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    editor->insertPlainText(QStringLiteral("Original paragraph"));
+    const auto before = typist::editor::serializeDocument(editor->document());
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    draft->setPlainText(QStringLiteral("# Draft export snapshot"));
+    const auto undo = editor->document()->availableUndoSteps();
+    QVERIFY(window.exportPdfForBench(directory.filePath(QStringLiteral("draft.pdf")), {}) > 400);
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    QCOMPARE(editor->document()->availableUndoSteps(), undo);
+    QCOMPARE(draft->toPlainText(), QStringLiteral("# Draft export snapshot"));
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    editor->insertPlainText(QStringLiteral("Source "));
+    const auto source = editor->toPlainText();
+    QVERIFY(window.exportPdfForBench(directory.filePath(QStringLiteral("source.pdf")), {}) > 400);
+    QCOMPARE(editor->toPlainText(), source);
   }
 
  private:

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "PdfWriter.h"
+
 #include <QString>
 #include <QStringList>
 
@@ -24,6 +26,8 @@ void setPdfPaper(const QString& value);
 double pdfMarginMm(double fallback = 20.0);
 
 void setPdfMarginMm(double value);
+PdfPageOptions pdfOptions(const QString& title);
+void setPdfOptions(const PdfPageOptions& options);
 
 // Most recently opened or saved paths, newest first; stale entries are pruned by callers.
 QStringList recentFiles(int limit = 8);

@@ -62,6 +62,31 @@ void setPdfMarginMm(double value) {
   store.sync();
 }
 
+PdfPageOptions pdfOptions(const QString& title) {
+  const auto settings = openSettings();
+  PdfPageOptions options;
+  options.paper = pdfPaper();
+  options.marginMm = pdfMarginMm();
+  options.landscape = settings.value(QStringLiteral("pdf/landscape"), false).toBool();
+  options.repeatTableHeader =
+      settings.value(QStringLiteral("pdf/repeatTableHeader"), true).toBool();
+  options.header =
+      settings.value(QStringLiteral("pdf/header"), QStringLiteral("{title}")).toString();
+  options.footer =
+      settings.value(QStringLiteral("pdf/footer"), QStringLiteral("Page #")).toString();
+  options.title = title;
+  return options;
+}
+void setPdfOptions(const PdfPageOptions& options) {
+  setPdfPaper(options.paper);
+  setPdfMarginMm(options.marginMm);
+  auto settings = openSettings();
+  settings.setValue(QStringLiteral("pdf/landscape"), options.landscape);
+  settings.setValue(QStringLiteral("pdf/repeatTableHeader"), options.repeatTableHeader);
+  settings.setValue(QStringLiteral("pdf/header"), options.header);
+  settings.setValue(QStringLiteral("pdf/footer"), options.footer);
+}
+
 QStringList recentFiles(int limit) {
   QSettings settings = openSettings();
   const QStringList stored = settings.value(QStringLiteral("recentFiles")).toStringList();

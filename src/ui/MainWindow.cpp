@@ -19,6 +19,7 @@
 #include "LinkEditing.h"
 #include "LinkNavigation.h"
 #include "Localization.h"
+#include "PdfExportDialog.h"
 #include "PdfWriter.h"
 #include "Settings.h"
 #include "SpecialContent.h"
@@ -1181,20 +1182,10 @@ void MainWindow::exportHtml() {
 }
 
 void MainWindow::exportPdf() {
-  if (!typist::platform::pdfExportAvailable()) {
-    statusBar()->showMessage(
-        QStringLiteral("PDF export needs Qt PrintSupport, which this build lacks"));
-    return;
-  }
-
   const QString suggested = m_currentPath.isEmpty()
                                 ? QDir::homePath() + QStringLiteral("/untitled.pdf")
                                 : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
                                       QFileInfo(m_currentPath).baseName() + QStringLiteral(".pdf");
-  const QString path = QFileDialog::getSaveFileName(this, tr("Export PDF"), suggested,
-                                                    QStringLiteral("PDF (*.pdf)"));
-  if (path.isEmpty()) return;
-
   // PDF always reflects Markdown semantics, so it prints a detached rendered document
   // instead of whatever the editor view is currently showing.
   QTextDocument rendered;
@@ -1205,16 +1196,25 @@ void MainWindow::exportPdf() {
     return;
   }
 
-  platform::PdfPageOptions options;
-  options.paper = platform::pdfPaper();
-  options.marginMm = platform::pdfMarginMm();
-  options.header = QFileInfo(path).baseName();
-  options.footer = QStringLiteral("Page #");
+  const auto title =
+      m_currentPath.isEmpty() ? tr("Untitled") : QFileInfo(m_currentPath).completeBaseName();
+  ui::PdfExportDialog setup(&rendered, platform::pdfOptions(title), this);
+  if (setup.exec() != QDialog::Accepted) return;
+  QFileDialog destination(this, tr("Export PDF"), QFileInfo(suggested).absolutePath(),
+                          QStringLiteral("PDF (*.pdf)"));
+  destination.setObjectName(QStringLiteral("pdfDestination"));
+  destination.setAcceptMode(QFileDialog::AcceptSave);
+  destination.setDefaultSuffix(QStringLiteral("pdf"));
+  destination.selectFile(QFileInfo(suggested).fileName());
+  if (destination.exec() != QDialog::Accepted || destination.selectedFiles().isEmpty()) return;
+  const auto options = setup.options();
+  const auto path = destination.selectedFiles().first();
 
   if (!typist::platform::exportPdf(path, &rendered, options, &error)) {
     statusBar()->showMessage(error);
     return;
   }
+  platform::setPdfOptions(options);
   statusBar()->showMessage(tr("Exported PDF"));
 }
 
@@ -1396,6 +1396,16 @@ int MainWindow::highlightCountForBench(const QString& pattern) const {
 
 qint64 MainWindow::exportDocxForBench(const QString& path) const {
   return typist::platform::docxSizeForBench(path, currentMarkdown());
+}
+qint64 MainWindow::exportPdfForBench(const QString& path,
+                                     const platform::PdfPageOptions& options) const {
+  QTextDocument document;
+  document.setBaseUrl(m_view->rendered()->baseUrl());
+  QString error;
+  if (!editor::loadMarkdown(currentMarkdown(), &document, &error) ||
+      !platform::exportPdf(path, &document, options, &error))
+    return -1;
+  return QFileInfo(path).size();
 }
 qint64 MainWindow::exportEpubForBench(const QString& path,
                                       const platform::EpubOptions& options) const {
