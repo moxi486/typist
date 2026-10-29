@@ -46,6 +46,10 @@ class MainWindow : public QMainWindow {
 
   void openFile(const QString& path);
 
+ public slots:
+  void followLink(const QString& target);
+
+ public:
   // Typing-to-repaint latency for the performance bench: one edit plus a synchronous repaint.
   qint64 measureTypingRepaint();
 

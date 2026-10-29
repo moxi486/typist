@@ -1,5 +1,6 @@
 #include "DocxWriter.h"
 
+#include "HeadingLinks.h"
 #include "ImageResources.h"
 #include "SpecialContent.h"
 #include "SyntaxHighlighter.h"
@@ -172,6 +173,7 @@ struct XmlContext {
   QMap<QString, int> footnoteIds;
   QMap<int, QString> footnoteBodies;
   QVector<QPair<int, QString>> headings;
+  QMap<QString, QString> bookmarks;
   int headingNumber = 0;
   int drawingNumber = 0;
 
@@ -330,7 +332,13 @@ QString runsXml(const std::vector<typist::core::InlineRun>& runs, const QString&
       }
     }
     if ((run.link || run.image) && !target.isEmpty()) {
-      out += QStringLiteral("<w:hyperlink r:id=\"rId%1\">").arg(context.hyperlinkId(target));
+      const auto fragment = QUrl(target).fragment(QUrl::FullyDecoded);
+      auto bookmark = context.bookmarks.value(fragment);
+      if (bookmark.isEmpty()) bookmark = context.bookmarks.value(render::headingSlug(fragment));
+      if (target.startsWith('#') && !bookmark.isEmpty())
+        out += QStringLiteral("<w:hyperlink w:anchor=\"%1\">").arg(bookmark);
+      else
+        out += QStringLiteral("<w:hyperlink r:id=\"rId%1\">").arg(context.hyperlinkId(target));
       out += runXml(text, run.bold || forceBold, run.italic, run.code, run.strike, true);
       out += QStringLiteral("</w:hyperlink>");
       continue;
@@ -796,12 +804,19 @@ bool exportDocx(const QString& path, const QString& markdown, QString* error,
           context.footnoteIds[label] = context.footnoteIds.size() + 1;
         context.footnoteBodies[context.footnoteIds[label]] = QString::fromStdString(block.text);
       }
-      if (block.type == core::BlockType::Heading)
-        context.headings.append({block.level, QString::fromStdString(block.text)});
       collect(block.children);
     }
   };
   collect(parsed.blocks);
+  render::HeadingIds headingIds;
+  for (const auto& block : parsed.blocks)
+    if (block.type == core::BlockType::Heading) {
+      const auto title = QString::fromStdString(block.text);
+      context.headings.append({block.level, title});
+      const auto bookmark = QStringLiteral("heading_%1").arg(context.headings.size());
+      context.bookmarks[headingIds.next(title)] = bookmark;
+      if (!context.bookmarks.contains(title)) context.bookmarks[title] = bookmark;
+    }
   QString document =
       QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
   document += QStringLiteral(

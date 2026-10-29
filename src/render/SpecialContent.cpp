@@ -1,5 +1,6 @@
 #include "SpecialContent.h"
 
+#include "HeadingLinks.h"
 #include "SyntaxHighlighter.h"
 #include "advanced_syntax.h"
 #include "latex.h"
@@ -185,6 +186,6 @@ QString html(const QString& markdown, bool dark) {
             .arg(block.captured(1), highlightedCodeHtml(literal, block.captured(1), dark));
     last = block.capturedEnd();
   }
-  return highlighted + out.mid(last);
+  return addHeadingLinks(highlighted + out.mid(last));
 }
 }  // namespace typist::render

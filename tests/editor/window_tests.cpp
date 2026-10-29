@@ -1,6 +1,8 @@
 #include "DocxWriter.h"
 #include "Editor.h"
 #include "FindBar.h"
+#include "LinkDialog.h"
+#include "LinkNavigation.h"
 #include "MainWindow.h"
 #include "PdfWriter.h"
 #include "Settings.h"
@@ -14,6 +16,8 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
+#include <QDesktopServices>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QFile>
 #include <QLabel>
@@ -26,6 +30,7 @@
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSettings>
+#include <QStatusBar>
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTextBlock>
@@ -45,6 +50,14 @@ QAction* actionBySource(QWidget& widget, const QString& source) {
   return nullptr;
 }
 }  // namespace
+
+class LinkReceiver : public QObject {
+  Q_OBJECT
+ public:
+  QUrl last;
+ public slots:
+  void capture(const QUrl& url) { last = url; }
+};
 
 class WindowTests : public QObject {
   Q_OBJECT
@@ -653,6 +666,172 @@ class WindowTests : public QObject {
     window.resize(800, 650);
     QTest::qWait(20);
     QVERIFY(window.grab().save(out + QStringLiteral("/code-toolbar-compact-zh.png")));
+  }
+  void linksNavigateFilesWithSaveProtectionAndHeadingJump() {
+    QTemporaryDir directory;
+    const auto original = directory.filePath("original.md");
+    const auto target = directory.filePath(QStringLiteral("中文 note.md"));
+    QFile file(original);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("# Original\n\nKeep this.\n");
+    file.close();
+    QFile next(target);
+    QVERIFY(next.open(QIODevice::WriteOnly));
+    next.write(QStringLiteral("# Next file\n\n## 中文 章节\n\nDestination.\n").toUtf8());
+    next.close();
+    typist::MainWindow window;
+    window.openFile(original);
+    window.findChild<QAction*>(QStringLiteral("autoSave"))->setChecked(false);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    editor->moveCursor(QTextCursor::End);
+    editor->insertPlainText(" unsaved");
+    const auto before = typist::editor::serializeDocument(editor->document());
+    const auto undo = editor->document()->availableUndoSteps();
+    const auto caret = editor->textCursor();
+    bool cancelled = false;
+    QTimer::singleShot(0, &window, [&] {
+      auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+      QVERIFY(box);
+      cancelled = true;
+      box->button(QMessageBox::Cancel)->click();
+    });
+    window.followLink(QStringLiteral("中文%20note.md#中文-章节"));
+    QVERIFY(cancelled);
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    QCOMPARE(editor->document()->availableUndoSteps(), undo);
+    QCOMPARE(editor->textCursor().position(), caret.position());
+    QCOMPARE(editor->textCursor().anchor(), caret.anchor());
+    QTimer::singleShot(0, &window, [] {
+      auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+      QVERIFY(box);
+      box->button(QMessageBox::Discard)->click();
+    });
+    window.followLink(QStringLiteral("中文%20note.md#中文-章节"));
+    QCOMPARE(editor->textCursor().block().text(), QStringLiteral("中文 章节"));
+    QVERIFY(editor->toPlainText().contains("Destination."));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), QByteArray("# Original\n\nKeep this.\n"));
+    file.close();
+    window.followLink("#missing");
+    QVERIFY(window.statusBar()->currentMessage().contains("missing"));
+    LinkReceiver receiver;
+    QDesktopServices::setUrlHandler("https", &receiver, "capture");
+    window.followLink("https://example.test/path");
+    QCOMPARE(receiver.last, QUrl("https://example.test/path"));
+    QDesktopServices::unsetUrlHandler("https");
+    window.setBenchMode(true);
+    QSettings().setValue(QStringLiteral("editor/autoSave"), true);
+  }
+  void linkDialogLanguagePreservesRichTextAndUndo() {
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(typist::editor::loadMarkdown("[**Styled** and *italic*](https://old.test) tail\n",
+                                         editor->document(), nullptr));
+    editor->setTextCursor(editor->document()->find("Styled"));
+    const auto before = typist::editor::serializeDocument(editor->document());
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QTimer::singleShot(0, &window, [&] {
+      auto* dialog = qobject_cast<typist::ui::LinkDialog*>(QApplication::activeModalWidget());
+      QVERIFY(dialog);
+      QTimer::singleShot(1000, dialog, &QDialog::reject);
+      QCOMPARE(dialog->windowTitle(), QStringLiteral("编辑链接"));
+      QCOMPARE(dialog->findChild<QPushButton*>(QStringLiteral("cancelLink"))->text(),
+               QStringLiteral("取消"));
+      QCOMPARE(dialog->findChild<QLineEdit*>("linkLabel")->text(),
+               QStringLiteral("Styled and italic"));
+      dialog->findChild<QLineEdit*>("linkDestination")->setText("https://new.test/a b");
+      dialog->accept();
+    });
+    window.findChild<QAction*>(QStringLiteral("format_link"))->trigger();
+    const auto saved = typist::editor::serializeDocument(editor->document());
+    QVERIFY2(saved.contains("https://new.test/a%20b"), qPrintable(saved));
+    const auto parsed = typist::core::parseMarkdown(saved.toStdString());
+    bool bold = false, italic = false;
+    for (const auto& run : parsed.blocks.front().runs) {
+      bold |= run.bold;
+      italic |= run.italic;
+    }
+    QVERIFY(bold && italic);
+    editor->undo();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    QTimer::singleShot(0, &window, [] {
+      auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+      QVERIFY(dialog);
+      dialog->reject();
+    });
+    window.findChild<QAction*>(QStringLiteral("format_link"))->trigger();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+  }
+  void sourceViewLinkDialogKeepsMarkdownEditingAndUndo() {
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    editor->insertPlainText("raw text");
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    editor->setTextCursor(editor->document()->find("raw text"));
+    const auto before = editor->toPlainText();
+    QTimer::singleShot(0, &window, [&] {
+      auto* dialog = qobject_cast<typist::ui::LinkDialog*>(QApplication::activeModalWidget());
+      QVERIFY(dialog);
+      QTimer::singleShot(1000, dialog, &QDialog::reject);
+      dialog->findChild<QLineEdit*>("linkLabel")->setText("Source **label**");
+      dialog->findChild<QLineEdit*>("linkDestination")->setText("https://example.test/a b");
+      dialog->accept();
+    });
+    window.findChild<QAction*>(QStringLiteral("format_link"))->trigger();
+    QVERIFY(editor->toPlainText().contains("[Source **label**](https://example.test/a%20b)"));
+    editor->undo();
+    QCOMPARE(editor->toPlainText(), before);
+    editor->redo();
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    QVERIFY(editor->toPlainText().contains("Source label"));
+    const auto linked = editor->document()->find("Source label");
+    QCOMPARE(linked.charFormat().anchorHref(), QStringLiteral("https://example.test/a%20b"));
+  }
+  void linkWorkflowVisuals() {
+    const auto output = QString::fromUtf8(qgetenv("TYPIST_LINK_VISUAL_DIR"));
+    if (output.isEmpty()) QSKIP("Set TYPIST_LINK_VISUAL_DIR to capture link specimens");
+    QVERIFY(QDir().mkpath(output));
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::platform::setThemePreference(QStringLiteral("light"));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.openFile(QStringLiteral(TYPIST_SOURCE_DIR "/tests/corpus/link-writing.md"));
+    window.resize(1180, 880);
+    window.show();
+    window.activateWindow();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QTest::qWait(30);
+    QVERIFY(window.grab().save(output + "/links-light.png"));
+    const auto markdown = typist::editor::serializeDocument(editor->document());
+    QFile html(output + "/links.html");
+    QVERIFY(html.open(QIODevice::WriteOnly));
+    html.write(typist::core::wrapHtmlDocument(typist::render::html(markdown).toStdString(), "Links")
+                   .c_str());
+    html.close();
+    QString error;
+    QVERIFY2(typist::platform::exportDocx(output + "/links.docx", markdown, &error),
+             qPrintable(error));
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("appearance_dark"))->trigger();
+    QTest::qWait(20);
+    QVERIFY(window.grab().save(output + "/links-dark-zh.png"));
+    editor->setTextCursor(editor->document()->find("linked note"));
+    QTimer::singleShot(0, &window, [&] {
+      auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+      QVERIFY(dialog);
+      QTimer::singleShot(1000, dialog, &QDialog::reject);
+      auto* headings = dialog->findChild<QComboBox*>(QStringLiteral("linkHeading"));
+      QVERIFY(headings);
+      const auto sample = headings->grab().toImage();
+      QVERIFY(sample.pixelColor(sample.width() / 2, sample.height() / 2).lightness() < 128);
+      QVERIFY(dialog->grab().save(output + "/link-dialog-dark-zh.png"));
+      dialog->reject();
+    });
+    window.findChild<QAction*>(QStringLiteral("format_link"))->trigger();
   }
   void listStatusLanguageSaveAndSource() {
     QTemporaryDir directory;

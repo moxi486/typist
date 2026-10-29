@@ -276,7 +276,8 @@ class AdvancedContentTests : public QObject {
     QDir().mkpath(out);
     const QString source = specimen(), html = render::html(source);
     QVERIFY(html.contains(QStringLiteral("data:image/png;base64,")));
-    QVERIFY(html.contains(QStringLiteral("href=\"#heading-2\"")));
+    QVERIFY(html.contains(QStringLiteral("href=\"#mathematics--数学\"")));
+    QVERIFY(html.contains(QStringLiteral("id=\"mathematics--数学\"")));
     QVERIFY(html.contains(QStringLiteral("class=\"footnote\"")));
     QVERIFY(!html.contains(QStringLiteral("typist-math:")));
     QFile htmlFile(out + "/advanced-sample.html");

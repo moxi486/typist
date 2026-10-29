@@ -12,7 +12,8 @@ target_link_libraries(typist_ui_autosave PUBLIC Qt6::Core)
 target_compile_options(typist_ui_autosave PRIVATE ${TYPIST_WARNING_OPTIONS})
 
 add_library(typist_ui_viewswitch STATIC ViewSwitch.h ViewSwitch.cpp Editor.h Editor.cpp
-  ParagraphSourcePanel.h ParagraphSourcePanel.cpp CodeBlockBar.h CodeBlockBar.cpp TableBar.h TableBar.cpp)
+  ParagraphSourcePanel.h ParagraphSourcePanel.cpp CodeBlockBar.h CodeBlockBar.cpp TableBar.h TableBar.cpp
+  LinkNavigation.h LinkNavigation.cpp LinkDialog.h LinkDialog.cpp)
 add_library(typist::ui_viewswitch ALIAS typist_ui_viewswitch)
 target_include_directories(typist_ui_viewswitch PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(typist_ui_viewswitch PROPERTIES AUTOMOC ON)
@@ -97,6 +98,8 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/advanced.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/code-writing.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/table-writing.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/list-writing.md
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/link-writing.md
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/linked-note.md
   DESTINATION share/typist/examples)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../translations DESTINATION share/typist OPTIONAL)
 add_library(typist_ui_update STATIC UpdateChecker.h UpdateChecker.cpp)
