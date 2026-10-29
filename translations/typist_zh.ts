@@ -216,10 +216,6 @@
         <translation>已粘贴 Markdown</translation>
     </message>
     <message>
-        <source>Inserted image link</source>
-        <translation>已插入图片链接</translation>
-    </message>
-    <message>
         <source>Cannot insert image link</source>
         <translation>无法插入图片链接</translation>
     </message>
@@ -623,6 +619,26 @@
         <source>Exit Code Block</source>
         <translation>退出代码块</translation>
     </message>
+    <message>
+        <source>Copy Images to Document Assets</source>
+        <translation>将图片复制到文档资源目录</translation>
+    </message>
+    <message>
+        <source>Insert up to 20 images at a time</source>
+        <translation>一次最多插入 20 张图片</translation>
+    </message>
+    <message>
+        <source>Inserted %1 images</source>
+        <translation>已插入 %1 张图片</translation>
+    </message>
+    <message>
+        <source>Pasted image</source>
+        <translation>粘贴的图片</translation>
+    </message>
+    <message>
+        <source>Place the cursor outside a code block to insert an image</source>
+        <translation>请将光标移出代码块后插入图片</translation>
+    </message>
 </context>
 <context>
     <name>FindBar</name>
@@ -805,6 +821,45 @@
     <message>
         <source>Continue in a normal paragraph · Ctrl+Enter</source>
         <translation>继续编辑正文 · Ctrl+Enter</translation>
+    </message>
+</context>
+<context>
+    <name>ImageAssets</name>
+    <message>
+        <source>Cannot create the image assets folder</source>
+        <translation>无法创建图片资源目录</translation>
+    </message>
+    <message>
+        <source>An existing image has different contents; nothing was overwritten</source>
+        <translation>已有同名图片的内容不同，未覆盖文件</translation>
+    </message>
+    <message>
+        <source>Cannot save the image</source>
+        <translation>无法保存图片</translation>
+    </message>
+    <message>
+        <source>The clipboard does not contain a valid image</source>
+        <translation>剪贴板中没有有效的图片</translation>
+    </message>
+    <message>
+        <source>The image is too large</source>
+        <translation>图片过大</translation>
+    </message>
+    <message>
+        <source>Cannot encode the image</source>
+        <translation>无法编码图片</translation>
+    </message>
+    <message>
+        <source>Cannot read the image file</source>
+        <translation>无法读取图片文件</translation>
+    </message>
+    <message>
+        <source>This image format cannot be read</source>
+        <translation>无法读取这种图片格式</translation>
+    </message>
+    <message>
+        <source>Save As cannot relocate this image reference; use an inline image link</source>
+        <translation>另存为无法迁移此引用式图片，请先改为直接图片链接</translation>
     </message>
 </context>
 </TS>

@@ -10,6 +10,8 @@
 #include "FileWriter.h"
 #include "FindBar.h"
 #include "FolderSearchRunner.h"
+#include "ImageAssets.h"
+#include "ImageResources.h"
 #include "Localization.h"
 #include "PdfWriter.h"
 #include "Settings.h"
@@ -47,6 +49,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QImage>
 #include <QInputDialog>
 #include <QKeySequence>
 #include <QLabel>
@@ -69,6 +72,7 @@
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextEdit>
+#include <QTextFragment>
 #include <QTextList>
 #include <QTextTable>
 #include <QTimer>
@@ -155,6 +159,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_editor->setAccessibleName(tr("Markdown editor"));
   m_editor->viewport()->installEventFilter(this);
   m_view->showActiveIn(m_editor);
+  static_cast<ui::Editor*>(m_editor)->setImagePasteHandler(
+      [this](const QMimeData* source) { return pasteImages(source); });
+  connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::markdownFileDropped, this,
+          &MainWindow::openFile);
   m_findBar = new ui::FindBar(this);
 
   auto* central = new QWidget(this);
@@ -635,6 +643,11 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
                 QStringLiteral("Images (*.png *.jpg *.jpeg *.gif *.bmp *.webp)"));
             if (!path.isEmpty()) insertImageLink(path);
           });
+  QAction* copyImages = command(settings, QStringLiteral("copyImagesToAssets"),
+                                tr("Copy Images to Document Assets"), QString(), [] {});
+  copyImages->setCheckable(true);
+  copyImages->setChecked(platform::copyImagesToAssets());
+  connect(copyImages, &QAction::toggled, this, &platform::setCopyImagesToAssets);
   command(format, QStringLiteral("format_clear"), tr("Clear Format"), QStringLiteral("Ctrl+\\"),
           [editor] { editor->formatInline(editor::InlineStyle::Clear); });
 
@@ -939,11 +952,70 @@ void MainWindow::saveAs() {
   const QString path = QFileDialog::getSaveFileName(this, tr("Save Markdown"), m_currentPath,
                                                     QStringLiteral("Markdown (*.md)"));
   if (path.isEmpty()) return;
-  const QString markdown = currentMarkdown();
+  saveDocumentAs(path);
+}
+
+bool MainWindow::saveDocumentAs(const QString& path) {
+  if (path.isEmpty()) return false;
+  static_cast<ui::Editor*>(m_editor)->finishParagraphSourceEdit();
+  const auto relocated = platform::relocateImages(currentMarkdown(), m_currentPath, path);
+  if (!relocated.error.isEmpty()) {
+    statusBar()->showMessage(relocated.error);
+    return false;
+  }
+  const QString markdown = relocated.markdown;
   QString error;
   if (!platform::writeAtomic(path, markdown, &error)) {
     statusBar()->showMessage(error);
-    return;
+    return false;
+  }
+  if (!relocated.targets.isEmpty()) {
+    const auto previous = m_editor->textCursor();
+    QTextCursor edit(m_editor->document());
+    edit.beginEditBlock();
+    if (m_sourceMode) {
+      edit.select(QTextCursor::Document);
+      edit.insertText(markdown);
+    } else {
+      const QUrl base = QUrl::fromLocalFile(QFileInfo(path).absolutePath() + '/');
+      struct ImageEdit {
+        int position;
+        QTextCharFormat format;
+      };
+      QList<ImageEdit> images;
+      for (auto block = m_editor->document()->begin(); block.isValid(); block = block.next())
+        for (auto it = block.begin(); !it.atEnd(); ++it) {
+          const auto fragment = it.fragment();
+          auto format = fragment.charFormat();
+          const auto target = format.property(editor::kImageProperty).toString();
+          if (!relocated.targets.contains(target)) continue;
+          const QString replacement = relocated.targets.value(target);
+          format.setProperty(editor::kImageProperty, replacement);
+          if (format.isImageFormat()) {
+            const QString local = render::localImagePath(replacement, base);
+            const QUrl url = QUrl::fromLocalFile(local);
+            m_editor->document()->addResource(QTextDocument::ImageResource, url,
+                                              render::imagePreview(local));
+            auto image = format.toImageFormat();
+            image.setName(url.toString());
+            format = image;
+          }
+          images.append({fragment.position(), format});
+        }
+      for (const auto& image : images) {
+        edit.setPosition(image.position);
+        edit.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+        edit.setCharFormat(image.format);
+      }
+    }
+    edit.endEditBlock();
+    if (!m_sourceMode)
+      m_editor->setTextCursor(previous);
+    else {
+      auto cursor = m_editor->textCursor();
+      cursor.setPosition(qMin(previous.position(), markdown.size()));
+      m_editor->setTextCursor(cursor);
+    }
   }
   ui::removeDraft(m_currentPath);
   m_currentPath = path;
@@ -953,6 +1025,7 @@ void MainWindow::saveAs() {
   markClean();
   platform::addRecentFile(path);
   rebuildRecentMenu();
+  return true;
 }
 
 void MainWindow::exportHtml() {
@@ -965,9 +1038,11 @@ void MainWindow::exportHtml() {
   if (path.isEmpty()) return;
 
   const std::string body =
-      typist::render::html(
-          currentMarkdown(),
-          ui::resolveTheme(themePreference(), systemPrefersDark()) == ui::Theme::Dark)
+      typist::render::embedLocalImages(
+          typist::render::html(
+              currentMarkdown(),
+              ui::resolveTheme(themePreference(), systemPrefersDark()) == ui::Theme::Dark),
+          m_view->rendered()->baseUrl())
           .toStdString();
   const std::string css =
       ui::htmlStyle(ui::resolveTheme(themePreference(), systemPrefersDark())).toStdString();
@@ -1200,13 +1275,11 @@ bool MainWindow::openDroppedFiles(const QList<QUrl>& urls) {
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
-  if (event->mimeData()->hasUrls()) event->acceptProposedAction();
+  if (event->mimeData()->hasUrls() || event->mimeData()->hasImage()) event->acceptProposedAction();
 }
 
 void MainWindow::dropEvent(QDropEvent* event) {
-  const QString image = typist::platform::firstImagePath(event->mimeData()->urls());
-  if (!image.isEmpty()) {
-    insertImageLink(image);
+  if (pasteImages(event->mimeData())) {
     event->acceptProposedAction();
     return;
   }
@@ -1542,6 +1615,7 @@ void MainWindow::openOutlineEntry() {
 }
 
 void MainWindow::pasteAsMarkdown() {
+  if (pasteImages(QApplication::clipboard()->mimeData())) return;
   if (static_cast<ui::Editor*>(m_editor)->paragraphSourceActive() ||
       (!m_sourceMode &&
        m_editor->textCursor().blockFormat().hasProperty(editor::kCodeBlockProperty))) {
@@ -1570,21 +1644,68 @@ void MainWindow::pasteAsMarkdown() {
 }
 
 void MainWindow::insertImageLink(const QString& path) {
-  static_cast<ui::Editor*>(m_editor)->finishParagraphSourceEdit();
-  const QString markdown = QStringLiteral("![%1](%2)").arg(QFileInfo(path).fileName(), path);
-  if (m_sourceMode) {
-    m_editor->insertPlainText(markdown);
-    statusBar()->showMessage(tr("Inserted image link"));
-    return;
+  QMimeData source;
+  source.setUrls({QUrl::fromLocalFile(path)});
+  pasteImages(&source);
+}
+bool MainWindow::pasteImages(const QMimeData* source) {
+  if (!source) return false;
+  QStringList files;
+  for (const auto& url : source->urls()) {
+    const auto path = platform::firstImagePath({url});
+    if (!path.isEmpty()) files.append(path);
+  }
+  if (files.isEmpty() && !source->hasImage()) return false;
+  if (!m_sourceMode &&
+      m_editor->textCursor().blockFormat().hasProperty(editor::kCodeBlockProperty)) {
+    if (source->hasText()) return false;  // Code paste keeps its literal text behavior.
+    statusBar()->showMessage(tr("Place the cursor outside a code block to insert an image"));
+    return true;
+  }
+  if (files.size() > 20) {
+    statusBar()->showMessage(tr("Insert up to 20 images at a time"));
+    return true;
+  }
+  QStringList markdown;
+  if (!files.isEmpty()) {
+    for (const auto& file : files) {
+      const auto stored =
+          platform::importImage(file, m_currentPath, platform::copyImagesToAssets());
+      if (!stored.ok()) {
+        statusBar()->showMessage(stored.error);
+        return true;
+      }
+      markdown.append(platform::imageMarkdown(stored.target, QFileInfo(file).fileName()));
+    }
+  } else {
+    const auto stored =
+        platform::storeImage(qvariant_cast<QImage>(source->imageData()), m_currentPath);
+    if (!stored.ok()) {
+      statusBar()->showMessage(stored.error);
+      return true;
+    }
+    markdown.append(platform::imageMarkdown(stored.target, tr("Pasted image")));
+  }
+  insertImageMarkdown(markdown);
+  return true;
+}
+bool MainWindow::insertImageMarkdown(const QStringList& images) {
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const QString markdown = images.join(QStringLiteral("\n\n"));
+  if (m_sourceMode || editor->paragraphSourceActive()) {
+    editor->insertPlainText(markdown);
+    statusBar()->showMessage(tr("Inserted %1 images").arg(images.size()));
+    return true;
   }
   QTextCursor cursor = m_editor->textCursor();
   QString error;
   if (!typist::editor::insertMarkdownAtCursor(markdown, cursor, &error)) {
     statusBar()->showMessage(tr("Cannot insert image link"));
-    return;
+    return false;
   }
   m_editor->setTextCursor(cursor);
-  statusBar()->showMessage(tr("Inserted image link"));
+  statusBar()->showMessage(tr("Inserted %1 images").arg(images.size()));
+  return true;
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {

@@ -30,6 +30,13 @@ void setLanguagePreference(const QString& value) {
   store.setValue(QStringLiteral("language"), value);
   store.sync();
 }
+bool copyImagesToAssets() {
+  return openSettings().value(QStringLiteral("images/copyToAssets"), true).toBool();
+}
+void setCopyImagesToAssets(bool enabled) {
+  QSettings store = openSettings();
+  store.setValue(QStringLiteral("images/copyToAssets"), enabled);
+}
 
 QString pdfPaper(const QString& fallback) {
   const QString value = openSettings().value(QStringLiteral("pdfPaper"), fallback).toString();

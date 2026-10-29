@@ -16,6 +16,7 @@ class ParagraphSourcePanel : public QFrame {
   void applyRequested();
   void cancelRequested();
   void focusLeft();
+  void imagePasteRequested();
 
  protected:
   bool eventFilter(QObject* object, QEvent* event) override;

@@ -1,5 +1,6 @@
 #include "editor_document.h"
 
+#include "ImageResources.h"
 #include "SpecialContent.h"
 
 #include <QCryptographicHash>
@@ -122,43 +123,37 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
       continue;
     }
     const QString target = QString::fromStdString(run.url);
-    const QString localTarget =
-        QFileInfo(target).isRelative() && !cursor.document()->baseUrl().isEmpty()
-            ? cursor.document()->baseUrl().resolved(QUrl(target)).toLocalFile()
-            : target;
+    const QString localTarget = render::localImagePath(target, cursor.document()->baseUrl());
     if (run.image && !target.isEmpty() && QFileInfo(localTarget).isFile()) {
       // Show the image itself; the object run keeps target and alt so serialization
       // can re-emit the Markdown link.
       // A large photo is scaled down so the model stays bounded; the aspect ratio holds.
-      QImageReader reader(localTarget);
-      QSize natural = reader.size();
-      if (natural.width() > 640 || natural.height() > 480) {
-        const double scale =
-            qMin(640.0 / double(natural.width()), 480.0 / double(natural.height()));
-        natural =
-            QSize(int(double(natural.width()) * scale), int(double(natural.height()) * scale));
+      const QImage loaded = render::imagePreview(localTarget);
+      if (loaded.isNull()) {
+        QTextCharFormat fallback = base;
+        fallback.merge(formatForRun(run));
+        cursor.insertText(text, fallback);
+        continue;
       }
-      const QImage loaded = reader.read();
       const QUrl resourceUrl = QUrl::fromLocalFile(localTarget);
-      cursor.document()->addResource(QVariant::Url, resourceUrl, loaded);
+      cursor.document()->addResource(QTextDocument::ImageResource, resourceUrl, loaded);
       QTextImageFormat imageFormat;
       imageFormat.setName(resourceUrl.toString());
-      if (natural.width() > 0 && natural.height() > 0) {
-        imageFormat.setWidth(natural.width());
-        imageFormat.setHeight(natural.height());
-      }
+      imageFormat.setWidth(loaded.width());
+      imageFormat.setHeight(loaded.height());
+      const int imagePosition = cursor.position();
       cursor.insertImage(imageFormat);
-      const QString blockText = cursor.block().text();
-      const int objectIndex = blockText.indexOf(QChar(0xFFFC));
-      if (objectIndex >= 0) {
+      {
         // Reuse the object format: a fresh format would drop the image name and size.
-        cursor.setPosition(cursor.block().position() + objectIndex, QTextCursor::MoveAnchor);
-        cursor.setPosition(cursor.block().position() + objectIndex + 1, QTextCursor::KeepAnchor);
+        cursor.setPosition(imagePosition, QTextCursor::MoveAnchor);
+        cursor.setPosition(imagePosition + 1, QTextCursor::KeepAnchor);
         QTextCharFormat objectFormat = cursor.charFormat();
         objectFormat.setProperty(kImageProperty, QVariant(target));
         objectFormat.setProperty(kImageAltProperty, QVariant(text));
         cursor.setCharFormat(objectFormat);
       }
+      cursor.clearSelection();
+      cursor.setCharFormat(base);
       continue;
     }
     QTextCharFormat format = base;

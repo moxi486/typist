@@ -129,6 +129,14 @@ std::string wrapCode(const std::string& text) {
 std::string renderRun(const InlineRun& run) {
   if (run.math) return "$" + run.text + "$";
   if (run.footnote) return "[^" + run.text + "]";
+  if (run.image) {
+    std::string alt;
+    for (const char ch : run.text) {
+      if (ch == '\\' || ch == '[' || ch == ']') alt += '\\';
+      alt += ch;
+    }
+    return "![" + alt + "](" + run.url + ")";
+  }
   std::string body = run.text;
   if (!run.code) {
     std::size_t position = 0;
@@ -142,7 +150,6 @@ std::string renderRun(const InlineRun& run) {
   if (run.italic) body = "*" + body + "*";
   if (run.strike) body = "~~" + body + "~~";
   if (run.link) body = "[" + body + "](" + run.url + ")";
-  if (run.image) body = "![" + body + "](" + run.url + ")";
   return body;
 }
 
@@ -504,6 +511,76 @@ std::string codeFence(std::string_view code, std::string_view info) {
     longest = std::max(longest, run);
   }
   return std::string(std::max(std::size_t(3), longest + 1), marker);
+}
+
+std::vector<ImageSource> imageSources(std::string_view source) {
+  std::vector<std::size_t> lines{0};
+  for (std::size_t i = 0; i < source.size(); ++i)
+    if (source[i] == '\n') lines.push_back(i + 1);
+  cmark_gfm_core_extensions_ensure_registered();
+  std::unique_ptr<cmark_parser, decltype(&cmark_parser_free)> parser(
+      cmark_parser_new(CMARK_OPT_DEFAULT), &cmark_parser_free);
+  if (!parser) return {};
+  if (auto* table = cmark_find_syntax_extension("table"))
+    cmark_parser_attach_syntax_extension(parser.get(), table);
+  cmark_parser_feed(parser.get(), source.data(), source.size());
+  std::unique_ptr<cmark_node, decltype(&cmark_node_free)> root(cmark_parser_finish(parser.get()),
+                                                               &cmark_node_free);
+  std::vector<ImageSource> images;
+  if (!root) return images;
+  auto* iterator = cmark_iter_new(root.get());
+  if (!iterator) return images;
+  while (cmark_iter_next(iterator) != CMARK_EVENT_DONE) {
+    if (cmark_iter_get_event_type(iterator) != CMARK_EVENT_ENTER) continue;
+    auto* node = cmark_iter_get_node(iterator);
+    if (cmark_node_get_type(node) != CMARK_NODE_IMAGE) continue;
+    ImageSource image;
+    image.target = cmark_node_get_url(node);
+    const int line = cmark_node_get_start_line(node), column = cmark_node_get_start_column(node);
+    const int endLine = cmark_node_get_end_line(node), endColumn = cmark_node_get_end_column(node);
+    if (line > 0 && endLine >= line && std::size_t(endLine) <= lines.size() && column > 0 &&
+        endColumn > 0) {
+      const auto start = lines[std::size_t(line - 1)] + std::size_t(column - 1);
+      const auto end =
+          std::min(source.size(), lines[std::size_t(endLine - 1)] + std::size_t(endColumn));
+      if (start < end && source.substr(start, 2) == "![") {
+        const auto span = source.substr(start, end - start);
+        const auto opening = span.rfind("](");
+        if (opening != std::string_view::npos) {
+          std::size_t first = opening + 2;
+          while (first < span.size() &&
+                 (span[first] == ' ' || span[first] == '\n' || span[first] == '\t'))
+            ++first;
+          std::size_t last = first;
+          if (first < span.size() && span[first] == '<') {
+            ++first;
+            last = span.find('>', first);
+          } else {
+            int depth = 0;
+            for (; last < span.size(); ++last) {
+              const char ch = span[last];
+              if (ch == '\\' && last + 1 < span.size()) {
+                ++last;
+                continue;
+              }
+              if (ch == '(') ++depth;
+              if (ch == ')' && !depth--) break;
+              if ((ch == ' ' || ch == '\n' || ch == '\t') && depth == 0) break;
+            }
+          }
+          if (last != std::string_view::npos && last >= first && last < span.size()) {
+            image.start = start + first;
+            image.length = last - first;
+          }
+        }
+      }
+    }
+    images.push_back(std::move(image));
+  }
+  cmark_iter_free(iterator);
+  std::sort(images.begin(), images.end(),
+            [](const auto& a, const auto& b) { return a.start < b.start; });
+  return images;
 }
 
 ParseResult parseMarkdown(std::string_view source, const ParseOptions& options) {

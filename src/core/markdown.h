@@ -73,6 +73,14 @@ ParseResult parseMarkdown(std::string_view source, const ParseOptions& options =
 std::string serializeMarkdown(const std::vector<Block>& blocks);
 std::string serializeInline(const std::vector<InlineRun>& runs);
 std::string codeFence(std::string_view code, std::string_view info = {});
+struct ImageSource {
+  std::string target;
+  std::size_t start = std::string::npos;
+  std::size_t length = 0;
+};
+// UTF-8 byte ranges of inline image destinations. Reference images have no
+// inline range, so callers can refuse relocation without rewriting unrelated text.
+std::vector<ImageSource> imageSources(std::string_view source);
 
 // Renders Markdown to an HTML fragment through cmark-gfm with the same GFM
 // extensions as parsing. CMARK_OPT_UNSAFE is set so raw inline HTML (such as the

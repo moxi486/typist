@@ -1,5 +1,6 @@
 #include "DocxWriter.h"
 
+#include "ImageResources.h"
 #include "SpecialContent.h"
 #include "SyntaxHighlighter.h"
 #include "markdown.h"
@@ -197,9 +198,8 @@ struct XmlContext {
     for (const ImageAttachment& image : images) {
       if (image.target == target) return image.relId;
     }
-    const QString resolved = QFileInfo(target).isRelative() && !baseDirectory.isEmpty()
-                                 ? QDir(baseDirectory).filePath(target)
-                                 : target;
+    const QString resolved = render::localImagePath(
+        target, baseDirectory.isEmpty() ? QUrl() : QUrl::fromLocalFile(baseDirectory + '/'));
     const QFileInfo info(resolved);
     if (!info.isFile()) return 0;
     QImageReader reader(resolved);

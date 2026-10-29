@@ -20,6 +20,8 @@ class QLabel;
 class QToolButton;
 class QTabWidget;
 class QMouseEvent;
+class QMimeData;
+class QImage;
 class QNetworkAccessManager;
 class QNetworkReply;
 class QTextDocument;
@@ -76,6 +78,7 @@ class MainWindow : public QMainWindow {
 
   // Opens the first Markdown URL from a drop; returns false when nothing applies.
   bool openDroppedFiles(const QList<QUrl>& urls);
+  bool saveDocumentAs(const QString& path);
 
  private slots:
   void openDialog();
@@ -135,6 +138,8 @@ class MainWindow : public QMainWindow {
   void retranslateUi();
   void createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMenu* settings);
   bool maybeSaveBeforeNavigate();
+  bool pasteImages(const QMimeData* source);
+  bool insertImageMarkdown(const QStringList& images);
   void newDocument();
   void openQuickly();
   void insertTableDialog();

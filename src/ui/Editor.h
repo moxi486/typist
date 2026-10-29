@@ -14,6 +14,7 @@
 #include <QTextEdit>
 #include <QTextFragment>
 #include <QTimer>
+#include <functional>
 
 namespace typist::ui {
 class ParagraphSourcePanel;
@@ -121,9 +122,13 @@ class Editor : public QTextEdit {
   void paste();
   void selectAll();
   void insertPlainText(const QString& text);
+  void setImagePasteHandler(std::function<bool(const QMimeData*)> handler) {
+    m_imagePasteHandler = std::move(handler);
+  }
  signals:
   void paragraphSourceChanged();
   void paragraphSourceClosed();
+  void markdownFileDropped(const QString& path);
 
  protected:
   void keyPressEvent(QKeyEvent* event) override;
@@ -131,6 +136,10 @@ class Editor : public QTextEdit {
   void mouseReleaseEvent(QMouseEvent* event) override;
   void inputMethodEvent(QInputMethodEvent* event) override;
   void insertFromMimeData(const QMimeData* source) override;
+  bool canInsertFromMimeData(const QMimeData* source) const override;
+  void dragEnterEvent(QDragEnterEvent* event) override;
+  void dragMoveEvent(QDragMoveEvent* event) override;
+  void dropEvent(QDropEvent* event) override;
   void resizeEvent(QResizeEvent* event) override {
     if (m_updatingMargins) {
       QTextEdit::resizeEvent(event);
@@ -211,6 +220,7 @@ class Editor : public QTextEdit {
   void updateCodeBlockBar(bool reset = false);
   void updateCodeBlockTheme();
   CodeBlockBar* m_codeBar = nullptr;
+  std::function<bool(const QMimeData*)> m_imagePasteHandler;
   ParagraphSourcePanel* m_paragraphPanel = nullptr;
   bool m_paragraphSourceActive = false;
   bool m_flushingParagraph = false;

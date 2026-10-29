@@ -13,6 +13,8 @@ void setThemePreference(const QString& value);
 
 QString languagePreference();
 void setLanguagePreference(const QString& value);
+bool copyImagesToAssets();
+void setCopyImagesToAssets(bool enabled);
 
 // PDF page controls; the defaults are A4 with 20mm margins.
 QString pdfPaper(const QString& fallback = QStringLiteral("a4"));

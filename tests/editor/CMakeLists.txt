@@ -57,3 +57,18 @@ set_target_properties(code_writing_tests PROPERTIES AUTOMOC ON)
 target_link_libraries(code_writing_tests PRIVATE typist::ui_viewswitch Qt6::Test Qt6::Widgets)
 add_test(NAME code_writing COMMAND code_writing_tests)
 set_tests_properties(code_writing PROPERTIES ENVIRONMENT "${editor_test_environment}" TIMEOUT 45)
+
+qt_add_executable(image_assets_tests image_assets_tests.cpp ../../src/ui/MainWindow.cpp ../../src/ui/MainWindow.h)
+set_target_properties(image_assets_tests PROPERTIES AUTOMOC ON)
+target_link_libraries(image_assets_tests PRIVATE typist::core typist::editor typist::platform
+  typist::ui_theme typist::ui_autosave typist::ui_viewswitch typist::ui_search
+  typist::ui_findbar typist::ui_filetree typist::ui_locale typist::ui_recovery
+  typist::ui_conflict typist::ui_toc typist::ui_update Qt6::Test Qt6::Widgets)
+if(TARGET Qt6::Network)
+  target_compile_definitions(image_assets_tests PRIVATE TYPIST_HAS_NETWORK=1 TYPIST_VERSION="${PROJECT_VERSION}")
+  target_link_libraries(image_assets_tests PRIVATE Qt6::Network)
+endif()
+qt_add_resources(image_assets_tests "image_test_assets" PREFIX "/" BASE "${CMAKE_SOURCE_DIR}"
+  FILES "${CMAKE_SOURCE_DIR}/translations/typist_zh.ts")
+add_test(NAME image_assets COMMAND image_assets_tests)
+set_tests_properties(image_assets PROPERTIES ENVIRONMENT "${editor_test_environment}" TIMEOUT 45)

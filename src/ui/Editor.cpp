@@ -10,6 +10,8 @@
 #include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QInputDialog>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
@@ -69,6 +71,8 @@ bool Editor::startParagraphSourceEdit() {
             [this] { finishParagraphSourceEdit(); });
     connect(m_paragraphPanel, &ParagraphSourcePanel::cancelRequested, this,
             [this] { finishParagraphSourceEdit(false); });
+    connect(m_paragraphPanel, &ParagraphSourcePanel::imagePasteRequested, this,
+            [this] { paste(); });
     connect(m_paragraphPanel, &ParagraphSourcePanel::focusLeft, this, [this] {
       QTextCursor destination = textCursor();
       finishParagraphSourceEdit();
@@ -204,6 +208,7 @@ void Editor::copy() {
     QTextEdit::copy();
 }
 void Editor::paste() {
+  if (m_imagePasteHandler && m_imagePasteHandler(QApplication::clipboard()->mimeData())) return;
   if (m_paragraphSourceActive)
     m_paragraphPanel->input()->paste();
   else
@@ -691,6 +696,7 @@ void Editor::inputMethodEvent(QInputMethodEvent* event) {
 }
 
 void Editor::insertFromMimeData(const QMimeData* source) {
+  if (m_imagePasteHandler && m_imagePasteHandler(source)) return;
   if (m_rendered && source->hasText()) {
     QTextCursor cursor = textCursor();
     if (editor::insertCodeText(cursor, source->text())) {
@@ -712,6 +718,51 @@ void Editor::insertFromMimeData(const QMimeData* source) {
     insertPlainText(text);
     tryRenderInline();
   }
+}
+bool Editor::canInsertFromMimeData(const QMimeData* source) const {
+  return (m_imagePasteHandler && (source->hasImage() || source->hasUrls())) ||
+         QTextEdit::canInsertFromMimeData(source);
+}
+namespace {
+QString droppedMarkdown(const QMimeData* source) {
+  for (const auto& url : source->urls())
+    if (url.isLocalFile() && url.toLocalFile().endsWith(QStringLiteral(".md"), Qt::CaseInsensitive))
+      return url.toLocalFile();
+  return {};
+}
+}  // namespace
+void Editor::dragEnterEvent(QDragEnterEvent* event) {
+  if (!droppedMarkdown(event->mimeData()).isEmpty())
+    event->acceptProposedAction();
+  else
+    QTextEdit::dragEnterEvent(event);
+}
+void Editor::dragMoveEvent(QDragMoveEvent* event) {
+  if (!droppedMarkdown(event->mimeData()).isEmpty())
+    event->acceptProposedAction();
+  else
+    QTextEdit::dragMoveEvent(event);
+}
+void Editor::dropEvent(QDropEvent* event) {
+  const QString path = droppedMarkdown(event->mimeData());
+  if (!path.isEmpty()) {
+    emit markdownFileDropped(path);
+    event->acceptProposedAction();
+    return;
+  }
+  // Import external images at the actual drop location, without allowing a move
+  // action to delete content in the source application.
+  if (event->source() != this && m_imagePasteHandler &&
+      (event->mimeData()->hasImage() || event->mimeData()->hasUrls())) {
+    finishParagraphSourceEdit();
+    setTextCursor(cursorForPosition(event->position().toPoint()));
+    if (m_imagePasteHandler(event->mimeData())) {
+      event->setDropAction(Qt::CopyAction);
+      event->accept();
+      return;
+    }
+  }
+  QTextEdit::dropEvent(event);
 }
 
 void Editor::keyPressEvent(QKeyEvent* event) {
