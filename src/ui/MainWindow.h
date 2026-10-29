@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Conflict.h"
+#include "EpubWriter.h"
 #include "FolderSearchRunner.h"
 #include "RecoveryStore.h"
 #include "Search.h"
@@ -70,6 +71,7 @@ class MainWindow : public QMainWindow {
 
   // Bench seam: write the current buffer as DOCX and report bytes written, or -1.
   qint64 exportDocxForBench(const QString& path) const;
+  qint64 exportEpubForBench(const QString& path, const platform::EpubOptions& options) const;
 
   // Bench seam: folder scan latency; *hitsOut receives the hit count.
   qint64 searchFolderForBench(const QString& rootDir, const QString& pattern, int* hitsOut);
@@ -94,6 +96,7 @@ class MainWindow : public QMainWindow {
   void exportHtml();
   void exportPdf();
   void exportDocx();
+  void exportEpub();
   void cycleTheme();
   void autoSaveNow();
   void toggleFindBar();

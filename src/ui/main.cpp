@@ -12,6 +12,7 @@
 #include <QLocale>
 #include <QString>
 #include <QStringList>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QTranslator>
 #include <cstdio>
@@ -38,10 +39,11 @@ int main(int argc, char* argv[]) {
   const bool benchFolderSearch = args.contains(QStringLiteral("--bench-file-search"));
   const bool benchTree = args.contains(QStringLiteral("--bench-tree"));
   const bool benchDocx = args.contains(QStringLiteral("--bench-docx"));
+  const bool benchEpub = args.contains(QStringLiteral("--bench-epub"));
 
   typist::MainWindow window;
   window.setBenchMode(benchStartup || benchRepaint || benchViewSwitch || benchSearch ||
-                      benchFolderSearch || benchTree || benchDocx);
+                      benchFolderSearch || benchTree || benchDocx || benchEpub);
   const QByteArray benchFile = qgetenv("TYPIST_BENCH_FILE");
   if (!benchFile.isEmpty()) window.openFile(QString::fromUtf8(benchFile));
   if (benchFile.isEmpty()) {
@@ -62,14 +64,16 @@ int main(int argc, char* argv[]) {
   int treeEntries = 0;
   int treeDirectories = 0;
   qint64 docxBytes = 0;
+  qint64 epubBytes = 0;
 
   if (benchStartup || benchRepaint || benchViewSwitch || benchSearch || benchFolderSearch ||
-      benchTree || benchDocx) {
+      benchTree || benchDocx || benchEpub) {
     QTimer::singleShot(
         0, &application,
         [&startup, &application, &window, benchStartup, benchRepaint, benchViewSwitch, benchSearch,
          benchFolderSearch, benchTree, benchDocx, &repaintBudgetBreaches, &undoKept, &searchMatches,
-         &folderHits, &folderScanMs, &treeEntries, &treeDirectories, &docxBytes] {
+         &folderHits, &folderScanMs, &treeEntries, &treeDirectories, &docxBytes, benchEpub,
+         &epubBytes] {
           if (benchStartup) {
             std::printf("startup_ms=%lld\n", static_cast<long long>(startup.elapsed()));
           }
@@ -115,6 +119,14 @@ int main(int argc, char* argv[]) {
             QFile::remove(target);
             std::printf("docx_bytes=%lld\n", static_cast<long long>(docxBytes));
           }
+          if (benchEpub) {
+            QTemporaryDir directory;
+            if (directory.isValid())
+              epubBytes = window.exportEpubForBench(
+                  directory.filePath(QStringLiteral("book.epub")),
+                  {QStringLiteral("Typist"), {}, QStringLiteral("zh-CN")});
+            std::printf("epub_bytes=%lld\n", static_cast<long long>(epubBytes));
+          }
           application.quit();
         });
   }
@@ -126,5 +138,6 @@ int main(int argc, char* argv[]) {
   if (benchFolderSearch && (folderHits == 0 || folderScanMs > 250)) return 1;
   if (benchTree && treeEntries == 0) return 1;
   if (benchDocx && docxBytes < 400) return 1;
+  if (benchEpub && epubBytes < 400) return 1;
   return code;
 }

@@ -14,6 +14,6 @@ Typist 是一个开源的所见即所得 Markdown 编辑器：源码与渲染在
 1. 安装 Qt 6（基线 6.8 LTS，目标 6.12 LTS）与 cmark-gfm（含 GFM 扩展：表格、任务列表、删除线）。
 2. `cmake --preset windows-mingw`（或 `linux-gcc` / `macos-clang`），然后 `cmake --build build/<preset>`。
 3. `ctest --test-dir build/<preset>`：往返保真、性能基线与 UI 接线都在测试里。
-4. 运行 `typist`：直接编辑 Markdown，`Ctrl+/` 切换源码视图，`Ctrl+Shift+E/P/X` 导出 HTML/PDF/DOCX。
+4. 运行 `typist`：直接编辑 Markdown，`Ctrl+/` 切换源码视图，`Ctrl+Shift+E/P/X` 导出 HTML/PDF/DOCX；通过文件菜单 [导出 EPUB 电子书](EPUB.md)。
 
 许可：应用为 MIT；Qt 以 LGPLv3 动态链接并提供可重链接说明；cmark-gfm 为 BSD-2。第三方许可声明见仓库根目录的 `NOTICE`。
