@@ -35,7 +35,7 @@
 | 放大 / 缩小 / 实际大小 | Ctrl+Shift+= / Ctrl+Shift+- / Ctrl+Shift+0 |
 | 主题循环（light/dark/system） | Ctrl+Shift+D |
 | 文件侧栏开关 / 打开文件夹 | Ctrl+Shift+L / Ctrl+Shift+O |
-| 目录内搜索 | Ctrl+Shift+F |
+| 工作区全文搜索 | Ctrl+Shift+F；Enter 立即搜索，↓ 进入结果，Enter / 双击打开源码行，Esc 停止 |
 | 大纲面板开关 / 文件树 | Ctrl+Shift+T 或 Ctrl+Shift+1 / Ctrl+Shift+3 |
 | 文件列表 / 文件排序 | 视图 → 文件列表；工作区右侧 ⋯ 菜单选择视图、排序和刷新 |
 | 恢复崩溃草稿 | Ctrl+Shift+R（菜单 File > Recover Draft） |

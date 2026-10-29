@@ -15,6 +15,7 @@
 #include "SpecialContent.h"
 #include "TableEditing.h"
 #include "Toc.h"
+#include "WorkspaceSearchPanel.h"
 #include "editor_document.h"
 #include "markdown.h"
 
@@ -52,6 +53,7 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
+#include <QTreeWidget>
 #include <QXmlStreamReader>
 #include <QtTest>
 
@@ -258,6 +260,132 @@ class WindowTests : public QObject {
     QCOMPARE(tree->options().view, typist::platform::FileBrowserView::List);
     QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
     QCOMPARE(editor->document()->availableUndoSteps(), steps);
+    window.findChild<QAction*>(QStringLiteral("language_en"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();
+  }
+
+  void workspaceSearchUsesRootAndProtectsDraftBeforeSourceJump() {
+    QTemporaryDir directory;
+    const auto original = directory.filePath(QStringLiteral("notes/original.md"));
+    const auto target = directory.filePath(QStringLiteral("guides/target.md"));
+    QDir().mkpath(QFileInfo(original).absolutePath());
+    QDir().mkpath(QFileInfo(target).absolutePath());
+    for (const auto& path : {original, target}) {
+      QFile file(path);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      file.write(path == original ? "Original paragraph.\n"
+                                  : "# Target\n\nNeedle first.\n\nneedle second.\n");
+    }
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::MainWindow window;
+    window.show();
+    QVERIFY(window.openFile(original));
+    window.findChild<QAction*>(QStringLiteral("autoSave"))->setChecked(false);
+    auto* fileTree = window.findChild<typist::ui::FileTree*>();
+    fileTree->setRoot(directory.path());
+    auto* panel = window.findChild<typist::ui::WorkspaceSearchPanel*>();
+    auto* query = panel->findChild<QLineEdit*>(QStringLiteral("workspaceSearchQuery"));
+    auto* tree = panel->findChild<QTreeWidget*>(QStringLiteral("workspaceSearchResults"));
+    auto* status = panel->findChild<QLabel*>(QStringLiteral("workspaceSearchStatus"));
+    actionBySource(window, QStringLiteral("Search in Folder"))->trigger();
+    QCOMPARE(panel->rootPath(), directory.path());
+    query->setText(QStringLiteral("needle"));
+    QTest::keyClick(query, Qt::Key_Return);
+    QTRY_VERIFY(status->text().startsWith(QStringLiteral("Matching lines: 2")));
+    QCOMPARE(tree->topLevelItemCount(), 1);
+    QCOMPARE(tree->topLevelItem(0)->childCount(), 2);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    draft->setPlainText(QStringLiteral("Unsaved **search draft**."));
+    const auto before = typist::editor::serializeDocument(editor->document());
+    const auto steps = editor->document()->availableUndoSteps();
+    QTimer safety;
+    connect(&safety, &QTimer::timeout, &window, [] {
+      if (auto* modal = qobject_cast<QDialog*>(QApplication::activeModalWidget())) modal->reject();
+    });
+    safety.start(3000);
+    for (bool discard : {false, true}) {
+      bool prompted = false;
+      QTimer::singleShot(0, &window, [&] {
+        if (auto* prompt = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+          prompted = true;
+          prompt->button(discard ? QMessageBox::Discard : QMessageBox::Cancel)->click();
+        }
+      });
+      tree->setCurrentItem(tree->topLevelItem(0)->child(1));
+      QTest::keyClick(tree, Qt::Key_Return);
+      QVERIFY(prompted);
+      QCoreApplication::processEvents();
+      if (!discard) {
+        QVERIFY(editor->paragraphSourceActive());
+        QCOMPARE(draft->toPlainText(), QStringLiteral("Unsaved **search draft**."));
+        QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+        QCOMPARE(editor->document()->availableUndoSteps(), steps);
+      }
+    }
+    QCOMPARE(editor->textCursor().blockNumber(), 4);
+    QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("needle"));
+    QCOMPARE(fileTree->rootPath(), directory.path());
+    QFile unchanged(original);
+    QVERIFY(unchanged.open(QIODevice::ReadOnly));
+    QCOMPARE(unchanged.readAll(), QByteArray("Original paragraph.\n"));
+    QFile changed(target);
+    QVERIFY(changed.open(QIODevice::WriteOnly));
+    changed.write("# Target\n\nNeedle first.\n\nChanged result.\n");
+    changed.close();
+    QTest::keyClick(tree, Qt::Key_Return);
+    QVERIFY(window.statusBar()->currentMessage().contains(QStringLiteral("Search result changed")));
+    const auto loaded = editor->toPlainText();
+    QVERIFY(QFile::remove(target));
+    QTest::keyClick(tree, Qt::Key_Return);
+    QCOMPARE(editor->toPlainText(), loaded);
+    QVERIFY(window.statusBar()->currentMessage().contains(QStringLiteral("Cannot open")));
+    window.setBenchMode(true);
+    QSettings().setValue(QStringLiteral("editor/autoSave"), true);
+  }
+
+  void workspaceSearchBilingualThemesAndSavedScope() {
+    QTemporaryDir directory;
+    const auto target = directory.filePath(QStringLiteral("写作计划.md"));
+    QFile file(target);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QStringLiteral("# Writing\n\n计划：整理资料\n\n计划：检查排版\n").toUtf8());
+    file.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.show();
+    window.openFile(target);
+    actionBySource(window, QStringLiteral("Search in Folder"))->trigger();
+    auto* panel = window.findChild<typist::ui::WorkspaceSearchPanel*>();
+    auto* query = panel->findChild<QLineEdit*>(QStringLiteral("workspaceSearchQuery"));
+    auto* results = panel->findChild<QTreeWidget*>(QStringLiteral("workspaceSearchResults"));
+    query->setText(QStringLiteral("计划"));
+    QTest::keyClick(query, Qt::Key_Return);
+    QTRY_COMPARE(results->topLevelItemCount(), 1);
+    QCOMPARE(results->topLevelItem(0)->childCount(), 2);
+    const auto output = qEnvironmentVariable("TYPIST_WORKSPACE_SEARCH_OUTPUT");
+    for (const auto& language : {QStringLiteral("en"), QStringLiteral("zh")}) {
+      window.findChild<QAction*>(QStringLiteral("language_") + language)->trigger();
+      window
+          .findChild<QAction*>(language == QLatin1String("en") ? QStringLiteral("appearance_light")
+                                                               : QStringLiteral("appearance_dark"))
+          ->trigger();
+      QCoreApplication::processEvents();
+      QCOMPARE(query->placeholderText(), language == QLatin1String("en")
+                                             ? QStringLiteral("Search in workspace…")
+                                             : QStringLiteral("在工作区中搜索…"));
+      QCOMPARE(panel->findChild<QPushButton*>(QStringLiteral("workspaceSearchStart"))->text(),
+               language == QLatin1String("en") ? QStringLiteral("Search") : QStringLiteral("搜索"));
+      QCOMPARE(window.findChild<QTabWidget*>(QStringLiteral("sidebarTabs"))->tabText(2),
+               language == QLatin1String("en") ? QStringLiteral("Search") : QStringLiteral("搜索"));
+      if (!output.isEmpty()) {
+        window.resize(1120, 760);
+        QTest::qWait(60);
+        QVERIFY(window.grab().save(output + QStringLiteral("/search-") + language +
+                                   QStringLiteral(".png")));
+      }
+    }
     window.findChild<QAction*>(QStringLiteral("language_en"))->trigger();
     window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();
   }
