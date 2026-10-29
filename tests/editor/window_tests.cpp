@@ -39,6 +39,7 @@
 #include <QMimeData>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QScopeGuard>
 #include <QScrollBar>
 #include <QSettings>
 #include <QStatusBar>
@@ -163,6 +164,102 @@ class WindowTests : public QObject {
     QCOMPARE(file.readAll(), QByteArray("Original paragraph.\n"));
     window.setBenchMode(true);
     QSettings().setValue(QStringLiteral("editor/autoSave"), true);
+  }
+
+  void fileBrowserPreferencesLanguagesAndDocumentStayIntact() {
+    const auto previous = typist::platform::fileBrowserOptions();
+    const auto restore = qScopeGuard([&] { typist::platform::setFileBrowserOptions(previous); });
+    typist::platform::setFileBrowserOptions({});
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QTemporaryDir directory;
+    const auto root = directory.filePath(QStringLiteral("Writing workspace"));
+    QDir().mkpath(root + QStringLiteral("/Guides"));
+    for (const auto& name :
+         {QStringLiteral("1-introduction.md"), QStringLiteral("2-plan.md"),
+          QStringLiteral("10-review.md"), QStringLiteral("Guides/写作指南.MD")}) {
+      QFile file(QDir(root).filePath(name));
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      file.write("# Writing\n\nA document for the file browser.\n");
+    }
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.show();
+    window.openFile(QDir(root).filePath(QStringLiteral("Guides/写作指南.MD")));
+    auto* tree = window.findChild<typist::ui::FileTree*>();
+    tree->setRoot(root);
+    tree->selectPath(QDir(root).filePath(QStringLiteral("Guides/写作指南.MD")));
+    auto* dock = window.findChild<QDockWidget*>(QStringLiteral("navigationSidebar"));
+    dock->show();
+    window.findChild<QLabel*>(QStringLiteral("workspaceName"))->setText(QDir(root).dirName());
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    editor->moveCursor(QTextCursor::End);
+    editor->insertPlainText(QStringLiteral(" unsaved editing"));
+    const auto before = typist::editor::serializeDocument(editor->document());
+    const auto steps = editor->document()->availableUndoSteps();
+    auto* button = window.findChild<QToolButton*>(QStringLiteral("fileOptions"));
+    QVERIFY(button && button->menu());
+    auto* menu = button->menu();
+    menu->findChild<QAction*>(QStringLiteral("browserList"))->trigger();
+    menu->findChild<QAction*>(QStringLiteral("browserNatural"))->trigger();
+    menu->findChild<QAction*>(QStringLiteral("browserDescending"))->trigger();
+    QCOMPARE(tree->options().view, typist::platform::FileBrowserView::List);
+    QCOMPARE(typist::platform::fileBrowserOptions().sort,
+             typist::platform::FileBrowserSort::Natural);
+    QVERIFY(typist::platform::fileBrowserOptions().descending);
+    QCOMPARE(tree->selectedPath(), QDir(root).filePath(QStringLiteral("Guides/写作指南.MD")));
+    const auto output = qEnvironmentVariable("TYPIST_FILE_BROWSER_OUTPUT");
+    for (const auto& language : {QStringLiteral("en"), QStringLiteral("zh")}) {
+      window.findChild<QAction*>(QStringLiteral("language_") + language)->trigger();
+      window
+          .findChild<QAction*>(language == QLatin1String("en") ? QStringLiteral("appearance_light")
+                                                               : QStringLiteral("appearance_dark"))
+          ->trigger();
+      QCoreApplication::processEvents();
+      QCOMPARE(button->toolTip(), language == QLatin1String("en") ? QStringLiteral("File Options")
+                                                                  : QStringLiteral("文件选项"));
+      QCOMPARE(menu->findChild<QAction*>(QStringLiteral("browserList"))->text(),
+               language == QLatin1String("en") ? QStringLiteral("File List")
+                                               : QStringLiteral("文件列表"));
+      QCOMPARE(menu->findChild<QAction*>(QStringLiteral("browserModified"))->text(),
+               language == QLatin1String("en") ? QStringLiteral("Modified Date")
+                                               : QStringLiteral("修改时间"));
+      QVERIFY(menu->findChild<QAction*>(QStringLiteral("browserList"))->isChecked());
+      QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+      QCOMPARE(editor->document()->availableUndoSteps(), steps);
+      if (!output.isEmpty()) {
+        window.resize(1120, 760);
+        QTest::qWait(80);
+        QVERIFY(window.grab().save(output + QStringLiteral("/browser-") + language +
+                                   QStringLiteral(".png")));
+        menu->popup(button->mapToGlobal(QPoint(0, button->height())));
+        QTest::qWait(60);
+        QVERIFY(menu->grab().save(output + QStringLiteral("/menu-") + language +
+                                  QStringLiteral(".png")));
+        menu->close();
+      }
+    }
+    // Toggling the sidebar must keep the root chosen by Open Folder.
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSidebar", Qt::DirectConnection));
+    QVERIFY(!dock->isVisible());
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSidebar", Qt::DirectConnection));
+    QCOMPARE(tree->rootPath(), root);
+    QCOMPARE(window.findChild<QLabel*>(QStringLiteral("workspaceName"))->text(),
+             QStringLiteral("Writing workspace"));
+    typist::MainWindow reopened;
+    reopened.setBenchMode(true);
+    QCOMPARE(reopened.findChild<typist::ui::FileTree*>()->options().view,
+             typist::platform::FileBrowserView::List);
+    QCOMPARE(reopened.findChild<typist::ui::FileTree*>()->options().sort,
+             typist::platform::FileBrowserSort::Natural);
+    QVERIFY(reopened.findChild<typist::ui::FileTree*>()->options().descending);
+    window.findChild<QAction*>(QStringLiteral("fileTree"))->trigger();
+    QCOMPARE(tree->options().view, typist::platform::FileBrowserView::Tree);
+    window.findChild<QAction*>(QStringLiteral("fileList"))->trigger();
+    QCOMPARE(tree->options().view, typist::platform::FileBrowserView::List);
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    QCOMPARE(editor->document()->availableUndoSteps(), steps);
+    window.findChild<QAction*>(QStringLiteral("language_en"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();
   }
 
   void quickOpenBilingualThemes() {

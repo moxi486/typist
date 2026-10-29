@@ -190,6 +190,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   setCentralWidget(central);
 
   m_tree = new ui::FileTree(this);
+  m_tree->setOptions(platform::fileBrowserOptions());
+  connect(m_tree, &ui::FileTree::optionsChanged, this,
+          [this] { platform::setFileBrowserOptions(m_tree->options()); });
   m_tree->setAccessibleName(tr("Files"));
   m_sidebarDock = new QDockWidget(tr("Files"), this);
   m_sidebarDock->setObjectName(QStringLiteral("navigationSidebar"));
@@ -203,7 +206,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   sidebarLayout->setSpacing(0);
   m_sidebarRootLabel = new QLabel(tr("Workspace"), sidebar);
   m_sidebarRootLabel->setObjectName(QStringLiteral("workspaceName"));
-  sidebarLayout->addWidget(m_sidebarRootLabel);
+  auto* sidebarHeader = new QHBoxLayout;
+  sidebarHeader->setContentsMargins(0, 0, 8, 0);
+  sidebarHeader->addWidget(m_sidebarRootLabel, 1);
+  m_fileOptionsButton = new QToolButton(sidebar);
+  m_fileOptionsButton->setObjectName(QStringLiteral("fileOptions"));
+  m_fileOptionsButton->setText(QStringLiteral("⋯"));
+  m_fileOptionsButton->setToolTip(tr("File Options"));
+  m_fileOptionsButton->setAccessibleName(tr("File Options"));
+  m_fileOptionsButton->setPopupMode(QToolButton::InstantPopup);
+  m_fileOptionsButton->setMenu(m_tree->createOptionsMenu(m_fileOptionsButton));
+  sidebarHeader->addWidget(m_fileOptionsButton);
+  sidebarLayout->addLayout(sidebarHeader);
   m_sidebarTabs = new QTabWidget(sidebar);
   m_sidebarTabs->setObjectName(QStringLiteral("sidebarTabs"));
   m_sidebarTabs->setDocumentMode(true);
@@ -442,7 +456,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   // Keep original labels so live language changes preserve the document and undo history.
   for (QAction* action : findChildren<QAction*>())
-    action->setProperty("translationSource", action->text());
+    if (!action->property("fileBrowserSource").isValid())
+      action->setProperty("translationSource", action->text());
   m_translator = new ui::AppTranslator(this);
   setLanguage(platform::languagePreference());
 
@@ -764,7 +779,17 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
           [this] {
             if (!m_sidebarDock->isVisible()) toggleSidebar();
             m_sidebarTabs->setCurrentIndex(0);
+            auto options = m_tree->options();
+            options.view = platform::FileBrowserView::Tree;
+            m_tree->setOptions(options);
           });
+  command(view, QStringLiteral("fileList"), tr("File List"), QString(), [this] {
+    if (!m_sidebarDock->isVisible()) toggleSidebar();
+    m_sidebarTabs->setCurrentIndex(0);
+    auto options = m_tree->options();
+    options.view = platform::FileBrowserView::List;
+    m_tree->setOptions(options);
+  });
 
   QAction* autoPair = command(settings, QStringLiteral("autoPair"),
                               tr("Auto Pair Brackets and Quotes"), QString(), [] {});
@@ -1000,7 +1025,7 @@ void MainWindow::openFile(const QString& path) {
   typist::platform::addRecentFile(path);
   rebuildRecentMenu();
 
-  if (m_sidebarDock->isVisible()) {
+  if (m_sidebarDock->isVisible() || !m_tree->rootPath().isEmpty()) {
     const QString relative =
         QDir(m_tree->rootPath()).relativeFilePath(QFileInfo(path).absoluteFilePath());
     if (m_tree->rootPath().isEmpty() || relative == QLatin1String("..") ||
@@ -1009,8 +1034,8 @@ void MainWindow::openFile(const QString& path) {
     m_tree->selectPath(path);
   }
   if (m_sidebarDock->isVisible() && m_sidebarTabs->currentIndex() == 1) rebuildOutline();
-  m_sidebarRootLabel->setText(m_sidebarDock->isVisible() ? QDir(m_tree->rootPath()).dirName()
-                                                         : QFileInfo(path).dir().dirName());
+  m_sidebarRootLabel->setText(!m_tree->rootPath().isEmpty() ? QDir(m_tree->rootPath()).dirName()
+                                                            : QFileInfo(path).dir().dirName());
   if (m_sidebarDock->isVisible()) {
     m_tree->setWatchEnabled(true);
   }
@@ -1489,7 +1514,10 @@ void MainWindow::toggleSidebar() {
     m_sidebarDock->hide();
     return;
   }
-  if (!m_currentPath.isEmpty()) m_tree->setRoot(QFileInfo(m_currentPath).absolutePath());
+  if (m_tree->rootPath().isEmpty() && !m_currentPath.isEmpty())
+    m_tree->setRoot(QFileInfo(m_currentPath).absolutePath());
+  if (!m_tree->rootPath().isEmpty())
+    m_sidebarRootLabel->setText(QDir(m_tree->rootPath()).dirName());
   m_sidebarDock->show();
   resizeDocks({m_sidebarDock}, {240}, Qt::Horizontal);
   m_tree->setWatchEnabled(true);
@@ -1646,7 +1674,10 @@ void MainWindow::retranslateUi() {
   m_sidebarDock->setWindowTitle(tr("Files"));
   m_sidebarTabs->setTabText(0, tr("Files"));
   m_sidebarTabs->setTabText(1, tr("Outline"));
-  if (m_currentPath.isEmpty()) m_sidebarRootLabel->setText(tr("Workspace"));
+  if (m_currentPath.isEmpty() && m_tree->rootPath().isEmpty())
+    m_sidebarRootLabel->setText(tr("Workspace"));
+  m_fileOptionsButton->setToolTip(tr("File Options"));
+  m_fileOptionsButton->setAccessibleName(tr("File Options"));
   m_resultsDock->setWindowTitle(tr("Search Results"));
   m_tree->setAccessibleName(tr("Files"));
   m_editor->setAccessibleName(tr("Markdown editor"));

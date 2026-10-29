@@ -707,6 +707,14 @@
         <source>Pasted HTML as Markdown; web page styling is simplified</source>
         <translation>已将 HTML 粘贴为 Markdown；网页样式已简化</translation>
     </message>
+    <message>
+        <source>File Options</source>
+        <translation>文件选项</translation>
+    </message>
+    <message>
+        <source>File List</source>
+        <translation>文件列表</translation>
+    </message>
 </context>
 <context>
     <name>FindBar</name>
@@ -792,6 +800,38 @@
     <message>
         <source>Delete %1?</source>
         <translation>删除 %1？</translation>
+    </message>
+    <message>
+        <source>File Tree</source>
+        <translation>文件树</translation>
+    </message>
+    <message>
+        <source>File List</source>
+        <translation>文件列表</translation>
+    </message>
+    <message>
+        <source>Name</source>
+        <translation>文件名</translation>
+    </message>
+    <message>
+        <source>Natural Order</source>
+        <translation>自然顺序</translation>
+    </message>
+    <message>
+        <source>Modified Date</source>
+        <translation>修改时间</translation>
+    </message>
+    <message>
+        <source>Descending</source>
+        <translation>降序</translation>
+    </message>
+    <message>
+        <source>Folders First</source>
+        <translation>文件夹优先</translation>
+    </message>
+    <message>
+        <source>Refresh</source>
+        <translation>刷新</translation>
     </message>
 </context>
 <context>

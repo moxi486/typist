@@ -188,6 +188,7 @@ class MainWindow : public QMainWindow {
   QListWidget* m_outlineList = nullptr;
   QTabWidget* m_sidebarTabs = nullptr;
   QLabel* m_sidebarRootLabel = nullptr;
+  QToolButton* m_fileOptionsButton = nullptr;
   QAction* m_outlineAction = nullptr;
   QAction* m_pasteMarkdownAction = nullptr;
   QAction* m_updateAction = nullptr;
