@@ -392,10 +392,6 @@
         <translation>文件树</translation>
     </message>
     <message>
-        <source>File name</source>
-        <translation>文件名</translation>
-    </message>
-    <message>
         <source>Focus Mode</source>
         <translation>专注模式</translation>
     </message>
@@ -1380,6 +1376,61 @@
     <message>
         <source>Cannot preview this document: %1</source>
         <translation>无法预览此文档：%1</translation>
+    </message>
+</context>
+<context>
+    <name>QuickOpenDialog</name>
+    <message>
+        <source>Open Quickly</source>
+        <translation>快速打开</translation>
+    </message>
+    <message>
+        <source>Recent</source>
+        <translation>最近打开</translation>
+    </message>
+    <message>
+        <source>Search file name or path…</source>
+        <translation>搜索文件名或路径…</translation>
+    </message>
+    <message>
+        <source>Search file name or path</source>
+        <translation>搜索文件名或路径</translation>
+    </message>
+    <message>
+        <source>Matching files</source>
+        <translation>匹配的文件</translation>
+    </message>
+    <message>
+        <source>Scanning folder… Recent files are available now.</source>
+        <translation>正在扫描文件夹… 现在即可打开最近文件。</translation>
+    </message>
+    <message>
+        <source>Folder unavailable. Recent files are still available.</source>
+        <translation>无法访问文件夹，仍可打开最近文件。</translation>
+    </message>
+    <message>
+        <source>Folder limit reached. Open a smaller folder to find more files.</source>
+        <translation>已达到目录扫描上限，请打开更小的文件夹以查找其他文件。</translation>
+    </message>
+    <message>
+        <source>No matching files</source>
+        <translation>没有匹配的文件</translation>
+    </message>
+    <message>
+        <source>%1 files shown (up to 100)</source>
+        <translation>显示 %1 个文件（最多 100 个）</translation>
+    </message>
+    <message>
+        <source>↑ ↓  Select     Enter  Open     Esc  Cancel</source>
+        <translation>↑ ↓  选择     Enter  打开     Esc  取消</translation>
+    </message>
+    <message>
+        <source>Open</source>
+        <translation>打开</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
     </message>
 </context>
 </TS>

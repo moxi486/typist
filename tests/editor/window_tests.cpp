@@ -1,6 +1,7 @@
 #include "DocxWriter.h"
 #include "Editor.h"
 #include "EpubDialog.h"
+#include "FileTree.h"
 #include "FindBar.h"
 #include "HtmlImportDialog.h"
 #include "HtmlImporter.h"
@@ -9,6 +10,7 @@
 #include "MainWindow.h"
 #include "PdfExportDialog.h"
 #include "PdfWriter.h"
+#include "QuickOpenDialog.h"
 #include "Settings.h"
 #include "SpecialContent.h"
 #include "TableEditing.h"
@@ -24,6 +26,7 @@
 #include <QDesktopServices>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileDialog>
@@ -77,6 +80,114 @@ class WindowTests : public QObject {
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/packaging/linux/typist.png")));
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settings.path());
+  }
+
+  void quickOpenPreservesDraftOnCancelAndWorkspaceOnOpen() {
+    QTemporaryDir directory;
+    const auto original = directory.filePath(QStringLiteral("original.md"));
+    const auto target = directory.filePath(QStringLiteral("nested/target.md"));
+    QDir().mkpath(QFileInfo(target).absolutePath());
+    for (const auto& path : {original, target}) {
+      QFile file(path);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      file.write(path == target ? "# Target\n" : "Original paragraph.\n");
+    }
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::MainWindow window;
+    window.show();
+    window.openFile(original);
+    window.findChild<QAction*>(QStringLiteral("autoSave"))->setChecked(false);
+    auto* tree = window.findChild<typist::ui::FileTree*>();
+    tree->setRoot(directory.path());
+    window.findChild<QDockWidget*>(QStringLiteral("navigationSidebar"))->show();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    draft->setPlainText(QStringLiteral("Unsaved **draft**."));
+    const auto before = typist::editor::serializeDocument(editor->document());
+    const auto steps = editor->document()->availableUndoSteps();
+    typist::platform::addRecentFile(target);
+    QTimer safety;
+    connect(&safety, &QTimer::timeout, &window, [] {
+      if (auto* modal = qobject_cast<QDialog*>(QApplication::activeModalWidget())) modal->reject();
+    });
+    safety.start(3000);
+    for (bool discard : {false, true}) {
+      bool chosen = false, prompted = false;
+      QTimer automate;
+      connect(&automate, &QTimer::timeout, &window, [&] {
+        if (auto* picker =
+                qobject_cast<typist::ui::QuickOpenDialog*>(QApplication::activeModalWidget())) {
+          if (chosen) return;
+          chosen = true;
+          auto* query = picker->findChild<QLineEdit*>(QStringLiteral("quickOpenQuery"));
+          query->setText(QStringLiteral("target"));
+          QTest::keyClick(query, Qt::Key_Return);
+        } else if (auto* prompt = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+          prompted = true;
+          prompt->button(discard ? QMessageBox::Discard : QMessageBox::Cancel)->click();
+        }
+      });
+      automate.start(10);
+      auto* action = window.findChild<QAction*>(QStringLiteral("openQuickly"));
+      QVERIFY(action);
+      action->trigger();
+      QVERIFY(chosen && prompted);
+      if (!discard) {
+        QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+        QCOMPARE(editor->document()->availableUndoSteps(), steps);
+        QVERIFY(editor->paragraphSourceActive());
+        QCOMPARE(draft->toPlainText(), QStringLiteral("Unsaved **draft**."));
+      }
+    }
+    QVERIFY(editor->toPlainText().contains(QStringLiteral("Target")));
+    QVERIFY(!editor->paragraphSourceActive());
+    QCOMPARE(tree->rootPath(), directory.path());
+    QFile file(original);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), QByteArray("Original paragraph.\n"));
+    window.setBenchMode(true);
+    QSettings().setValue(QStringLiteral("editor/autoSave"), true);
+  }
+
+  void quickOpenBilingualThemes() {
+    QTemporaryDir directory;
+    for (const auto& name : {QStringLiteral("Writing guide.md"), QStringLiteral("写作计划.md"),
+                             QStringLiteral("Reference.md")}) {
+      QFile file(directory.filePath(name));
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      file.write("# Note\n");
+    }
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.show();
+    const auto output = qEnvironmentVariable("TYPIST_QUICK_OPEN_OUTPUT");
+    for (const auto& language : {QStringLiteral("en"), QStringLiteral("zh")}) {
+      window.findChild<QAction*>(QStringLiteral("language_") + language)->trigger();
+      window
+          .findChild<QAction*>(language == QLatin1String("en") ? QStringLiteral("appearance_light")
+                                                               : QStringLiteral("appearance_dark"))
+          ->trigger();
+      typist::ui::QuickOpenDialog dialog(
+          directory.path(), {directory.filePath(QStringLiteral("写作计划.md"))}, &window);
+      dialog.show();
+      auto* status = dialog.findChild<QLabel*>(QStringLiteral("quickOpenStatus"));
+      QTRY_VERIFY(status->text().contains(QStringLiteral("3")));
+      QCOMPARE(dialog.windowTitle(), language == QLatin1String("en")
+                                         ? QStringLiteral("Open Quickly")
+                                         : QStringLiteral("快速打开"));
+      QCOMPARE(dialog.palette().color(QPalette::Window).lightness() < 128,
+               language == QLatin1String("zh"));
+      auto* query = dialog.findChild<QLineEdit*>(QStringLiteral("quickOpenQuery"));
+      QCOMPARE(query->placeholderText(), language == QLatin1String("en")
+                                             ? QStringLiteral("Search file name or path…")
+                                             : QStringLiteral("搜索文件名或路径…"));
+      if (!output.isEmpty())
+        QVERIFY(dialog.grab().save(output + QStringLiteral("/quick-open-") + language +
+                                   QStringLiteral(".png")));
+    }
+    window.findChild<QAction*>(QStringLiteral("language_en"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();
   }
 
   void windowLanguageThemeAndUndo() {

@@ -3,7 +3,7 @@
 | 操作 | 快捷键 |
 | --- | --- |
 | 新建 / 新建窗口 / 关闭 | Ctrl+N / Ctrl+Shift+N / Ctrl+W |
-| 快速打开当前目录文件 | Ctrl+P |
+| 快速打开工作区 / 最近文件 | Ctrl+P；输入文件名或路径模糊搜索，↑ / ↓ 选择、Enter 打开、Esc 关闭 |
 | 打开 / 保存 / 另存为 | Ctrl+O / Ctrl+S / Ctrl+Shift+S |
 | 导出 HTML / PDF / DOCX | Ctrl+Shift+E / Ctrl+Shift+P / Ctrl+Shift+X |
 | 导出 EPUB | 文件 → 导出 EPUB（无默认快捷键） |
@@ -51,3 +51,5 @@
 `Ctrl+Enter` 编辑当前正文段落或标题的 Markdown；在就地源码框中再次 `Ctrl+Enter` 应用、`Esc` 取消；在代码块或表格中则退出当前块并继续正文。代码块工具条可选择语言、复制整块原文和退出；语言也可在「段落 → 代码语言」修改，高亮开关在「设置 → 语法高亮」。代码块支持 Enter 自动缩进、Tab / Shift+Tab 多行缩进、缩进 Backspace 和智能 Home。详见 [Writing-Experience.md](Writing-Experience.md)；表格选区及电子表格粘贴见 [Tables.md](Tables.md)。
 
 链接编辑、相对文件跳转与导出锚点见 [Links.md](Links.md)。
+
+快速打开的搜索范围、键盘操作与目录扫描上限见 [Quick-Open.md](Quick-Open.md)。
