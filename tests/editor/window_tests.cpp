@@ -796,6 +796,11 @@ class WindowTests : public QObject {
     QTimer::singleShot(0, &window, [&] {
       auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
       QVERIFY(dialog);
+      QTimer::singleShot(1000, dialog, &QDialog::reject);
+      auto* headings = dialog->findChild<QComboBox*>(QStringLiteral("linkHeading"));
+      QVERIFY(headings);
+      const auto sample = headings->grab().toImage();
+      QVERIFY(sample.pixelColor(sample.width() / 2, sample.height() / 2).lightness() < 128);
       QVERIFY(dialog->grab().save(output + "/link-dialog-dark-zh.png"));
       dialog->reject();
     });

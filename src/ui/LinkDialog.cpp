@@ -50,13 +50,18 @@ LinkDialog::LinkDialog(const QString& label, const QString& target,
   m_cancel = m_buttons->addButton(QString(), QDialogButtonBox::RejectRole);
   m_apply->setObjectName(QStringLiteral("applyLink"));
   m_cancel->setObjectName(QStringLiteral("cancelLink"));
-  setStyleSheet(QStringLiteral(
-      "QPushButton#applyLink{background:#3d72bb;color:white;border:0;border-radius:5px;padding:8px "
-      "20px;}"
-      "QPushButton#applyLink:disabled{background:palette(mid);color:palette(text);}"
-      "QComboBox{background:palette(base);color:palette(text);border:1px solid palette(mid);"
-      "border-radius:5px;padding:7px;}QComboBox::drop-down{border:0;width:24px;}"
-      "QComboBox QAbstractItemView{background:palette(base);color:palette(text);}"));
+  const bool dark = palette().color(QPalette::Window).lightness() < 128;
+  setStyleSheet(
+      QStringLiteral(
+          "QPushButton#applyLink{background:#3d72bb;color:white;border:0;border-radius:5px;padding:"
+          "8px "
+          "20px;}"
+          "QPushButton#applyLink:disabled{background:palette(mid);color:palette(text);}"
+          "QComboBox{background:%1;color:%2;border:1px solid %3;"
+          "border-radius:5px;padding:7px;}QComboBox::drop-down{border:0;width:24px;}"
+          "QComboBox QAbstractItemView{background:%1;color:%2;selection-background-color:#3d639d;}")
+          .arg(dark ? "#363b40" : "#ffffff", dark ? "#e0e0e0" : "#333333",
+               dark ? "#484e55" : "#d2d8df"));
   form->addRow(m_buttons);
   connect(m_buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
   connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
