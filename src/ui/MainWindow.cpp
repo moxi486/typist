@@ -21,6 +21,7 @@
 #include "Localization.h"
 #include "PdfExportDialog.h"
 #include "PdfWriter.h"
+#include "QuickOpenDialog.h"
 #include "Settings.h"
 #include "SpecialContent.h"
 #include "SystemTheme.h"
@@ -72,6 +73,7 @@
 #include <QPalette>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QScreen>
 #include <QSettings>
 #include <QSpinBox>
@@ -831,15 +833,15 @@ void MainWindow::newDocument() {
 }
 
 void MainWindow::openQuickly() {
-  const QString root =
-      m_currentPath.isEmpty() ? QDir::currentPath() : QFileInfo(m_currentPath).absolutePath();
-  const QStringList paths = platform::listMarkdownFiles(root, 1000);
-  QStringList names;
-  for (const QString& path : paths) names.append(QDir(root).relativeFilePath(path));
-  bool ok = false;
-  const QString chosen =
-      QInputDialog::getItem(this, tr("Open Quickly"), tr("File name"), names, 0, true, &ok);
-  if (ok && !chosen.isEmpty()) openFile(QDir(root).absoluteFilePath(chosen));
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+  const auto restoreFocus = qScopeGuard(
+      [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
+  QString root = m_tree->rootPath();
+  if (root.isEmpty())
+    root = m_currentPath.isEmpty() ? QDir::currentPath() : QFileInfo(m_currentPath).absolutePath();
+  ui::QuickOpenDialog dialog(root, platform::recentFiles(), this);
+  if (dialog.exec() == QDialog::Accepted) openFile(dialog.selectedPath());
 }
 
 void MainWindow::insertTableDialog() {
@@ -999,11 +1001,16 @@ void MainWindow::openFile(const QString& path) {
   rebuildRecentMenu();
 
   if (m_sidebarDock->isVisible()) {
-    m_tree->setRoot(QFileInfo(path).absolutePath());
+    const QString relative =
+        QDir(m_tree->rootPath()).relativeFilePath(QFileInfo(path).absoluteFilePath());
+    if (m_tree->rootPath().isEmpty() || relative == QLatin1String("..") ||
+        relative.startsWith(QLatin1String("../")) || QDir::isAbsolutePath(relative))
+      m_tree->setRoot(QFileInfo(path).absolutePath());
     m_tree->selectPath(path);
   }
   if (m_sidebarDock->isVisible() && m_sidebarTabs->currentIndex() == 1) rebuildOutline();
-  m_sidebarRootLabel->setText(QFileInfo(path).dir().dirName());
+  m_sidebarRootLabel->setText(m_sidebarDock->isVisible() ? QDir(m_tree->rootPath()).dirName()
+                                                         : QFileInfo(path).dir().dirName());
   if (m_sidebarDock->isVisible()) {
     m_tree->setWatchEnabled(true);
   }

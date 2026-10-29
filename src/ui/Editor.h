@@ -126,6 +126,9 @@ class Editor : public QTextEdit {
   bool flushParagraphSourceEdit(bool keepOpen = true);
   void finishParagraphSourceEdit(bool apply = true);
   bool paragraphSourceActive() const { return m_paragraphSourceActive; }
+  // Modal navigation must not apply the draft through deferred focus-out events.
+  // Returns the previous state; re-enabling restores focus to an active draft.
+  bool setParagraphSourceFocusCommitEnabled(bool enabled);
   bool undoParagraphSource(bool redo = false);
   bool paragraphSourceUndoAvailable(bool redo = false) const;
   QString markdownWithParagraphDraft() const;
@@ -247,6 +250,7 @@ class Editor : public QTextEdit {
   std::function<bool(const QMimeData*)> m_imagePasteHandler;
   ParagraphSourcePanel* m_paragraphPanel = nullptr;
   bool m_paragraphSourceActive = false;
+  bool m_paragraphSourceFocusCommitEnabled = true;
   bool m_flushingParagraph = false;
   QTextCursor m_paragraphRange;
   QPointer<QTextDocument> m_paragraphDocument;

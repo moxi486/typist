@@ -82,6 +82,7 @@ bool Editor::startParagraphSourceEdit() {
     connect(m_paragraphPanel, &ParagraphSourcePanel::imagePasteRequested, this,
             [this] { paste(); });
     connect(m_paragraphPanel, &ParagraphSourcePanel::focusLeft, this, [this] {
+      if (!m_paragraphSourceFocusCommitEnabled) return;
       QTextCursor destination = textCursor();
       finishParagraphSourceEdit();
       if (destination.document() == document()) setTextCursor(destination);
@@ -103,6 +104,14 @@ bool Editor::startParagraphSourceEdit() {
   m_paragraphPanel->input()->setTextCursor(caret);
   return true;
 }
+bool Editor::setParagraphSourceFocusCommitEnabled(bool enabled) {
+  const bool previous = m_paragraphSourceFocusCommitEnabled;
+  if (enabled && !previous && m_paragraphSourceActive && m_paragraphPanel)
+    m_paragraphPanel->input()->setFocus();
+  m_paragraphSourceFocusCommitEnabled = enabled;
+  return previous;
+}
+
 bool Editor::flushParagraphSourceEdit(bool keepOpen) {
   if (!m_paragraphSourceActive || m_flushingParagraph) return true;
   QScopedValueRollback<bool> guard(m_flushingParagraph, true);

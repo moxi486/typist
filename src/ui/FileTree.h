@@ -16,6 +16,7 @@ class FileTree : public QTreeWidget {
   explicit FileTree(QWidget* parent = nullptr);
 
   void setRoot(const QString& rootDir);
+  QString rootPath() const { return m_root; }
   int entryCount() const;
   int directoryCount() const;
   QString entryPath(int index) const;
