@@ -3,6 +3,7 @@
 #include "markdown.h"
 
 #include <QString>
+#include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <vector>
@@ -22,6 +23,19 @@ constexpr uint kImageProperty = 0x100006;     // value: image target
 constexpr uint kImageAltProperty =
     0x100007;  // value: image alt text        // value: image destination, on an anchored run
 constexpr uint kTaskMarkProperty = 0x100008;  // value: checked state of the rendered checkbox glyph
+constexpr uint kPresentationBoldProperty = 0x100009;  // visual weight, not Markdown emphasis
+constexpr uint kTableAlignmentProperty = 0x10000a;    // 0=default, 1=left, 2=center, 3=right
+constexpr uint kMathSourceProperty = 0x10000b;
+constexpr uint kSpecialBlockProperty = 0x10000c;  // math, mermaid or toc
+constexpr uint kSpecialSourceProperty = 0x10000d;
+constexpr uint kFootnoteDefinitionProperty = 0x10000e;
+constexpr uint kFootnoteReferenceProperty = 0x10000f;
+constexpr uint kFootnoteLabelProperty = 0x100010;
+constexpr uint kSpecialTypeProperty = 0x100011;
+constexpr uint kEmptyCodeFenceProperty = 0x100012;
+
+// Refresh image resources without editing document content or its undo history.
+void refreshSpecialContent(QTextDocument* document, bool dark);
 
 // Qt exposes no undo history cap, so the step count is checked against this limit
 // and the undo stack dropped when it is exceeded.
@@ -35,7 +49,9 @@ void buildDocument(const std::vector<typist::core::Block>& blocks, QTextDocument
 
 // Serializes a document back to Markdown: tables emit their header row and a
 // | --- | divider, cells escape '|' as \| and line breaks as <br>.
-QString serializeDocument(const QTextDocument* document);
+QString serializeDocument(const QTextDocument* document, int paragraphPosition = -1,
+                          const QString& paragraphSource = QString());
+QString inlineMarkdown(const QTextBlock& block);
 
 // Parses Markdown and inserts the blocks at the cursor, on one undo step. The cursor
 // lands after the pasted content. Returns false on a parse failure without touching

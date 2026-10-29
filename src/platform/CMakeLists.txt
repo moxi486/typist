@@ -4,7 +4,7 @@ add_library(typist::platform ALIAS typist_platform)
 set_target_properties(typist_platform PROPERTIES AUTOMOC ON)
 target_include_directories(typist_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # QPdfWriter lives in Qt6::Gui, so PDF export needs no PrintSupport module.
-target_link_libraries(typist_platform PUBLIC typist::core Qt6::Core Qt6::Gui)
+target_link_libraries(typist_platform PUBLIC typist::core typist_render Qt6::Core Qt6::Gui)
 
 if(Qt6PrintSupport_FOUND)
   target_link_libraries(typist_platform PUBLIC Qt6::PrintSupport)

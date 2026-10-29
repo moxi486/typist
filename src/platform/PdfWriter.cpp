@@ -1,5 +1,8 @@
 #include "PdfWriter.h"
 
+#include "SpecialContent.h"
+#include "SyntaxHighlighter.h"
+
 #include <QByteArray>
 #include <QMarginsF>
 #include <QPageSize>
@@ -64,40 +67,31 @@ QRectF tableHeaderRectFor(QTextDocument* document, const QTextBlock& block) {
 
 namespace {
 
-constexpr double kBandHeightPx = 18.0;
-constexpr double kTableHeaderGapPx = 4.0;
+constexpr double kBandHeightPx = 30.0;
 
 QPageSize paperFor(const QString& paper) {
   return paper == QStringLiteral("letter") ? QPageSize(QPageSize::Letter)
                                            : QPageSize(QPageSize::A4);
 }
 
-void drawBands(QPainter& painter, const QRectF& pageRect, int page, const PdfPageOptions& options,
-               double headerBand, double footerBand) {
-  if (!options.header.isEmpty()) {
-    painter.drawText(QPointF(pageRect.left(), pageRect.top() + kBandHeightPx - 4.0),
-                     options.header);
-  }
-  if (!options.footer.isEmpty()) {
-    QString line = options.footer;
-    line.replace(QStringLiteral("#"), QString::number(page));
-    painter.drawText(QPointF(pageRect.left(), pageRect.bottom() - 4.0), line);
-  }
-}
-
-void emitPage(QPdfWriter& writer, QPainter& painter, QAbstractTextDocumentLayout* layout,
-              const QRectF& pageRect, int page, double contentTop, double contentBottom,
-              double headerBand, double footerBand, const PdfPageOptions& options) {
-  if (page > 1) writer.newPage();
+void drawBands(QPainter& painter, const QRectF& pageRect, int page, const PdfPageOptions& options) {
   painter.save();
-  painter.translate(pageRect.left(), pageRect.top() + headerBand - contentTop);
-  QAbstractTextDocumentLayout::PaintContext context;
-  const double height = qMax(contentBottom - contentTop, 1.0);
-  context.clip = QRectF(0.0, contentTop, pageRect.width(),
-                        qMin(height, pageRect.height() - headerBand - footerBand));
-  layout->draw(&painter, context);
+  painter.setClipping(false);
+  painter.setPen(QColor("#667085"));
+  QFont font = painter.font();
+  font.setPointSizeF(9);
+  painter.setFont(font);
+  if (!options.header.isEmpty())
+    painter.drawText(QRectF(pageRect.left(), pageRect.top(), pageRect.width(), kBandHeightPx),
+                     Qt::AlignLeft | Qt::AlignTop, options.header);
+  if (!options.footer.isEmpty()) {
+    QString footer = options.footer;
+    footer.replace(QStringLiteral("#"), QString::number(page));
+    painter.drawText(
+        QRectF(pageRect.left(), pageRect.bottom() - kBandHeightPx, pageRect.width(), kBandHeightPx),
+        Qt::AlignHCenter | Qt::AlignBottom, footer);
+  }
   painter.restore();
-  drawBands(painter, pageRect, page, options, headerBand, footerBand);
 }
 
 }  // namespace
@@ -115,108 +109,143 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
     return false;
   }
 
-  // The writer lays the document out at 96dpi so document pixels match device pixels.
+  if (!qIsFinite(options.marginMm) || options.marginMm < 0) {
+    if (error) *error = QStringLiteral("Invalid page margins");
+    return false;
+  }
   QPdfWriter writer(path);
   writer.setResolution(96);
-  if (!writer.setPageSize(paperFor(options.paper))) {
-    if (error != nullptr) *error = QStringLiteral("Unsupported paper size");
-    return false;
-  }
-  if (!writer.setPageMargins(
-          QMarginsF(options.marginMm, options.marginMm, options.marginMm, options.marginMm),
-          QPageLayout::Millimeter)) {
-    if (error != nullptr) *error = QStringLiteral("Margins do not fit the paper");
-    return false;
-  }
-
+  writer.setTitle(options.header);
+  writer.setCreator(QStringLiteral("Typist"));
+  writer.setPageSize(paperFor(options.paper));
+  // Paint from the physical page origin, so margins are applied exactly once.
+  writer.setPageMargins(QMarginsF(0, 0, 0, 0));
+  const double margin = options.marginMm * writer.resolution() / 25.4;
+  const QRectF pageRect = QRectF(writer.pageLayout().fullRectPixels(writer.resolution()))
+                              .adjusted(margin, margin, -margin, -margin);
   const double headerBand = options.header.isEmpty() ? 0.0 : kBandHeightPx;
   const double footerBand = options.footer.isEmpty() ? 0.0 : kBandHeightPx;
-  const QRectF pageRect(writer.pageLayout().paintRectPixels(writer.resolution()));
   const double contentHeight = pageRect.height() - headerBand - footerBand;
-  if (contentHeight <= 0.0) {
-    if (error != nullptr)
-      *error = QStringLiteral("No room left for content after header and footer");
+  if (contentHeight < 1 || pageRect.width() < 1) {
+    if (error) *error = QStringLiteral("No room left for page content");
     return false;
   }
 
-  // A clone keeps the caller document untouched: paging changes its layout page size.
   const std::unique_ptr<QTextDocument> copy(document->clone());
+  typist::render::expandTocForPrint(copy.get());
+  typist::render::installDocumentObjects(copy.get());
   QTextDocument& laidOut = *copy;
+  laidOut.setUndoRedoEnabled(false);
+  laidOut.setDocumentMargin(0);
+  QFont body = laidOut.defaultFont();
+  body.setPointSizeF(11);
+  laidOut.setDefaultFont(body);
+  laidOut.documentLayout()->setPaintDevice(&writer);
+  auto* syntax = typist::render::installSyntaxHighlighter(&laidOut, false);
+  syntax->rehighlight();
+  // Qt's native paged layout splits on text lines and repeats real table headers.
+  constexpr int codeProperty = 0x100001;
+  QSet<QTextTable*> tables;
+  for (QTextBlock block = laidOut.begin(); block.isValid(); block = block.next()) {
+    if (QTextTable* table = QTextCursor(block).currentTable()) {
+      if (tables.contains(table)) continue;
+      tables.insert(table);
+      QTextTableFormat format = table->format();
+      format.setHeaderRowCount(options.repeatTableHeader ? 1 : 0);
+      table->setFormat(format);
+    }
+  }
   laidOut.setPageSize(QSizeF(pageRect.width(), contentHeight));
   QAbstractTextDocumentLayout* layout = laidOut.documentLayout();
-  // setPageSize alone does not relayout; documentSize() forces the pass that
-  // gives real block heights and per-block line layouts.
   layout->documentSize();
+  // Apply keep rules in document order. A heading followed by a code fence is
+  // one group; separate forced breaks on both would create nearly empty pages.
+  for (QTextBlock block = laidOut.begin(); block.isValid(); block = block.next()) {
+    const QRectF firstRect = layout->blockBoundingRect(block);
+    const double pageBottom = (qFloor(firstRect.top() / contentHeight) + 1) * contentHeight;
+    double bottom = firstRect.bottom();
+    if (block.blockFormat().headingLevel() > 0 && block.next().isValid()) {
+      QTextBlock following = block.next();
+      const QVariant code = following.blockFormat().property(codeProperty);
+      if (code.isValid()) {
+        while (following.next().isValid() &&
+               following.next().blockFormat().property(codeProperty) == code)
+          following = following.next();
+        bottom = layout->blockBoundingRect(following).bottom();
+      } else {
+        const QRectF nextRect = layout->blockBoundingRect(following);
+        const QTextLayout* lines = following.layout();
+        const bool shortParagraph =
+            lines && lines->lineCount() <= 4 && !QTextCursor(following).currentTable();
+        bottom =
+            shortParagraph ? nextRect.bottom() : nextRect.top() + qMin(nextRect.height(), 48.0);
+      }
+    } else {
+      if (QTextCursor(block).currentTable()) continue;
+      if (block.previous().isValid() && block.previous().blockFormat().headingLevel() > 0) continue;
+      const QVariant group = block.blockFormat().property(codeProperty);
+      if (group.isValid()) {
+        if (block.previous().blockFormat().property(codeProperty) == group) continue;
+        QTextBlock last = block;
+        while (last.next().isValid() && last.next().blockFormat().property(codeProperty) == group)
+          last = last.next();
+        bottom = layout->blockBoundingRect(last).bottom();
+      } else {
+        // Keep short paragraphs intact to avoid a single carried-over line.
+        if (!block.layout() || block.layout()->lineCount() > 4) continue;
+      }
+    }
+    const double height = bottom - firstRect.top();
+    const double offset = firstRect.top() - qFloor(firstRect.top() / contentHeight) * contentHeight;
+    if (height < contentHeight && bottom > pageBottom && offset > 1.0) {
+      QTextCursor cursor(block);
+      QTextBlockFormat format = block.blockFormat();
+      format.setPageBreakPolicy(QTextFormat::PageBreak_AlwaysBefore);
+      cursor.setBlockFormat(format);
+      layout->documentSize();
+    }
+  }
 
+  QVector<QRectF> codeBackgrounds;
+  int codeGroup = 0;
+  QRectF codeBounds;
+  for (auto block = laidOut.begin(); block.isValid(); block = block.next()) {
+    const int group = block.blockFormat().intProperty(codeProperty);
+    if (group != codeGroup) {
+      if (codeGroup) codeBackgrounds.append(codeBounds.adjusted(0, -4, 0, 4));
+      codeBounds = {};
+      codeGroup = group;
+    }
+    if (group) {
+      const QRectF rect = layout->blockBoundingRect(block);
+      const QRectF full(0, rect.top(), pageRect.width(), rect.height());
+      codeBounds = codeBounds.isValid() ? codeBounds.united(full) : full;
+    }
+  }
+  if (codeGroup) codeBackgrounds.append(codeBounds.adjusted(0, -4, 0, 4));
   QPainter painter(&writer);
-  painter.setFont(QFont(painter.font().family(), 9));
-
-  int blockNumber = 0;
-  int page = 1;
-  while (blockNumber < laidOut.blockCount()) {
-    const QTextBlock block = laidOut.findBlockByNumber(blockNumber);
-    const QRectF blockRect = layout->blockBoundingRect(block);
-    QTextLayout* lineLayout = block.layout();
-    const bool tall =
-        blockRect.height() > contentHeight && lineLayout != nullptr && lineLayout->lineCount() > 1;
-
-    if (!tall) {
-      const double base = blockRect.y();
-      // A page that starts inside a table is a continuation: the first row is redrawn
-      // at the top and the row it occupies is reserved out of the content height.
-      const QRectF headerRect =
-          options.repeatTableHeader ? tableHeaderRectFor(&laidOut, block) : QRectF();
-      const double reserved = headerRect.isNull() ? 0.0 : headerRect.height() + kTableHeaderGapPx;
-      const double room = contentHeight - reserved;
-      int nextBlock = blockNumber;
-      QTextBlock scan = block;
-      while (scan.isValid()) {
-        const QRectF rect = layout->blockBoundingRect(scan);
-        if (nextBlock > blockNumber && (rect.y() - base) + rect.height() > room) break;
-        ++nextBlock;
-        scan = scan.next();
-      }
-      blockNumber = nextBlock;
-      if (page > 1) writer.newPage();
-      if (!headerRect.isNull()) {
-        painter.save();
-        painter.translate(pageRect.left(), pageRect.top() + headerBand - headerRect.y());
-        QAbstractTextDocumentLayout::PaintContext headerContext;
-        headerContext.clip = headerRect;
-        layout->draw(&painter, headerContext);
-        painter.restore();
-      }
-      painter.save();
-      painter.translate(pageRect.left(), pageRect.top() + headerBand + reserved - base);
-      QAbstractTextDocumentLayout::PaintContext context;
-      context.clip = QRectF(0.0, base, pageRect.width(), room);
-      layout->draw(&painter, context);
-      painter.restore();
-      drawBands(painter, pageRect, page, options, headerBand, footerBand);
-      ++page;
-      continue;
-    }
-
-    // A block taller than the page is split at line boundaries so no line is sliced; the
-    // chunk rule also carries orphan control so a page never opens on one orphan line and
-    // the paragraph's last line never sits alone. QTextLine::rect() is block-relative.
-    int linesPerPage = 0;
-    for (int line = 0; line < lineLayout->lineCount(); ++line) {
-      const QRectF lineRect = lineLayout->lineAt(line).rect();
-      if (lineRect.y() + lineRect.height() > contentHeight) break;
-      ++linesPerPage;
-    }
-    if (linesPerPage < 1) linesPerPage = 1;
-    const QVector<QPair<int, int>> chunks =
-        splitParagraphChunks(lineLayout->lineCount(), linesPerPage);
-    for (const QPair<int, int>& chunk : chunks) {
-      const QRectF firstLine = lineLayout->lineAt(chunk.first).rect();
-      const QRectF lastLine = lineLayout->lineAt(chunk.second - 1).rect();
-      emitPage(writer, painter, layout, pageRect, page, blockRect.y() + firstLine.y(),
-               blockRect.y() + lastLine.y() + lastLine.height(), headerBand, footerBand, options);
-      ++page;
-    }
-    ++blockNumber;
+  if (!painter.isActive()) {
+    if (error) *error = QStringLiteral("Cannot open PDF for writing");
+    return false;
+  }
+  const int pages = qMax(1, laidOut.pageCount());
+  for (int page = 0; page < pages; ++page) {
+    if (page > 0) writer.newPage();
+    painter.save();
+    // PaintContext::clip is a layout hint; a real painter clip also protects the bands.
+    painter.setClipRect(
+        QRectF(pageRect.left(), pageRect.top() + headerBand, pageRect.width(), contentHeight));
+    painter.translate(pageRect.left(), pageRect.top() + headerBand - page * contentHeight);
+    for (const auto& background : codeBackgrounds)
+      if (background.intersects(QRectF(0, page * contentHeight, pageRect.width(), contentHeight)))
+        painter.fillRect(background, QColor("#f3f5f8"));
+    QAbstractTextDocumentLayout::PaintContext context;
+    context.palette.setColor(QPalette::Text, QColor("#202632"));
+    context.palette.setColor(QPalette::Base, Qt::white);
+    context.clip = QRectF(0, page * contentHeight, pageRect.width(), contentHeight);
+    layout->draw(&painter, context);
+    painter.restore();
+    drawBands(painter, pageRect, page + 1, options);
   }
 
   painter.end();

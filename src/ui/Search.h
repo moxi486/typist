@@ -27,12 +27,16 @@ class SearchController {
                                   int maxHighlights = 1000) const;
   bool selectNext(QTextCursor& cursor, const QString& pattern) const;
   bool selectPrevious(QTextCursor& cursor, const QString& pattern) const;
+  bool replaceNext(QTextCursor& cursor, const QString& pattern, const QString& replacement) const;
+  int replaceAll(QTextDocument* document, const QString& pattern, const QString& replacement) const;
 
  private:
   QTextDocument::FindFlags flags() const;
   QRegularExpression regexPattern(const QString& pattern) const;
   // Absolute match ranges per block for the regex mode; an invalid pattern yields none.
   QVector<QPair<int, int>> regexRanges(const QTextDocument* document, const QString& pattern) const;
+  QString replacementFor(const QTextCursor& cursor, const QString& pattern,
+                         const QString& replacement) const;
 
   bool m_caseSensitive = false;
   bool m_regex = false;

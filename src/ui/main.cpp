@@ -6,6 +6,9 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
+#include <QFont>
+#include <QIcon>
 #include <QLocale>
 #include <QString>
 #include <QStringList>
@@ -21,6 +24,11 @@ int main(int argc, char* argv[]) {
   QApplication application(argc, argv);
   QApplication::setApplicationName(QStringLiteral("Typist"));
   QApplication::setOrganizationName(QStringLiteral("Typist"));
+  QApplication::setStyle(QStringLiteral("Fusion"));
+  QApplication::setWindowIcon(QIcon(QStringLiteral(":/packaging/linux/typist.png")));
+  QFont interfaceFont = application.font();
+  interfaceFont.setPointSize(10);
+  application.setFont(interfaceFont);
 
   const QStringList args = application.arguments();
   const bool benchStartup = args.contains(QStringLiteral("--bench-startup"));
@@ -31,14 +39,19 @@ int main(int argc, char* argv[]) {
   const bool benchTree = args.contains(QStringLiteral("--bench-tree"));
   const bool benchDocx = args.contains(QStringLiteral("--bench-docx"));
 
-  QTranslator translator;
-  typist::ui::installTranslatorForLocale(&translator, QLocale::system().name());
-
   typist::MainWindow window;
   window.setBenchMode(benchStartup || benchRepaint || benchViewSwitch || benchSearch ||
                       benchFolderSearch || benchTree || benchDocx);
   const QByteArray benchFile = qgetenv("TYPIST_BENCH_FILE");
   if (!benchFile.isEmpty()) window.openFile(QString::fromUtf8(benchFile));
+  if (benchFile.isEmpty()) {
+    for (const QString& argument : args.mid(1)) {
+      if (!argument.startsWith(QStringLiteral("--")) && QFileInfo(argument).isFile()) {
+        window.openFile(argument);
+        break;
+      }
+    }
+  }
   window.show();
 
   int repaintBudgetBreaches = 0;

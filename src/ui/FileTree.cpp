@@ -279,24 +279,23 @@ void FileTree::contextMenuEvent(QContextMenuEvent* event) {
   const bool onDirectory = item == nullptr || item->data(0, kDirRole).toBool();
   const QString dir = onDirectory ? (item == nullptr ? m_root : item->data(0, kPathRole).toString())
                                   : QFileInfo(item->data(0, kPathRole).toString()).absolutePath();
-  menu.addAction(QStringLiteral("New Markdown File"), this, [this, dir] { newFileIn(dir); });
+  menu.addAction(tr("New Markdown File"), this, [this, dir] { newFileIn(dir); });
   if (!onDirectory) {
-    menu.addAction(QStringLiteral("Rename"), this, &FileTree::renameSelected);
-    menu.addAction(QStringLiteral("Delete"), this, &FileTree::deleteSelected);
+    menu.addAction(tr("Rename"), this, &FileTree::renameSelected);
+    menu.addAction(tr("Delete"), this, &FileTree::deleteSelected);
   }
   menu.exec(event->globalPos());
 }
 
 void FileTree::newFileIn(const QString& dir) {
   bool ok = false;
-  const QString name =
-      QInputDialog::getText(this, QStringLiteral("New Markdown File"), QStringLiteral("File name"),
-                            QLineEdit::Normal, QStringLiteral("untitled.md"), &ok);
+  const QString name = QInputDialog::getText(this, tr("New Markdown File"), tr("File name"),
+                                             QLineEdit::Normal, QStringLiteral("untitled.md"), &ok);
   if (!ok || name.isEmpty()) return;
 
   QString error;
   if (!platform::createMarkdownFile(dir, name, &error)) {
-    QMessageBox::warning(this, QStringLiteral("New Markdown File"), error);
+    QMessageBox::warning(this, tr("New Markdown File"), error);
     return;
   }
   rebuild();
@@ -308,14 +307,13 @@ void FileTree::renameSelected() {
   const QString path = selectedPath();
   if (path.isEmpty()) return;
   bool ok = false;
-  const QString name =
-      QInputDialog::getText(this, QStringLiteral("Rename File"), QStringLiteral("New name"),
-                            QLineEdit::Normal, QFileInfo(path).fileName(), &ok);
+  const QString name = QInputDialog::getText(this, tr("Rename File"), tr("New name"),
+                                             QLineEdit::Normal, QFileInfo(path).fileName(), &ok);
   if (!ok || name.isEmpty()) return;
 
   QString error;
   if (!platform::renameFile(path, name, &error)) {
-    QMessageBox::warning(this, QStringLiteral("Rename File"), error);
+    QMessageBox::warning(this, tr("Rename File"), error);
     return;
   }
   const QString newPath =
@@ -329,15 +327,14 @@ void FileTree::renameSelected() {
 void FileTree::deleteSelected() {
   const QString path = selectedPath();
   if (path.isEmpty()) return;
-  if (QMessageBox::question(this, QStringLiteral("Delete File"),
-                            QStringLiteral("Delete %1?").arg(QFileInfo(path).fileName())) !=
-      QMessageBox::Yes) {
+  if (QMessageBox::question(this, tr("Delete File"),
+                            tr("Delete %1?").arg(QFileInfo(path).fileName())) != QMessageBox::Yes) {
     return;
   }
 
   QString error;
   if (!platform::deleteFile(path, &error)) {
-    QMessageBox::warning(this, QStringLiteral("Delete File"), error);
+    QMessageBox::warning(this, tr("Delete File"), error);
     return;
   }
   rebuild();

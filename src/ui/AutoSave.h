@@ -19,6 +19,7 @@ class AutoSave : public QObject {
   void setCallback(std::function<void()> callback);
   void notifyChanged();
   void flushNow();
+  void cancelPending();
   bool isPending() const;
 
  private:

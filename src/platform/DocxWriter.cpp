@@ -1,14 +1,21 @@
 #include "DocxWriter.h"
 
+#include "SpecialContent.h"
+#include "SyntaxHighlighter.h"
 #include "markdown.h"
 
+#include <QBuffer>
 #include <QByteArray>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
+#include <QMap>
 #include <QStringList>
 #include <QVector>
+#include <algorithm>
 #include <array>
+#include <functional>
 #include <vector>
 
 namespace typist::platform {
@@ -122,6 +129,8 @@ QString escapeXml(const QString& text) {
       out += QStringLiteral("&lt;");
     else if (ch == QChar(62))
       out += QStringLiteral("&gt;");
+    else if (ch == QChar(34))
+      out += QStringLiteral("&quot;");
     else
       out += ch;
   }
@@ -154,8 +163,33 @@ struct ImageAttachment {
 };
 
 struct XmlContext {
+  QString baseDirectory;
   QVector<QString> hyperlinkTargets;
   QVector<ImageAttachment> images;
+  QMap<QString, int> footnoteIds;
+  QMap<int, QString> footnoteBodies;
+  QVector<QPair<int, QString>> headings;
+  int headingNumber = 0;
+  int drawingNumber = 0;
+
+  int addRenderedImage(const QString& key, const QImage& rendered) {
+    if (rendered.isNull()) return 0;
+    for (const auto& image : images)
+      if (image.target == key) return image.relId;
+    ImageAttachment image;
+    image.target = key;
+    image.partName = QStringLiteral("word/media/image%1.png").arg(images.size() + 1);
+    QBuffer buffer(&image.data);
+    buffer.open(QIODevice::WriteOnly);
+    rendered.save(&buffer, "PNG");
+    const qreal scale =
+        qMin(1., qMin(640. / (rendered.width() / 2.), 880. / (rendered.height() / 2.)));
+    image.widthPx = qMax(1, int(rendered.width() / 2. * scale));
+    image.heightPx = qMax(1, int(rendered.height() / 2. * scale));
+    image.relId = 1001 + images.size();
+    images.append(image);
+    return image.relId;
+  }
 
   // Media relationships start at rId1001 so they never collide with hyperlink ids,
   // which grow while the document body is being written.
@@ -163,11 +197,14 @@ struct XmlContext {
     for (const ImageAttachment& image : images) {
       if (image.target == target) return image.relId;
     }
-    const QFileInfo info(target);
+    const QString resolved = QFileInfo(target).isRelative() && !baseDirectory.isEmpty()
+                                 ? QDir(baseDirectory).filePath(target)
+                                 : target;
+    const QFileInfo info(resolved);
     if (!info.isFile()) return 0;
-    QImageReader reader(target);
+    QImageReader reader(resolved);
     const QSize natural = reader.size();
-    QFile file(target);
+    QFile file(resolved);
     if (!file.open(QIODevice::ReadOnly)) return 0;
     const QByteArray data = file.readAll();
     file.close();
@@ -246,12 +283,38 @@ QString runsXml(const std::vector<typist::core::InlineRun>& runs, const QString&
   QString out;
   for (const typist::core::InlineRun& run : runs) {
     const QString text = QString::fromStdString(run.text);
+    if (run.math) {
+      const auto result = typist::render::math(text);
+      const int relId =
+          context.addRenderedImage(QStringLiteral("math-inline:") + text, result.image);
+      if (relId) {
+        const auto& image = *std::find_if(context.images.begin(), context.images.end(),
+                                          [=](const auto& image) { return image.relId == relId; });
+        out += drawingXml(relId, ++context.drawingNumber, text, image.widthPx * 9525LL,
+                          image.heightPx * 9525LL);
+        continue;
+      }
+    }
+    if (run.footnote) {
+      const int id = context.footnoteIds.value(text, 0);
+      if (id)
+        out += QStringLiteral(
+                   "<w:r><w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr><w:footnoteReference "
+                   "w:id=\"%1\"/></w:r>")
+                   .arg(id);
+      else
+        out += runXml(QStringLiteral("[^%1]").arg(text));
+      continue;
+    }
     const QString target = QString::fromStdString(run.url);
     if (run.image && !target.isEmpty()) {
       const int relId = context.addImage(target);
       if (relId > 0) {
-        const ImageAttachment& image = context.images.last();
-        out += drawingXml(relId, relId - 1000, text.isEmpty() ? QStringLiteral("image") : text,
+        const ImageAttachment& image =
+            *std::find_if(context.images.begin(), context.images.end(),
+                          [=](const auto& image) { return image.relId == relId; });
+        out += drawingXml(relId, ++context.drawingNumber,
+                          text.isEmpty() ? QStringLiteral("image") : text,
                           static_cast<long long>(image.widthPx) * 9525,
                           static_cast<long long>(image.heightPx) * 9525);
         continue;
@@ -268,37 +331,52 @@ QString runsXml(const std::vector<typist::core::InlineRun>& runs, const QString&
   return out;
 }
 
-QString paragraphRun(const QString& text, bool forceBold, XmlContext& context) {
+QString paragraphRun(const QString& text, bool forceBold, XmlContext&) {
   return runXml(text, forceBold, false, false, false, false);
 }
 
 QString paragraphXml(const QString& body) { return QStringLiteral("<w:p>%1</w:p>").arg(body); }
 
-QString headingXml(int level, const QString& text) {
+QString headingXml(int level, const QString& body) {
   const int clamped = qBound(1, level, 6);
   QString props = QStringLiteral("<w:pPr><w:pStyle w:val=\"Heading%1\"/></w:pPr>").arg(clamped);
-  return paragraphXml(props + runXml(text, true));
-}
-
-QString codeXml(const QString& code) {
-  const QStringList lines = code.split(QChar(10));
-  QString body;
-  for (int i = 0; i < lines.size(); ++i) {
-    body += runXml(lines.at(i), false, false, true);
-    if (i + 1 < lines.size()) body += QStringLiteral("<w:br/>");
-  }
-  QString props = QStringLiteral(
-      "<w:pPr><w:pBdr><w:left w:val=\"single\" w:sz=\"6\" w:space=\"4\" "
-      "w:color=\"auto\"/></w:pBdr></w:pPr>");
   return paragraphXml(props + body);
 }
 
-QString quoteXml(const QString& text) {
-  QString props = QStringLiteral("<w:pPr><w:ind w:left=\"480\"/>");
+QString codeXml(const QString& code, const QString& language = QString()) {
+  const QStringList lines = code.split(QChar(10));
+  QString body;
+  typist::render::SyntaxState state;
+  for (int i = 0; i < lines.size(); ++i) {
+    const auto& line = lines.at(i);
+    const auto spans = typist::render::codeSyntax(line, language, state);
+    int previous = 0;
+    for (const auto& span : spans) {
+      if (span.start > previous)
+        body += runXml(line.mid(previous, span.start - previous), false, false, true);
+      QString run = runXml(line.mid(span.start, span.length), false, false, true);
+      run.replace(QStringLiteral("</w:rPr>"),
+                  QStringLiteral("<w:color w:val=\"%1\"/></w:rPr>")
+                      .arg(typist::render::syntaxColor(span.token, false).name().mid(1)));
+      body += run;
+      previous = span.start + span.length;
+    }
+    if (previous < line.size() || line.isEmpty())
+      body += runXml(line.mid(previous), false, false, true);
+    if (i + 1 < lines.size()) body += QStringLiteral("<w:r><w:br/></w:r>");
+  }
+  QString props = QStringLiteral(
+      "<w:pPr><w:pStyle w:val=\"CodeBlock\"/><w:shd w:fill=\"F3F5F8\"/>"
+      "<w:ind w:left=\"180\" w:right=\"180\"/></w:pPr>");
+  return paragraphXml(props + body);
+}
+
+QString quoteXml(const QString& body) {
+  QString props = QStringLiteral("<w:pPr><w:ind w:left=\"360\"/>");
   props += QStringLiteral(
       "<w:pBdr><w:left w:val=\"single\" w:sz=\"6\" w:space=\"4\" w:color=\"auto\"/></w:pBdr>");
   props += QStringLiteral("</w:pPr>");
-  return paragraphXml(props + runXml(text, false, true));
+  return paragraphXml(props + body);
 }
 
 QString breakXml() {
@@ -320,15 +398,23 @@ QString listXml(const typist::core::Block& block, int depth, bool ordered, XmlCo
                                                   : QString(QChar(0x2610)) + QStringLiteral(" "))
                                  : QString();
       QString props = QStringLiteral("<w:pPr><w:pStyle w:val=\"ListParagraph\"/>");
-      props += QStringLiteral("<w:numPr><w:ilvl w:val=\"%1\"/><w:numId w:val=\"%2\"/></w:numPr>")
-                   .arg(depth)
-                   .arg(numId);
+      if (!child.task)
+        props += QStringLiteral("<w:numPr><w:ilvl w:val=\"%1\"/><w:numId w:val=\"%2\"/></w:numPr>")
+                     .arg(depth)
+                     .arg(numId);
       props += QStringLiteral("<w:ind w:left=\"%1\" w:hanging=\"360\"/></w:pPr>").arg(indent);
       const QString body =
           prefix.isEmpty()
               ? runsXml(child.runs, QString::fromStdString(child.text), context)
-              : prefix + runsXml(child.runs, QString::fromStdString(child.text), context);
+              : runXml(prefix) + runsXml(child.runs, QString::fromStdString(child.text), context);
       out += paragraphXml(props + body);
+      for (const typist::core::Block& nested : child.children) {
+        if (nested.type == typist::core::BlockType::List)
+          out += listXml(nested, depth + 1, nested.ordered, context);
+        else if (!nested.text.empty())
+          out += paragraphXml(QStringLiteral("<w:pPr><w:ind w:left=\"%1\"/></w:pPr>").arg(indent) +
+                              runsXml(nested.runs, QString::fromStdString(nested.text), context));
+      }
     } else if (child.type == typist::core::BlockType::List) {
       out += listXml(child, depth + 1, child.ordered, context);
     } else if (!child.text.empty()) {
@@ -361,7 +447,10 @@ QString tableXml(const typist::core::Block& table, XmlContext& context) {
   out += QStringLiteral("<w:right w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>");
   out += QStringLiteral("<w:insideH w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>");
   out += QStringLiteral("<w:insideV w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>");
-  out += QStringLiteral("</w:tblBorders></w:tblPr>");
+  out += QStringLiteral(
+      "</w:tblBorders><w:tblCellMar><w:top w:w=\"100\" w:type=\"dxa\"/>"
+      "<w:left w:w=\"120\" w:type=\"dxa\"/><w:bottom w:w=\"100\" w:type=\"dxa\"/>"
+      "<w:right w:w=\"120\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr>");
   QVector<int> weights(columns, 8);
   for (const typist::core::Block& row : table.children) {
     if (row.type != typist::core::BlockType::TableRow) continue;
@@ -392,13 +481,25 @@ QString tableXml(const typist::core::Block& table, XmlContext& context) {
     const bool header = rowIndex == 0;
     int columnIndex = 0;
     out += QStringLiteral("<w:tr>");
+    out += header ? QStringLiteral("<w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>")
+                  : QStringLiteral("<w:trPr><w:cantSplit/></w:trPr>");
     for (const typist::core::Block& cell : row.children) {
       if (cell.type != typist::core::BlockType::TableCell) continue;
       const int width = widths[qMin(columnIndex, columns - 1)];
-      out += QStringLiteral("<w:tc><w:tcPr><w:tcW w:w=\"%1\" w:type=\"dxa\"/></w:tcPr>").arg(width);
+      out += QStringLiteral("<w:tc><w:tcPr><w:tcW w:w=\"%1\" w:type=\"dxa\"/>").arg(width);
+      if (header) out += QStringLiteral("<w:shd w:fill=\"EEF2F7\"/>");
+      out += QStringLiteral("<w:vAlign w:val=\"center\"/></w:tcPr>");
       const QStringList lines = QString::fromStdString(cell.text).split(QChar(10));
+      const int alignment = columnIndex < static_cast<int>(table.alignments.size())
+                                ? table.alignments[columnIndex]
+                                : 0;
+      const QString props = alignment == 0 ? QString()
+                                           : QStringLiteral("<w:pPr><w:jc w:val=\"%1\"/></w:pPr>")
+                                                 .arg(alignment == 2   ? QStringLiteral("center")
+                                                      : alignment == 3 ? QStringLiteral("right")
+                                                                       : QStringLiteral("left"));
       for (const QString& line : lines)
-        out += paragraphXml(runsXml(cell.runs, line, context, header));
+        out += paragraphXml(props + runsXml(cell.runs, line, context, header));
       ++columnIndex;
       out += QStringLiteral("</w:tc>");
     }
@@ -415,20 +516,67 @@ QString blocksXml(const std::vector<typist::core::Block>& blocks, XmlContext& co
     const QString text = QString::fromStdString(block.text);
     switch (block.type) {
       case typist::core::BlockType::Heading:
-        out += headingXml(block.level, text);
+        ++context.headingNumber;
+        out += headingXml(
+            block.level,
+            QStringLiteral("<w:bookmarkStart w:id=\"%1\" w:name=\"heading_%1\"/>")
+                    .arg(context.headingNumber) +
+                runsXml(block.runs, text, context) +
+                QStringLiteral("<w:bookmarkEnd w:id=\"%1\"/>").arg(context.headingNumber));
         break;
+      case typist::core::BlockType::Math:
+      case typist::core::BlockType::Diagram: {
+        const bool math = block.type == typist::core::BlockType::Math;
+        const auto result = math ? typist::render::math(text, true) : typist::render::mermaid(text);
+        const int relId = context.addRenderedImage(
+            (math ? QStringLiteral("math:") : QStringLiteral("mermaid:")) + text, result.image);
+        if (relId) {
+          const auto& image =
+              *std::find_if(context.images.begin(), context.images.end(),
+                            [=](const auto& image) { return image.relId == relId; });
+          out +=
+              paragraphXml(QStringLiteral("<w:pPr><w:jc w:val=\"center\"/><w:keepLines/></w:pPr>") +
+                           drawingXml(relId, ++context.drawingNumber, text, image.widthPx * 9525LL,
+                                      image.heightPx * 9525LL));
+        } else
+          out += codeXml(text);
+        break;
+      }
+      case typist::core::BlockType::Footnote:
+        break;  // Emitted in word/footnotes.xml, referenced by native Word fields.
+      case typist::core::BlockType::TableOfContents: {
+        out += QStringLiteral(
+            "<w:p><w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText "
+            "xml:space=\"preserve\"> TOC \\o &quot;1-6&quot; \\h \\z \\u "
+            "</w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r></w:p>");
+        int number = 0;
+        for (const auto& heading : context.headings) {
+          out += paragraphXml(
+              QStringLiteral(
+                  "<w:pPr><w:ind w:left=\"%1\"/></w:pPr><w:hyperlink w:anchor=\"heading_%2\">")
+                  .arg((heading.first - 1) * 240)
+                  .arg(++number) +
+              runXml(heading.second, false, false, false, false, true) +
+              QStringLiteral("</w:hyperlink>"));
+        }
+        out += QStringLiteral("<w:p><w:r><w:fldChar w:fldCharType=\"end\"/></w:r></w:p>");
+        break;
+      }
       case typist::core::BlockType::Paragraph:
         out += paragraphXml(runsXml(block.runs, text, context));
         break;
       case typist::core::BlockType::CodeBlock:
-        out += codeXml(text);
+        out += codeXml(text, QString::fromStdString(block.info));
         break;
       case typist::core::BlockType::ThematicBreak:
         out += breakXml();
         break;
       case typist::core::BlockType::BlockQuote:
-        if (!text.isEmpty()) out += quoteXml(runsXml(block.runs, text, context));
-        if (!block.children.empty()) out += blocksXml(block.children, context);
+        if (!block.children.empty()) {
+          for (const auto& child : block.children)
+            out += quoteXml(runsXml(child.runs, QString::fromStdString(child.text), context));
+        } else if (!text.isEmpty())
+          out += quoteXml(runsXml(block.runs, text, context));
         break;
       case typist::core::BlockType::List:
         out += listXml(block, 0, block.ordered, context);
@@ -450,25 +598,44 @@ QString stylesXml() {
       "<w:styles xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">");
   out += QStringLiteral("<w:docDefaults><w:rPrDefault><w:rPr>");
   out += QStringLiteral(
-      "<w:rFonts w:ascii=\"Calibri\" w:hAnsi=\"Calibri\"/><w:sz "
-      "w:val=\"22\"/></w:rPr></w:rPrDefault></w:docDefaults>");
+      "<w:rFonts w:ascii=\"Segoe UI\" w:hAnsi=\"Segoe UI\" w:eastAsia=\"Microsoft YaHei\"/>"
+      "<w:color w:val=\"202632\"/><w:sz w:val=\"22\"/><w:szCs w:val=\"22\"/>"
+      "<w:lang w:val=\"en-US\" w:eastAsia=\"zh-CN\"/></w:rPr></w:rPrDefault>"
+      "<w:pPrDefault><w:pPr><w:widowControl/><w:spacing w:after=\"160\" w:line=\"360\" "
+      "w:lineRule=\"auto\"/></w:pPr></w:pPrDefault></w:docDefaults>");
   // Style names are child elements (w:name w:val=...), not attributes.
   out += QStringLiteral(
-      "<w:style w:type=\"paragraph\" w:styleId=\"Normal\"><w:name "
+      "<w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name "
       "w:val=\"Normal\"/><w:qFormat/></w:style>");
   for (int level = 1; level <= 6; ++level) {
     out += QStringLiteral("<w:style w:type=\"paragraph\" w:styleId=\"Heading%1\">").arg(level);
-    out += QStringLiteral("<w:name w:val=\"heading %1\"/><w:next w:val=\"Normal\"/><w:qFormat/>")
+    out += QStringLiteral(
+               "<w:name w:val=\"heading %1\"/><w:basedOn w:val=\"Normal\"/><w:next "
+               "w:val=\"Normal\"/><w:qFormat/>")
                .arg(level);
-    out +=
-        QStringLiteral("<w:pPr><w:keepNext/><w:outlineLvl w:val=\"%1\"/></w:pPr>").arg(level - 1);
-    out += QStringLiteral("<w:rPr><w:b/><w:sz w:val=\"%1\"/></w:rPr>").arg(40 - level * 4);
+    out += QStringLiteral(
+               "<w:pPr><w:keepNext/><w:keepLines/>"
+               "<w:spacing w:before=\"%1\" w:after=\"160\" w:line=\"300\" w:lineRule=\"auto\"/>"
+               "<w:outlineLvl w:val=\"%2\"/></w:pPr>")
+               .arg(level == 1 ? 160 : 320)
+               .arg(level - 1);
+    static const int sizes[] = {48, 38, 32, 28, 24, 22};
+    out += QStringLiteral("<w:rPr><w:b/><w:sz w:val=\"%1\"/></w:rPr>").arg(sizes[level - 1]);
     out += QStringLiteral("</w:style>");
   }
   out += QStringLiteral(
       "<w:style w:type=\"paragraph\" w:styleId=\"ListParagraph\"><w:name w:val=\"List "
-      "Paragraph\"/><w:qFormat/>");
-  out += QStringLiteral("<w:pPr><w:ind w:left=\"720\" w:hanging=\"360\"/></w:pPr></w:style>");
+      "Paragraph\"/><w:basedOn w:val=\"Normal\"/><w:qFormat/>");
+  out += QStringLiteral(
+      "<w:pPr><w:spacing w:after=\"80\"/>"
+      "<w:ind w:left=\"720\" w:hanging=\"360\"/></w:pPr></w:style>");
+  out += QStringLiteral(
+      "<w:style w:type=\"paragraph\" w:styleId=\"CodeBlock\">"
+      "<w:name w:val=\"Code Block\"/><w:basedOn w:val=\"Normal\"/>"
+      "<w:pPr><w:spacing w:before=\"120\" w:after=\"180\" w:line=\"280\" "
+      "w:lineRule=\"auto\"/></w:pPr>"
+      "<w:rPr><w:rFonts w:ascii=\"Consolas\" w:hAnsi=\"Consolas\"/>"
+      "<w:sz w:val=\"20\"/></w:rPr></w:style>");
   out += QStringLiteral("</w:styles>");
   return out;
 }
@@ -505,7 +672,7 @@ QString numberingXml() {
   return out;
 }
 
-QString contentTypesXml() {
+QString contentTypesXml(bool footnotes = false) {
   QString out = QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
   out += QStringLiteral(
       "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">");
@@ -531,6 +698,13 @@ QString contentTypesXml() {
       "ContentType=\"application/"
       "vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/>");
   out += QStringLiteral("</Types>");
+  if (footnotes)
+    out.replace(
+        QStringLiteral("</Types>"),
+        QStringLiteral(
+            "<Override PartName=\"/word/footnotes.xml\" "
+            "ContentType=\"application/"
+            "vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml\"/></Types>"));
   return out;
 }
 
@@ -547,7 +721,7 @@ QString rootRelsXml() {
 }
 
 QString documentRelsXml(const QVector<QString>& hyperlinkTargets,
-                        const QVector<ImageAttachment>& images) {
+                        const QVector<ImageAttachment>& images, bool footnotes = false) {
   QString out = QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
   out += QStringLiteral(
       "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">");
@@ -559,6 +733,11 @@ QString documentRelsXml(const QVector<QString>& hyperlinkTargets,
       "<Relationship Id=\"rId2\" "
       "Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering\" "
       "Target=\"numbering.xml\"/>");
+  if (footnotes)
+    out += QStringLiteral(
+        "<Relationship Id=\"rIdFootnotes\" "
+        "Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes\" "
+        "Target=\"footnotes.xml\"/>");
   for (int i = 0; i < hyperlinkTargets.size(); ++i) {
     out += QStringLiteral(
                "<Relationship Id=\"rId%1\" "
@@ -581,7 +760,8 @@ QString documentRelsXml(const QVector<QString>& hyperlinkTargets,
 
 }  // namespace
 
-bool exportDocx(const QString& path, const QString& markdown, QString* error) {
+bool exportDocx(const QString& path, const QString& markdown, QString* error,
+                const QString& baseDirectory) {
   const typist::core::ParseResult parsed = typist::core::parseMarkdown(markdown.toStdString());
   if (!parsed.ok) {
     if (error) *error = QStringLiteral("Cannot parse markdown for DOCX export");
@@ -589,10 +769,26 @@ bool exportDocx(const QString& path, const QString& markdown, QString* error) {
   }
 
   XmlContext context;
+  context.baseDirectory = baseDirectory;
+  const std::function<void(const std::vector<core::Block>&)> collect = [&](const auto& blocks) {
+    for (const auto& block : blocks) {
+      if (block.type == core::BlockType::Footnote) {
+        const QString label = QString::fromStdString(block.info);
+        if (!context.footnoteIds.contains(label))
+          context.footnoteIds[label] = context.footnoteIds.size() + 1;
+        context.footnoteBodies[context.footnoteIds[label]] = QString::fromStdString(block.text);
+      }
+      if (block.type == core::BlockType::Heading)
+        context.headings.append({block.level, QString::fromStdString(block.text)});
+      collect(block.children);
+    }
+  };
+  collect(parsed.blocks);
   QString document =
       QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
   document += QStringLiteral(
       "<w:document "
+      "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" "
       "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>");
   document += blocksXml(parsed.blocks, context);
   document += QStringLiteral("<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/>");
@@ -601,11 +797,53 @@ bool exportDocx(const QString& path, const QString& markdown, QString* error) {
       "w:footer=\"720\" w:gutter=\"0\"/></w:sectPr>");
   document += QStringLiteral("</w:body></w:document>");
 
+  QString footnotes = QStringLiteral(
+      "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:footnotes "
+      "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" "
+      "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">");
+  footnotes += QStringLiteral(
+      "<w:footnote w:type=\"separator\" "
+      "w:id=\"-1\"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote "
+      "w:type=\"continuationSeparator\" "
+      "w:id=\"0\"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>");
+  for (auto it = context.footnoteBodies.cbegin(); it != context.footnoteBodies.cend(); ++it) {
+    const auto body = core::parseMarkdown(it.value().toStdString());
+    QString contents = blocksXml(body.blocks, context);
+    int p = contents.indexOf(QStringLiteral("<w:p>"));
+    if (p < 0) contents.prepend(QStringLiteral("<w:p></w:p>"));
+    p = contents.indexOf(QStringLiteral("<w:p>")) + 5;
+    if (contents.mid(p, 7) == QLatin1String("<w:pPr>"))
+      p = contents.indexOf(QStringLiteral("</w:pPr>"), p) + 8;
+    contents.insert(
+        p, QStringLiteral(
+               "<w:r><w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr><w:footnoteRef/></w:r>"));
+    footnotes +=
+        QStringLiteral("<w:footnote w:id=\"%1\">%2</w:footnote>").arg(it.key()).arg(contents);
+  }
+  footnotes += QStringLiteral("</w:footnotes>");
+
   QVector<ZipEntry> entries;
-  entries.append(ZipEntry{QByteArrayLiteral("[Content_Types].xml"), contentTypesXml().toUtf8()});
+  entries.append(ZipEntry{QByteArrayLiteral("[Content_Types].xml"),
+                          contentTypesXml(!context.footnoteBodies.isEmpty()).toUtf8()});
   entries.append(ZipEntry{QByteArrayLiteral("_rels/.rels"), rootRelsXml().toUtf8()});
-  entries.append(ZipEntry{QByteArrayLiteral("word/_rels/document.xml.rels"),
-                          documentRelsXml(context.hyperlinkTargets, context.images).toUtf8()});
+  entries.append(ZipEntry{
+      QByteArrayLiteral("word/_rels/document.xml.rels"),
+      documentRelsXml(context.hyperlinkTargets, context.images, !context.footnoteBodies.isEmpty())
+          .toUtf8()});
+  if (!context.footnoteBodies.isEmpty())
+    entries.append(ZipEntry{QByteArrayLiteral("word/footnotes.xml"), footnotes.toUtf8()});
+  // Footnotes can contain images and external links, with relationships relative
+  // to the same word/ directory as document.xml.
+  QString footnoteRelationships = documentRelsXml(context.hyperlinkTargets, context.images);
+  const int footnoteRel =
+      footnoteRelationships.indexOf(QStringLiteral("<Relationship Id=\"rIdFootnotes\""));
+  if (footnoteRel >= 0)
+    footnoteRelationships.remove(
+        footnoteRel,
+        footnoteRelationships.indexOf(QStringLiteral("/>"), footnoteRel) + 2 - footnoteRel);
+  if (!context.footnoteBodies.isEmpty())
+    entries.append(ZipEntry{QByteArrayLiteral("word/_rels/footnotes.xml.rels"),
+                            footnoteRelationships.toUtf8()});
   for (const ImageAttachment& image : context.images) {
     entries.append(ZipEntry{image.partName.toUtf8(), image.data});
   }

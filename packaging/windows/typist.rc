@@ -1,0 +1,17 @@
+IDI_ICON1 ICON "typist.ico"
+
+1 VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+FILETYPE 0x1L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "Typist Markdown Editor\0"
+      VALUE "ProductName", "Typist\0"
+      VALUE "FileVersion", "0.1.0\0"
+    END
+  END
+END

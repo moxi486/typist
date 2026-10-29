@@ -1,7 +1,12 @@
 #include "editor_document.h"
 
+#include "SpecialContent.h"
+
+#include <QCryptographicHash>
 #include <QFileInfo>
 #include <QFont>
+#include <QFontDatabase>
+#include <QHash>
 #include <QImageReader>
 #include <QString>
 #include <QStringList>
@@ -9,6 +14,7 @@
 #include <QTextBlockFormat>
 #include <QTextCharFormat>
 #include <QTextCursor>
+#include <QTextDocumentFragment>
 #include <QTextImageFormat>
 #include <QTextLayout>
 #include <QTextList>
@@ -19,6 +25,7 @@
 #include <QVariant>
 #include <QVector>
 #include <algorithm>
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -29,11 +36,22 @@ struct BuildContext {
   int groupCounter = 0;
 };
 
+QTextBlockFormat bodyFormat() {
+  QTextBlockFormat format;
+  format.setBottomMargin(12);
+  format.setLineHeight(160, QTextBlockFormat::ProportionalHeight);
+  return format;
+}
+
 void insertTaggedBlock(QTextCursor& cursor, const QString& text, uint property,
                        const QVariant& value, const QTextCharFormat& charFormat) {
-  QTextBlockFormat blockFormat;
+  QTextBlockFormat blockFormat = bodyFormat();
   if (property != 0) blockFormat.setProperty(property, value);
-  cursor.insertBlock(blockFormat);
+  if (property == kQuoteProperty) {
+    blockFormat.setLeftMargin(20);
+    blockFormat.setRightMargin(12);
+  }
+  cursor.insertBlock(blockFormat, QTextCharFormat());
   cursor.insertText(text, charFormat);
 }
 
@@ -61,19 +79,58 @@ QTextCharFormat formatForRun(const typist::core::InlineRun& run) {
 }
 
 void insertInline(const std::vector<typist::core::InlineRun>& runs, const QString& fallback,
-                  QTextCursor& cursor) {
+                  QTextCursor& cursor, const QTextCharFormat& base = QTextCharFormat()) {
   if (runs.empty()) {
-    cursor.insertText(fallback);
+    cursor.insertText(QString(fallback).replace(QLatin1Char('\n'), QChar::LineSeparator), base);
     return;
   }
   for (const typist::core::InlineRun& run : runs) {
     const QString text = QString::fromStdString(run.text);
+    if (run.math) {
+      const auto rendered = typist::render::math(text, false,
+                                                 cursor.document()->property("typistDark").toBool()
+                                                     ? QColor("#dde3ec")
+                                                     : QColor("#333333"));
+      if (!rendered.image.isNull()) {
+        const QString name =
+            QStringLiteral("typist-math:") +
+            QString::fromLatin1(
+                QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256).toHex());
+        cursor.document()->addResource(QTextDocument::ImageResource, QUrl(name), rendered.image);
+        QTextImageFormat format;
+        format.setName(name);
+        format.setWidth(rendered.image.width() / 2.);
+        format.setHeight(rendered.image.height() / 2.);
+        format.setVerticalAlignment(QTextCharFormat::AlignMiddle);
+        format.setProperty(kMathSourceProperty, text);
+        cursor.insertImage(format);
+      } else {
+        cursor.insertText(QStringLiteral("$") + text + QStringLiteral("$"), base);
+      }
+      cursor.setCharFormat(base);
+      continue;
+    }
+    if (run.footnote) {
+      QTextCharFormat format = base;
+      format.setProperty(kFootnoteReferenceProperty, text);
+      format.setVerticalAlignment(QTextCharFormat::AlignSuperScript);
+      format.setAnchor(true);
+      format.setAnchorHref(QStringLiteral("#fn-") + text);
+      format.setForeground(QColor("#4d90ce"));
+      cursor.insertText(text, format);
+      cursor.setCharFormat(base);
+      continue;
+    }
     const QString target = QString::fromStdString(run.url);
-    if (run.image && !target.isEmpty() && QFileInfo(target).isFile()) {
+    const QString localTarget =
+        QFileInfo(target).isRelative() && !cursor.document()->baseUrl().isEmpty()
+            ? cursor.document()->baseUrl().resolved(QUrl(target)).toLocalFile()
+            : target;
+    if (run.image && !target.isEmpty() && QFileInfo(localTarget).isFile()) {
       // Show the image itself; the object run keeps target and alt so serialization
       // can re-emit the Markdown link.
       // A large photo is scaled down so the model stays bounded; the aspect ratio holds.
-      QImageReader reader(target);
+      QImageReader reader(localTarget);
       QSize natural = reader.size();
       if (natural.width() > 640 || natural.height() > 480) {
         const double scale =
@@ -82,7 +139,7 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
             QSize(int(double(natural.width()) * scale), int(double(natural.height()) * scale));
       }
       const QImage loaded = reader.read();
-      const QUrl resourceUrl = QUrl::fromLocalFile(target);
+      const QUrl resourceUrl = QUrl::fromLocalFile(localTarget);
       cursor.document()->addResource(QVariant::Url, resourceUrl, loaded);
       QTextImageFormat imageFormat;
       imageFormat.setName(resourceUrl.toString());
@@ -104,48 +161,65 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
       }
       continue;
     }
-    cursor.insertText(text, formatForRun(run));
+    QTextCharFormat format = base;
+    format.merge(formatForRun(run));
+    if (run.bold) format.clearProperty(kPresentationBoldProperty);
+    cursor.insertText(QString(text).replace(QLatin1Char('\n'), QChar::LineSeparator), format);
   }
 }
 
 void insertTaggedInline(QTextCursor& cursor, const std::vector<typist::core::InlineRun>& runs,
                         const QString& text, uint property, const QVariant& value) {
-  QTextBlockFormat blockFormat;
+  QTextBlockFormat blockFormat = bodyFormat();
   if (property != 0) blockFormat.setProperty(property, value);
-  cursor.insertBlock(blockFormat);
+  if (property == kQuoteProperty) blockFormat.setLeftMargin(20);
+  cursor.insertBlock(blockFormat, QTextCharFormat());
   insertInline(runs, text, cursor);
 }
 void insertCodeBlock(const std::string& code, const std::string& info, QTextCursor& cursor,
                      BuildContext& ctx) {
   QTextCharFormat codeFormat;
-  QFont mono(QStringLiteral("monospace"));
+  QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+  mono.setFamilies(
+      {QStringLiteral("Consolas"), QStringLiteral("Menlo"), QStringLiteral("monospace")});
   mono.setStyleHint(QFont::TypeWriter);
+  mono.setPointSizeF(10.5);
   codeFormat.setFont(mono);
 
   const QVariant groupId = QVariant(++ctx.groupCounter);
   const QVariant infoValue = QString::fromStdString(info);
+  bool firstLine = true;
   const auto emitLine = [&](const std::string& line) {
     QTextBlockFormat blockFormat;
+    blockFormat.setLineHeight(140, QTextBlockFormat::ProportionalHeight);
+    blockFormat.setLeftMargin(16);
+    blockFormat.setRightMargin(16);
+    blockFormat.setTopMargin(firstLine ? 10 : 0);
+    firstLine = false;
+    blockFormat.setNonBreakableLines(false);
     blockFormat.setProperty(kCodeBlockProperty, groupId);
+    if (code.empty()) blockFormat.setProperty(kEmptyCodeFenceProperty, true);
     // cmark exposes no accessor for the fence label, so it travels as a document
     // property on the group's first block.
     if (!info.empty()) blockFormat.setProperty(kCodeInfoProperty, infoValue);
-    cursor.insertBlock(blockFormat);
+    cursor.insertBlock(blockFormat, codeFormat);
+    cursor.setBlockCharFormat(codeFormat);
     cursor.insertText(QString::fromStdString(line), codeFormat);
   };
 
   std::string line;
   for (char c : code) {
     if (c == '\n') {
-      if (!line.empty()) {
-        emitLine(line);
-        line.clear();
-      }
+      emitLine(line);
+      line.clear();
     } else {
       line += c;
     }
   }
-  if (!line.empty()) emitLine(line);
+  if (!line.empty() || code.empty()) emitLine(line);
+  QTextBlockFormat last = cursor.blockFormat();
+  last.setBottomMargin(10);
+  cursor.setBlockFormat(last);
 }
 
 void insertTable(const typist::core::Block& table, QTextCursor& cursor) {
@@ -161,6 +235,15 @@ void insertTable(const typist::core::Block& table, QTextCursor& cursor) {
   // firstCursorPosition().
   QTextTableFormat tableFormat;
   tableFormat.setColumns(cols);
+  tableFormat.setWidth(QTextLength(QTextLength::PercentageLength, 100));
+  tableFormat.setCellPadding(9);
+  tableFormat.setCellSpacing(0);
+  tableFormat.setBorder(0.5);
+  tableFormat.setBorderStyle(QTextFrameFormat::BorderStyle_Solid);
+  tableFormat.setBorderBrush(QColor("#a5abb5"));
+  tableFormat.setHeaderRowCount(1);
+  tableFormat.setTopMargin(8);
+  tableFormat.setBottomMargin(16);
   cursor.insertBlock();
   QTextTable* qtTable = cursor.insertTable(rows, cols, tableFormat);
   if (qtTable == nullptr) return;
@@ -170,7 +253,26 @@ void insertTable(const typist::core::Block& table, QTextCursor& cursor) {
     for (int col = 0; col < cellCount; ++col) {
       QTextCursor cellCursor = qtTable->cellAt(row, col).firstCursorPosition();
       const typist::core::Block& cell = table.children[row].children[col];
-      insertInline(cell.runs, QString::fromStdString(cell.text), cellCursor);
+      QTextTableCellFormat cellFormat;
+      cellFormat.setBorder(0.5);
+      cellFormat.setBorderStyle(QTextFrameFormat::BorderStyle_Solid);
+      cellFormat.setBorderBrush(QColor("#a5abb5"));
+      qtTable->cellAt(row, col).setFormat(cellFormat);
+      QTextBlockFormat cellBlock = bodyFormat();
+      cellBlock.setBottomMargin(0);
+      const int alignment =
+          col < static_cast<int>(table.alignments.size()) ? table.alignments[col] : 0;
+      cellBlock.setProperty(kTableAlignmentProperty, alignment);
+      cellBlock.setAlignment(alignment == 2   ? Qt::AlignHCenter
+                             : alignment == 3 ? Qt::AlignRight
+                                              : Qt::AlignLeft);
+      cellCursor.setBlockFormat(cellBlock);
+      QTextCharFormat base;
+      if (row == 0) {
+        base.setFontWeight(QFont::Bold);
+        base.setProperty(kPresentationBoldProperty, true);
+      }
+      insertInline(cell.runs, QString::fromStdString(cell.text), cellCursor, base);
     }
   }
 
@@ -179,7 +281,7 @@ void insertTable(const typist::core::Block& table, QTextCursor& cursor) {
   // first lets Qt place the following block outside the frame; positioning at
   // lastPosition instead grew the frame over the following blocks.
   cursor.movePosition(QTextCursor::End);
-  cursor.insertBlock(QTextBlockFormat());
+  cursor.insertBlock(bodyFormat(), QTextCharFormat());
 }
 
 void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int depth,
@@ -188,23 +290,106 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
 
   switch (block.type) {
     case typist::core::BlockType::Heading: {
-      QTextBlockFormat headingFormat;
+      QTextBlockFormat headingFormat = bodyFormat();
       headingFormat.setHeadingLevel(block.level);
-      cursor.insertBlock(headingFormat);
-      insertInline(block.runs, QString::fromStdString(block.text), cursor);
+      headingFormat.setTopMargin(block.level == 1 ? 8 : 22);
+      headingFormat.setBottomMargin(block.level == 1 ? 18 : 10);
+      headingFormat.setLineHeight(125, QTextBlockFormat::ProportionalHeight);
+      cursor.insertBlock(headingFormat, QTextCharFormat());
+      static const double sizes[] = {28, 22, 18, 15, 13, 12};
+      QTextCharFormat base;
+      base.setFontPointSize(sizes[qBound(1, block.level, 6) - 1]);
+      base.setFontWeight(QFont::Bold);
+      base.setProperty(kPresentationBoldProperty, true);
+      insertInline(block.runs, QString::fromStdString(block.text), cursor, base);
       break;
     }
     case typist::core::BlockType::CodeBlock:
       insertCodeBlock(block.text, block.info, cursor, ctx);
       break;
+    case typist::core::BlockType::Math:
+    case typist::core::BlockType::Diagram: {
+      const bool formula = block.type == typist::core::BlockType::Math;
+      const QString source = QString::fromStdString(block.text);
+      const bool dark = cursor.document()->property("typistDark").toBool();
+      const auto result =
+          formula ? typist::render::math(source, true, dark ? QColor("#dde3ec") : QColor("#333333"))
+                  : typist::render::mermaid(source, dark);
+      if (result.image.isNull() && !formula) {
+        insertCodeBlock(block.text, "mermaid", cursor, ctx);
+        break;
+      }
+      QTextBlockFormat format = bodyFormat();
+      format.setProperty(kSpecialBlockProperty, formula ? "math" : "mermaid");
+      format.setAlignment(Qt::AlignHCenter);
+      format.setTopMargin(16);
+      format.setBottomMargin(20);
+      format.setLineHeight(100, QTextBlockFormat::ProportionalHeight);
+      cursor.insertBlock(format, QTextCharFormat());
+      if (!result.image.isNull()) {
+        const QString name = QStringLiteral("typist-special:") +
+                             QString::fromLatin1(QCryptographicHash::hash(
+                                                     (QString::number(formula) + source).toUtf8(),
+                                                     QCryptographicHash::Sha256)
+                                                     .toHex());
+        cursor.document()->addResource(QTextDocument::ImageResource, QUrl(name), result.image);
+        QTextImageFormat image;
+        image.setName(name);
+        const qreal scale = qMin(1., 760. / (result.image.width() / 2.));
+        image.setWidth(result.image.width() / 2. * scale);
+        image.setHeight(result.image.height() / 2. * scale);
+        image.setProperty(kSpecialSourceProperty, source);
+        image.setProperty(kSpecialTypeProperty, formula ? "math" : "mermaid");
+        image.setToolTip(QStringLiteral("Double-click to edit source"));
+        cursor.insertImage(image);
+      } else
+        cursor.insertText(source);
+      cursor.setCharFormat(QTextCharFormat());
+      break;
+    }
+    case typist::core::BlockType::TableOfContents: {
+      QTextBlockFormat format = bodyFormat();
+      format.setProperty(kSpecialBlockProperty, "toc");
+      format.setLineHeight(100, QTextBlockFormat::ProportionalHeight);
+      cursor.insertBlock(format, QTextCharFormat());
+      QTextCharFormat object;
+      object.setObjectType(typist::render::kTocObjectType);
+      cursor.insertText(QString(QChar::ObjectReplacementCharacter), object);
+      cursor.setCharFormat(QTextCharFormat());
+      break;
+    }
+    case typist::core::BlockType::Footnote: {
+      QTextBlockFormat format = bodyFormat();
+      format.setProperty(kFootnoteDefinitionProperty, QString::fromStdString(block.info));
+      format.setTopMargin(8);
+      format.setLeftMargin(16);
+      cursor.insertBlock(format, QTextCharFormat());
+      QTextCharFormat marker;
+      marker.setProperty(kFootnoteLabelProperty, true);
+      marker.setFontPointSize(10);
+      marker.setForeground(QColor("#4d90ce"));
+      cursor.insertText(QStringLiteral("[%1] ").arg(QString::fromStdString(block.info)), marker);
+      QTextCharFormat body;
+      body.setFontPointSize(10);
+      cursor.insertText(
+          QString::fromStdString(block.text).replace(QLatin1Char('\n'), QChar::LineSeparator),
+          body);
+      break;
+    }
     case typist::core::BlockType::ThematicBreak:
       insertTaggedBlock(cursor, QStringLiteral("\u2014"), kRuleProperty, QVariant(true), plain);
       break;
     case typist::core::BlockType::BlockQuote:
       ++ctx.groupCounter;
       for (const typist::core::Block& child : block.children) {
-        insertTaggedInline(cursor, child.runs, QString::fromStdString(child.text), kQuoteProperty,
-                           QVariant(ctx.groupCounter));
+        if (child.type == core::BlockType::Paragraph) {
+          insertTaggedInline(cursor, child.runs, QString::fromStdString(child.text), kQuoteProperty,
+                             QVariant(ctx.groupCounter));
+        } else {
+          const QString raw = QString::fromStdString(core::serializeMarkdown({child})).trimmed();
+          for (const QString& line : raw.split(QLatin1Char('\n')))
+            insertTaggedInline(cursor, {}, line, kQuoteProperty, QVariant(ctx.groupCounter));
+        }
       }
       break;
     case typist::core::BlockType::Table:
@@ -225,7 +410,16 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
                    : (block.ordered ? QTextListFormat::ListDecimal : QTextListFormat::ListDisc));
       listFormat.setIndent(static_cast<uint>(depth + 1));
       for (const typist::core::Block& item : block.children) {
+        cursor.setCharFormat(QTextCharFormat());
         cursor.insertList(listFormat);
+        // insertList inherits the previous block format, including a heading's
+        // level. Keep only the list object so items never become outline entries.
+        QTextBlockFormat spacing = bodyFormat();
+        spacing.setObjectIndex(cursor.blockFormat().objectIndex());
+        spacing.setTopMargin(0);
+        spacing.setBottomMargin(5);
+        spacing.setLineHeight(150, QTextBlockFormat::ProportionalHeight);
+        cursor.setBlockFormat(spacing);
         if (item.task) {
           QTextBlockFormat itemFormat = cursor.blockFormat();
           itemFormat.setProperty(kTaskProperty, QVariant(item.checked));
@@ -265,14 +459,18 @@ struct MarkdownRun {
   bool code = false;
   bool link = false;
   bool image = false;
+  bool math = false;
+  bool footnote = false;
+  QString specialType;
 };
 
 void pushMarkdownRun(QVector<MarkdownRun>& runs, const MarkdownRun& run) {
-  if (run.text.isEmpty()) return;
+  if (run.text.isEmpty() && run.specialType.isEmpty()) return;
   if (!runs.empty() && runs.back().bold == run.bold && runs.back().italic == run.italic &&
       runs.back().strike == run.strike && runs.back().code == run.code &&
-      runs.back().link == run.link && runs.back().image == run.image &&
-      runs.back().url == run.url) {
+      runs.back().link == run.link && runs.back().image == run.image && !run.math &&
+      !run.footnote && !runs.back().math && !runs.back().footnote && run.specialType.isEmpty() &&
+      runs.back().specialType.isEmpty() && runs.back().url == run.url) {
     runs.back().text += run.text;
     return;
   }
@@ -297,6 +495,14 @@ QString wrapCodeText(const QString& text) {
 }
 
 QString wrapMarkdownRun(const MarkdownRun& run) {
+  if (run.specialType == QLatin1String("math"))
+    return QStringLiteral("\n\n$$\n") + run.text + QStringLiteral("\n$$\n\n");
+  if (run.specialType == QLatin1String("mermaid"))
+    return QStringLiteral("\n\n```mermaid\n") + run.text +
+           (run.text.endsWith(QLatin1Char('\n')) ? QString() : QStringLiteral("\n")) +
+           QStringLiteral("```\n\n");
+  if (run.math) return QStringLiteral("$") + run.text + QStringLiteral("$");
+  if (run.footnote) return QStringLiteral("[^") + run.text + QStringLiteral("]");
   QString body = run.text;
   if (run.code) body = wrapCodeText(body);
   if (run.bold) body = QStringLiteral("**") + body + QStringLiteral("**");
@@ -311,7 +517,31 @@ QString wrapMarkdownRun(const MarkdownRun& run) {
 
 QString wrapMarkdownRuns(const QVector<MarkdownRun>& runs) {
   QString out;
-  for (const MarkdownRun& run : runs) out += wrapMarkdownRun(run);
+  std::vector<core::InlineRun> inlineRuns;
+  const auto flush = [&] {
+    out += QString::fromStdString(core::serializeInline(inlineRuns));
+    inlineRuns.clear();
+  };
+  for (const MarkdownRun& run : runs) {
+    if (!run.specialType.isEmpty()) {
+      flush();
+      out += wrapMarkdownRun(run);
+      continue;
+    }
+    core::InlineRun span;
+    span.text = run.text.toStdString();
+    span.url = run.url.toStdString();
+    span.bold = run.bold;
+    span.italic = run.italic;
+    span.strike = run.strike;
+    span.code = run.code;
+    span.link = run.link;
+    span.image = run.image;
+    span.math = run.math;
+    span.footnote = run.footnote;
+    inlineRuns.push_back(std::move(span));
+  }
+  flush();
   return out;
 }
 
@@ -328,7 +558,8 @@ QString inlineFromBlock(const QTextBlock& block) {
   const QString text = block.text();
   // Most blocks carry no styling at all; the fast path keeps serialization
   // allocation-free for them.
-  if (text.isEmpty() || block.textFormats().isEmpty()) return text;
+  if (text.isEmpty() || block.textFormats().isEmpty())
+    return QString(text).replace(QChar::LineSeparator, QStringLiteral("  \n"));
   QVector<MarkdownRun> runs;
   int pos = 0;
   for (const QTextLayout::FormatRange& range : block.textFormats()) {
@@ -341,13 +572,33 @@ QString inlineFromBlock(const QTextBlock& block) {
       pos = range.start;
     }
     const QTextCharFormat& fmt = range.format;
+    if (fmt.hasProperty(kFootnoteLabelProperty)) {
+      pos = end;
+      continue;
+    }
     MarkdownRun run;
     run.text = text.mid(pos, end - pos);
-    run.bold = fmt.fontWeight() >= QFont::Bold;
+    run.bold = fmt.fontWeight() >= QFont::Bold && !fmt.boolProperty(kPresentationBoldProperty);
     run.italic = fmt.fontItalic();
     run.strike = fmt.fontStrikeOut();
     run.code = isInlineCodeFormat(fmt);
-    if (fmt.hasProperty(kImageProperty)) {
+    if (fmt.hasProperty(kSpecialSourceProperty)) {
+      run.specialType = fmt.property(kSpecialTypeProperty).toString();
+      if (run.specialType.isEmpty())
+        run.specialType = block.blockFormat().property(kSpecialBlockProperty).toString();
+      run.text = fmt.property(kSpecialSourceProperty).toString();
+      run.bold = run.italic = run.strike = run.code = false;
+    } else if (fmt.objectType() == typist::render::kTocObjectType) {
+      run.text = QStringLiteral("[TOC]");
+    } else if (fmt.hasProperty(kMathSourceProperty)) {
+      run.math = true;
+      run.text = fmt.property(kMathSourceProperty).toString();
+      run.bold = run.italic = run.strike = run.code = false;
+    } else if (fmt.hasProperty(kFootnoteReferenceProperty)) {
+      run.footnote = true;
+      run.text = fmt.property(kFootnoteReferenceProperty).toString();
+      run.bold = run.italic = run.strike = run.code = false;
+    } else if (fmt.hasProperty(kImageProperty)) {
       run.image = true;
       run.url = fmt.property(kImageProperty).toString();
       const QString alt = fmt.property(kImageAltProperty).toString();
@@ -364,12 +615,24 @@ QString inlineFromBlock(const QTextBlock& block) {
     tail.text = text.mid(pos);
     pushMarkdownRun(runs, tail);
   }
-  return wrapMarkdownRuns(runs);
+  return wrapMarkdownRuns(runs).replace(QChar::LineSeparator, QStringLiteral("  \n"));
 }
 }  // namespace
 
+QString inlineMarkdown(const QTextBlock& block) { return inlineFromBlock(block); }
+
 void buildDocument(const std::vector<typist::core::Block>& blocks, QTextDocument* document) {
   document->clear();
+  QFont body;
+  body.setFamilies({QStringLiteral("Arial"), QStringLiteral("Microsoft YaHei"),
+                    QStringLiteral("Noto Sans"), QStringLiteral("sans-serif")});
+  body.setPointSizeF(12);
+  document->setDefaultFont(body);
+  document->setDocumentMargin(0);
+  document->setIndentWidth(24);
+  QTextOption option = document->defaultTextOption();
+  option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+  document->setDefaultTextOption(option);
 
   // A build is a bulk load. Undo commands and change notifications per block cost
   // seconds on a large document, so the whole build is one edit block with undo off;
@@ -381,12 +644,28 @@ void buildDocument(const std::vector<typist::core::Block>& blocks, QTextDocument
   cursor.beginEditBlock();
   BuildContext ctx;
   for (const typist::core::Block& block : blocks) insertBlock(block, cursor, 0, ctx);
+  // insertBlock starts with a separator; remove its empty leading paragraph for
+  // ordinary documents while retaining the first content block's semantic format.
+  const QTextBlock first = document->begin();
+  const QTextBlock next = first.next();
+  if (first.text().isEmpty() && next.isValid() && !QTextCursor(next).currentTable()) {
+    const QTextBlockFormat format = next.blockFormat();
+    const QTextCharFormat characters = next.charFormat();
+    QTextCursor start(first);
+    start.deleteChar();
+    start.setBlockFormat(format);
+    start.setBlockCharFormat(characters);
+  }
   cursor.endEditBlock();
 
   document->setUndoRedoEnabled(undoWasEnabled);
+  if (std::any_of(blocks.begin(), blocks.end(),
+                  [](const auto& block) { return block.type == core::BlockType::TableOfContents; }))
+    typist::render::installDocumentObjects(document);
 }
 
-QString serializeDocument(const QTextDocument* document) {
+QString serializeDocument(const QTextDocument* document, int paragraphPosition,
+                          const QString& paragraphSource) {
   QString out;
   QTextBlock block = document->firstBlock();
 
@@ -398,6 +677,12 @@ QString serializeDocument(const QTextDocument* document) {
   bool prevWasList = false;
 
   while (block.isValid()) {
+    if (paragraphPosition >= 0 && block.position() == paragraphPosition) {
+      if (!paragraphSource.isEmpty()) out += paragraphSource + QStringLiteral("\n\n");
+      block = block.next();
+      prevWasList = false;
+      continue;
+    }
     // A table is a frame: its start and end blocks carry no table object type, so the
     // frame itself is what identifies the table. Emit once at the frame's first position.
     QTextTable* table = QTextCursor(block).currentTable();
@@ -435,7 +720,15 @@ QString serializeDocument(const QTextDocument* document) {
           out += QLatin1Char('\n');
           if (row == 0) {
             out += QLatin1Char('|');
-            for (int col = 0; col < cols; ++col) out += QStringLiteral(" --- |");
+            for (int col = 0; col < cols; ++col) {
+              const int alignment =
+                  table->cellAt(0, col).firstCursorPosition().blockFormat().intProperty(
+                      kTableAlignmentProperty);
+              out += alignment == 1   ? QStringLiteral(" :--- |")
+                     : alignment == 2 ? QStringLiteral(" :---: |")
+                     : alignment == 3 ? QStringLiteral(" ---: |")
+                                      : QStringLiteral(" --- |");
+            }
             out += QLatin1Char('\n');
           }
         }
@@ -445,7 +738,8 @@ QString serializeDocument(const QTextDocument* document) {
       // already past the table. Advancing one more dropped every block that followed a
       // table, which collapsed long documents to a run of tables.
       QTextBlock current = block;
-      while (current.isValid() && current.position() < table->lastPosition()) {
+      while (current.isValid() && (current.position() < table->lastPosition() ||
+                                   QTextCursor(current).currentTable() == table)) {
         current = current.next();
       }
       block = current;
@@ -453,6 +747,42 @@ QString serializeDocument(const QTextDocument* document) {
     }
 
     const QTextBlockFormat format = block.blockFormat();
+    const QString special = format.property(kSpecialBlockProperty).toString();
+    if (!special.isEmpty() && !block.text().isEmpty()) {
+      QString source, tail;
+      for (auto it = block.begin(); !it.atEnd(); ++it) {
+        const auto fragment = it.fragment();
+        if (fragment.charFormat().hasProperty(kSpecialSourceProperty))
+          source += fragment.charFormat().property(kSpecialSourceProperty).toString();
+        else if (fragment.charFormat().objectType() != typist::render::kTocObjectType)
+          tail += fragment.text();
+      }
+      if (special == QLatin1String("toc"))
+        out += QStringLiteral("[TOC]\n\n");
+      else if (special == QLatin1String("math")) {
+        if (source.isEmpty()) {
+          source = tail.replace(QChar::LineSeparator, QLatin1Char('\n'));
+          tail.clear();
+        }
+        out += QStringLiteral("$$\n") + source + QStringLiteral("\n$$\n\n");
+      } else
+        out += QStringLiteral("```mermaid\n") + source +
+               (source.endsWith(QLatin1Char('\n')) ? QString() : QStringLiteral("\n")) +
+               QStringLiteral("```\n\n");
+      if (!tail.isEmpty()) out += tail + QStringLiteral("\n\n");
+      block = block.next();
+      prevWasList = false;
+      continue;
+    }
+    if (format.hasProperty(kFootnoteDefinitionProperty)) {
+      const QString body =
+          inlineFromBlock(block).replace(QStringLiteral("  \n"), QStringLiteral("\n    "));
+      out += QStringLiteral("[^%1]: %2\n\n")
+                 .arg(format.property(kFootnoteDefinitionProperty).toString(), body);
+      block = block.next();
+      prevWasList = false;
+      continue;
+    }
     const QString text = block.text();
 
     if (format.property(kRuleProperty).toBool()) {
@@ -465,14 +795,19 @@ QString serializeDocument(const QTextDocument* document) {
     if (format.property(kCodeBlockProperty).toInt() > 0) {
       const int groupId = format.property(kCodeBlockProperty).toInt();
       QTextBlock current = block;
-      out += QStringLiteral("```") + format.property(kCodeInfoProperty).toString() +
-             QStringLiteral("\n");
+      const bool emptyFence = format.boolProperty(kEmptyCodeFenceProperty) &&
+                              block.text().isEmpty() &&
+                              block.next().blockFormat().intProperty(kCodeBlockProperty) != groupId;
+      QString code;
       while (current.isValid() &&
              current.blockFormat().property(kCodeBlockProperty).toInt() == groupId) {
-        out += current.text() + QStringLiteral("\n");
+        if (!emptyFence) code += current.text() + QStringLiteral("\n");
         current = current.next();
       }
-      out += QStringLiteral("```\n\n");
+      const auto info = format.property(kCodeInfoProperty).toString();
+      const auto fence =
+          QString::fromStdString(core::codeFence(code.toStdString(), info.toStdString()));
+      out += fence + info + '\n' + code + fence + QStringLiteral("\n\n");
       prevWasList = false;
       block = current;
       continue;
@@ -583,13 +918,70 @@ bool insertMarkdownAtCursor(const QString& source, QTextCursor& cursor, QString*
     if (error != nullptr) *error = QString::fromStdString(parsed.error);
     return false;
   }
-  // One undo step for the whole paste; the pasted content starts on a fresh line.
+  // A fragment inserts at the caret, preserving trailing paragraphs and frames.
+  // Build in a detached document so paste is one undoable edit without clearing
+  // the live document or moving table insertions to the end of the buffer.
+  QTextDocument temporary;
+  temporary.setBaseUrl(cursor.document()->baseUrl());
+  temporary.setProperty("typistDark", cursor.document()->property("typistDark"));
+  buildDocument(parsed.blocks, &temporary);
+  static std::atomic<int> nextPasteGroup{2000000};
+  QHash<int, int> codes, quotes;
+  for (QTextBlock block = temporary.begin(); block.isValid(); block = block.next()) {
+    QTextBlockFormat format = block.blockFormat();
+    for (uint property : {kCodeBlockProperty, kQuoteProperty}) {
+      if (!format.hasProperty(property)) continue;
+      auto& groups = property == kCodeBlockProperty ? codes : quotes;
+      const int original = format.intProperty(property);
+      if (!groups.contains(original)) groups.insert(original, ++nextPasteGroup);
+      format.setProperty(property, groups.value(original));
+    }
+    QTextCursor(block).setBlockFormat(format);
+  }
   cursor.beginEditBlock();
-  cursor.insertBlock();
-  BuildContext ctx;
-  for (const typist::core::Block& block : parsed.blocks) insertBlock(block, cursor, 0, ctx);
+  const bool blockContent =
+      parsed.blocks.size() > 1 ||
+      (!parsed.blocks.empty() && parsed.blocks.front().type != core::BlockType::Paragraph);
+  if (blockContent) {
+    cursor.removeSelectedText();
+    if (!cursor.atBlockStart()) cursor.insertBlock(QTextBlockFormat(), QTextCharFormat());
+    if (!cursor.block().text().isEmpty()) {
+      cursor.insertBlock(QTextBlockFormat(), QTextCharFormat());
+      cursor.movePosition(QTextCursor::PreviousBlock);
+    }
+    if (!QTextCursor(temporary.begin()).currentTable())
+      cursor.setBlockFormat(temporary.begin().blockFormat());
+  }
+  cursor.insertFragment(QTextDocumentFragment(&temporary));
+  typist::render::installDocumentObjects(cursor.document());
   cursor.endEditBlock();
   return true;
+}
+
+void refreshSpecialContent(QTextDocument* document, bool dark) {
+  document->setProperty("typistDark", dark);
+  for (auto block = document->begin(); block.isValid(); block = block.next()) {
+    for (auto it = block.begin(); !it.atEnd(); ++it) {
+      const auto fragment = it.fragment();
+      const auto format = fragment.charFormat();
+      if (!format.isImageFormat()) continue;
+      const bool inlineFormula = format.hasProperty(kMathSourceProperty);
+      const bool special = format.hasProperty(kSpecialSourceProperty);
+      if (!inlineFormula && !special) continue;
+      const auto source =
+          format.property(inlineFormula ? kMathSourceProperty : kSpecialSourceProperty).toString();
+      const bool diagram = block.blockFormat().property(kSpecialBlockProperty).toString() ==
+                           QLatin1String("mermaid");
+      const auto result = diagram
+                              ? typist::render::mermaid(source, dark)
+                              : typist::render::math(source, !inlineFormula,
+                                                     dark ? QColor("#dde3ec") : QColor("#333333"));
+      if (!result.image.isNull())
+        document->addResource(QTextDocument::ImageResource, QUrl(format.toImageFormat().name()),
+                              result.image);
+    }
+  }
+  document->markContentsDirty(0, document->characterCount());
 }
 
 bool loadMarkdown(const QString& source, QTextDocument* document, QString* error) {

@@ -18,6 +18,19 @@ void setThemePreference(const QString& value) {
   store.sync();
 }
 
+QString languagePreference() {
+  const QString value =
+      openSettings().value(QStringLiteral("language"), QStringLiteral("system")).toString();
+  return value == QStringLiteral("zh") || value == QStringLiteral("en") ? value
+                                                                        : QStringLiteral("system");
+}
+
+void setLanguagePreference(const QString& value) {
+  QSettings store = openSettings();
+  store.setValue(QStringLiteral("language"), value);
+  store.sync();
+}
+
 QString pdfPaper(const QString& fallback) {
   const QString value = openSettings().value(QStringLiteral("pdfPaper"), fallback).toString();
   return value == QStringLiteral("letter") ? value : QStringLiteral("a4");

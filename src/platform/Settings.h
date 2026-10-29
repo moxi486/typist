@@ -11,6 +11,9 @@ QString themePreference(const QString& fallback = QStringLiteral("system"));
 
 void setThemePreference(const QString& value);
 
+QString languagePreference();
+void setLanguagePreference(const QString& value);
+
 // PDF page controls; the defaults are A4 with 20mm margins.
 QString pdfPaper(const QString& fallback = QStringLiteral("a4"));
 
