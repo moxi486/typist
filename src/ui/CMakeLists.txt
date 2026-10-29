@@ -11,7 +11,8 @@ set_target_properties(typist_ui_autosave PROPERTIES AUTOMOC ON)
 target_link_libraries(typist_ui_autosave PUBLIC Qt6::Core)
 target_compile_options(typist_ui_autosave PRIVATE ${TYPIST_WARNING_OPTIONS})
 
-add_library(typist_ui_viewswitch STATIC ViewSwitch.h ViewSwitch.cpp)
+add_library(typist_ui_viewswitch STATIC ViewSwitch.h ViewSwitch.cpp Editor.h Editor.cpp
+  ParagraphSourcePanel.h ParagraphSourcePanel.cpp CodeBlockBar.h CodeBlockBar.cpp)
 add_library(typist::ui_viewswitch ALIAS typist_ui_viewswitch)
 target_include_directories(typist_ui_viewswitch PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(typist_ui_viewswitch PROPERTIES AUTOMOC ON)
@@ -66,6 +67,14 @@ target_link_libraries(typist_ui_toc PUBLIC Qt6::Gui)
 target_compile_options(typist_ui_toc PRIVATE ${TYPIST_WARNING_OPTIONS})
 
 qt_add_executable(typist main.cpp MainWindow.h MainWindow.cpp)
+qt_add_resources(typist "app_assets" PREFIX "/" BASE "${CMAKE_SOURCE_DIR}"
+  FILES "${CMAKE_SOURCE_DIR}/packaging/linux/typist.png"
+        "${CMAKE_SOURCE_DIR}/translations/typist_zh.ts")
+
+if(WIN32)
+  set_target_properties(typist PROPERTIES WIN32_EXECUTABLE TRUE)
+  target_sources(typist PRIVATE "${CMAKE_SOURCE_DIR}/packaging/windows/typist.rc")
+endif()
 target_link_libraries(typist PRIVATE typist::core typist::editor typist::platform typist::ui_theme typist::ui_autosave typist::ui_viewswitch typist::ui_search typist::ui_findbar typist::ui_filetree typist::ui_locale typist::ui_recovery typist::ui_conflict typist::ui_toc typist::ui_update Qt6::Core Qt6::Gui Qt6::Widgets)
 set_target_properties(typist PROPERTIES AUTOMOC ON)
 
@@ -83,6 +92,10 @@ install(TARGETS typist RUNTIME DESTINATION bin BUNDLE DESTINATION .)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../themes/default.qss DESTINATION share/typist/themes)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../NOTICE ${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE DESTINATION share/typist OPTIONAL)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../docs DESTINATION share/typist OPTIONAL)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/advanced.md
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/syntax.md
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/code-writing.md
+  DESTINATION share/typist/examples)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../translations DESTINATION share/typist OPTIONAL)
 add_library(typist_ui_update STATIC UpdateChecker.h UpdateChecker.cpp)
 add_library(typist::ui_update ALIAS typist_ui_update)

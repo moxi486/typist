@@ -16,17 +16,24 @@ class QDragEnterEvent;
 class QDockWidget;
 class QDropEvent;
 class QListWidget;
+class QLabel;
+class QToolButton;
+class QTabWidget;
 class QMouseEvent;
+class QMimeData;
+class QImage;
 class QNetworkAccessManager;
 class QNetworkReply;
 class QTextDocument;
 class QTextEdit;
+class QTimer;
 
 namespace typist::ui {
 class AutoSave;
 class FileTree;
 class FindBar;
 class ViewSwitch;
+class AppTranslator;
 }  // namespace typist::ui
 
 namespace typist {
@@ -71,6 +78,7 @@ class MainWindow : public QMainWindow {
 
   // Opens the first Markdown URL from a drop; returns false when nothing applies.
   bool openDroppedFiles(const QList<QUrl>& urls);
+  bool saveDocumentAs(const QString& path);
 
  private slots:
   void openDialog();
@@ -114,6 +122,7 @@ class MainWindow : public QMainWindow {
   void treeFileRemoved(const QString& path);
 
  protected:
+  void changeEvent(QEvent* event) override;
   bool eventFilter(QObject* watched, QEvent* event) override;
   void dragEnterEvent(QDragEnterEvent* event) override;
   void dropEvent(QDropEvent* event) override;
@@ -125,6 +134,19 @@ class MainWindow : public QMainWindow {
   QString themePreference() const;
   void applyTheme();
   void applyThemePalette(const QPalette& palette);
+  void setLanguage(const QString& preference);
+  void retranslateUi();
+  void createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMenu* settings);
+  bool maybeSaveBeforeNavigate();
+  bool pasteImages(const QMimeData* source);
+  bool insertImageMarkdown(const QStringList& images);
+  void newDocument();
+  void openQuickly();
+  void insertTableDialog();
+  void insertLinkDialog();
+  void showDocumentStatistics();
+  void replaceOne();
+  void replaceAll();
   void closeEvent(QCloseEvent* event) override;
 
   QTextEdit* m_editor = nullptr;
@@ -147,11 +169,16 @@ class MainWindow : public QMainWindow {
   QAction* m_folderAction = nullptr;
   ui::AutoSave* m_autoSave = nullptr;
   QMenu* m_recentMenu = nullptr;
-  QDockWidget* m_outlineDock = nullptr;
   QListWidget* m_outlineList = nullptr;
+  QTabWidget* m_sidebarTabs = nullptr;
+  QLabel* m_sidebarRootLabel = nullptr;
   QAction* m_outlineAction = nullptr;
   QAction* m_pasteMarkdownAction = nullptr;
   QAction* m_updateAction = nullptr;
+  QLabel* m_detailsLabel = nullptr;
+  ui::AppTranslator* m_translator = nullptr;
+  QTimer* m_outlineRefresh = nullptr;
+  bool m_autoSaveEnabled = true;
 #ifdef TYPIST_HAS_NETWORK
   QNetworkAccessManager* m_network = nullptr;
 #endif

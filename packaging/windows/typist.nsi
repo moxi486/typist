@@ -18,6 +18,8 @@ ShowUninstDetails show
 RequestExecutionLevel admin
 
 !define MUI_ABORTWARNING
+!define MUI_ICON "${__FILEDIR__}\typist.ico"
+!define MUI_UNICON "${__FILEDIR__}\typist.ico"
 !define MUI_WELCOMEPAGE_TITLE "Install Typist ${VERSION}"
 !define MUI_WELCOMEPAGE_TEXT "Typist is a WYSIWYG Markdown editor built on Qt 6. The package ships the Qt runtime DLLs next to the binary."
 
@@ -36,6 +38,7 @@ Section "Typist" SEC_MAIN
   WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\bin\typist.exe"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayName" "Typist"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayVersion" "${PRODUCT_VERSION}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayIcon" "$INSTDIR\bin\typist.exe,0"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "UninstallString" "$INSTDIR\uninstall.exe"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "InstallLocation" "$INSTDIR"

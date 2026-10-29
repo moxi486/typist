@@ -20,6 +20,7 @@ int AutoSave::interval() const { return m_timer->interval(); }
 void AutoSave::setCallback(std::function<void()> callback) { m_callback = std::move(callback); }
 
 void AutoSave::notifyChanged() { m_timer->start(); }
+void AutoSave::cancelPending() { m_timer->stop(); }
 
 void AutoSave::flushNow() {
   m_timer->stop();

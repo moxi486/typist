@@ -1,8 +1,10 @@
 #include "ViewSwitch.h"
 
+#include "Editor.h"
 #include "editor_document.h"
 #include "markdown.h"
 
+#include <QFontDatabase>
 #include <QTextDocument>
 #include <QTextEdit>
 
@@ -10,8 +12,13 @@ namespace typist::ui {
 
 ViewSwitch::ViewSwitch(QObject* parent) : QObject(parent) {
   m_rendered = new QTextDocument(this);
+  typist::editor::buildDocument({}, m_rendered);
   m_rendered->setUndoRedoEnabled(true);
   m_source = new QTextDocument(this);
+  QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+  mono.setPointSize(11);
+  m_source->setDefaultFont(mono);
+  m_source->setDocumentMargin(0);
   m_source->setUndoRedoEnabled(true);
   m_active = m_rendered;
 }
@@ -84,6 +91,8 @@ bool ViewSwitch::switchView(QString* error) {
 void ViewSwitch::showActiveIn(QTextEdit* editor) const {
   editor->setDocument(m_active);
   editor->setAcceptRichText(!m_sourceMode);
+  if (auto* writingEditor = dynamic_cast<Editor*>(editor))
+    writingEditor->configurePresentation(!m_sourceMode);
 }
 
 }  // namespace typist::ui

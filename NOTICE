@@ -19,12 +19,28 @@ components are used, and their licenses apply to them, not to Typist source.
   the vendored build directory used by CI, and the version pinned in CI is 0.29.0.gfm.13.
 
 ## Bundled fonts
-- Typist ships no fonts. UI text falls back to the platform font; the monospace runs
-  request the family names Consolas and Courier New, resolved by the OS.
+- UI text uses platform fonts. Mathematical rendering embeds MicroTeX's unmodified
+  math fonts from res/fonts/ in the executable. Their Knuth, dsrom and SIL OFL
+  notices are preserved in third_party/microtex/res/fonts/licences/ and installed
+  in share/typist/licenses/math-fonts/. External Greek/Cyrillic text font packs are
+  not bundled.
+
+## MicroTeX and tinyxml2
+- MicroTeX: MIT, Copyright (c) 2020 Nano Michael.
+  https://github.com/NanoMichael/MicroTeX
+  Pinned revision: 0e3707f6dafebb121d98b53c64364d16fefe481d.
+  Sources and license: third_party/microtex/. Typist builds only its native Qt
+  renderer. Local changes: font resource lookup uses :/microtex/; math glyphs are
+  drawn as normalized outlines to avoid Qt backend rounding/raster overflows.
+- tinyxml2 11.0.0: zlib license, Copyright (c) Lee Thomason.
+  https://github.com/leethomason/tinyxml2
+  Pinned revision: 9148bdf719e997d1f474be6bcc7943881046dba1.
+  Source and license: third_party/tinyxml2/.
 
 ## Translation catalogs
 - `translations/typist_zh.ts` is authored in this repository under the MIT license.
 
 ## Exported documents
-- DOCX and PDF output are the user's own documents; no third-party template or asset is
-  embedded. OOXML style definitions written by `platform::DocxWriter` are original.
+- DOCX and PDF output are the user's own documents. OOXML style definitions and
+  Mermaid layouts are authored in Typist; rendered math images use MicroTeX and
+  the mathematical fonts listed above.

@@ -1,4 +1,4 @@
-add_library(typist_core STATIC markdown.h markdown.cpp)
+add_library(typist_core STATIC markdown.h markdown.cpp advanced_syntax.h advanced_syntax.cpp)
 add_library(typist::core ALIAS typist_core)
 target_include_directories(typist_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(typist_core PUBLIC cmark-gfm::cmark-gfm cmark-gfm::extensions)

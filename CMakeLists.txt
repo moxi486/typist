@@ -49,6 +49,8 @@ add_subdirectory(src/core)
 # some distro packages (MSYS2) ship PrintSupport without the PrintTest module.
 find_package(Qt6 COMPONENTS Widgets Test OPTIONAL_COMPONENTS PrintSupport PrintTest Network QUIET)
 if(TYPIST_BUILD_APP AND Qt6_FOUND)
+  add_subdirectory(third_party/microtex)
+  add_subdirectory(src/render)
   add_subdirectory(src/platform)
   add_subdirectory(src/editor)
   add_subdirectory(src/ui)

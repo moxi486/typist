@@ -66,8 +66,7 @@ jobs:
           $env:PATH = "$PWD\stage\bin;$env:SystemRoot\System32;$env:SystemRoot"
           $env:QT_QPA_PLATFORM = 'offscreen'
           $env:QT_FORCE_STDERR_LOGGING = '1'
-          & .\stage\bin\typist.exe --bench-repaint
-          if ($LASTEXITCODE -ne 0) { throw 'The deployed application failed to start' }
+          & .\packaging\windows\smoke.ps1 -Executable .\stage\bin\typist.exe
       - name: Sign the binary when a certificate is configured
         if: startsWith(github.ref, 'refs/tags/v')
         shell: msys2 {0}

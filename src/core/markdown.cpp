@@ -1,5 +1,7 @@
 #include "markdown.h"
 
+#include "advanced_syntax.h"
+
 #include <cmark-gfm-core-extensions.h>
 #include <cmark-gfm-extension_api.h>
 #include <cmark-gfm.h>
@@ -16,8 +18,8 @@ void pushRun(std::vector<InlineRun>& runs, const InlineRun& run) {
   if (run.text.empty()) return;
   if (!runs.empty() && runs.back().bold == run.bold && runs.back().italic == run.italic &&
       runs.back().strike == run.strike && runs.back().code == run.code &&
-      runs.back().link == run.link && runs.back().image == run.image &&
-      runs.back().url == run.url) {
+      runs.back().link == run.link && runs.back().image == run.image && !run.math &&
+      !run.footnote && !runs.back().math && !runs.back().footnote && runs.back().url == run.url) {
     runs.back().text += run.text;
     return;
   }
@@ -69,8 +71,17 @@ void collectInline(cmark_node* node, const InlineRun& base, std::vector<InlineRu
       collectInline(child, run, runs);
     } else if (type == "link") {
       InlineRun run = base;
-      run.link = true;
       const char* url = cmark_node_get_url(child);
+      const std::string target = url ? url : "";
+      if (target.compare(0, 12, "typist-math:") == 0 ||
+          target.compare(0, 16, "typist-footnote:") == 0) {
+        run.math = target.compare(0, 12, "typist-math:") == 0;
+        run.footnote = !run.math;
+        run.text = syntaxUnhex(target.substr(run.math ? 12 : 16));
+        pushRun(runs, run);
+        continue;
+      }
+      run.link = true;
       if (url != nullptr) run.url = url;
       collectInline(child, run, runs);
     } else if (type == "image") {
@@ -116,13 +127,29 @@ std::string wrapCode(const std::string& text) {
 }
 
 std::string renderRun(const InlineRun& run) {
+  if (run.math) return "$" + run.text + "$";
+  if (run.footnote) return "[^" + run.text + "]";
+  if (run.image) {
+    std::string alt;
+    for (const char ch : run.text) {
+      if (ch == '\\' || ch == '[' || ch == ']') alt += '\\';
+      alt += ch;
+    }
+    return "![" + alt + "](" + run.url + ")";
+  }
   std::string body = run.text;
+  if (!run.code) {
+    std::size_t position = 0;
+    while ((position = body.find('\n', position)) != std::string::npos) {
+      body.insert(position, "  ");
+      position += 3;
+    }
+  }
   if (run.code) body = wrapCode(body);
   if (run.bold) body = "**" + body + "**";
   if (run.italic) body = "*" + body + "*";
   if (run.strike) body = "~~" + body + "~~";
   if (run.link) body = "[" + body + "](" + run.url + ")";
-  if (run.image) body = "![" + body + "](" + run.url + ")";
   return body;
 }
 
@@ -130,20 +157,59 @@ std::string renderRun(const InlineRun& run) {
 std::string renderInline(const std::vector<InlineRun>& runs, const std::string& fallback) {
   if (runs.empty()) return fallback;
   std::string out;
-  for (const InlineRun& run : runs) out += renderRun(run);
+  std::vector<int> open;
+  static const char* markers[] = {"**", "*", "~~"};
+  const auto active = [](const InlineRun& run, int style) {
+    return style == 0 ? run.bold : style == 1 ? run.italic : run.strike;
+  };
+  for (std::size_t index = 0; index < runs.size(); ++index) {
+    const InlineRun& run = runs[index];
+    std::size_t common = 0;
+    while (common < open.size() && active(run, open[common])) ++common;
+    while (open.size() > common) {
+      out += markers[open.back()];
+      open.pop_back();
+    }
+    std::vector<std::pair<int, std::size_t>> additions;
+    for (int style = 0; style < 3; ++style) {
+      if (!active(run, style) || std::find(open.begin(), open.end(), style) != open.end()) continue;
+      std::size_t end = index + 1;
+      while (end < runs.size() && active(runs[end], style)) ++end;
+      additions.push_back({style, end});
+    }
+    // Longer-lived styles wrap shorter-lived ones. This reconstructs nesting even
+    // when several styles begin on the same run, without adjacent closing/opening
+    // markers that would change how CommonMark parses the text.
+    std::stable_sort(additions.begin(), additions.end(),
+                     [](const auto& a, const auto& b) { return a.second > b.second; });
+    for (const auto& addition : additions) {
+      out += markers[addition.first];
+      open.push_back(addition.first);
+    }
+    InlineRun body = run;
+    body.bold = body.italic = body.strike = false;
+    out += renderRun(body);
+  }
+  while (!open.empty()) {
+    out += markers[open.back()];
+    open.pop_back();
+  }
   return out;
 }
 
-// cmark-gfm 0.29.0.gfm.13 exposes no fence info accessor: string_content comes
-// back empty for a fenced block, so the tag is read from the fence line itself.
+// Prefer the parser's info string, including fences nested in quotes/lists.
+// Keep the source-line fallback for cmark builds that return an empty string.
 std::string fenceInfo(cmark_node* node, const std::vector<std::string>& lines) {
+  const char* info = cmark_node_get_fence_info(node);
+  if (info && *info) return std::string(info).substr(0, std::string(info).find_first_of(" \t"));
   const int line = cmark_node_get_start_line(node);
   if (line < 1 || static_cast<std::size_t>(line) > lines.size()) return "";
   const std::string& raw = lines[static_cast<std::size_t>(line) - 1];
   const std::size_t start = raw.find_first_not_of(" \t");
   if (start == std::string::npos) return "";
   if (raw.compare(start, 3, "```") != 0 && raw.compare(start, 3, "~~~") != 0) return "";
-  std::string rest = raw.substr(start + 3);
+  const auto fenceEnd = raw.find_first_not_of(raw[start], start);
+  std::string rest = fenceEnd == std::string::npos ? "" : raw.substr(fenceEnd);
   const std::size_t end = rest.find_first_of(" \t");
   if (end != std::string::npos) rest = rest.substr(0, end);
   return rest;
@@ -177,6 +243,11 @@ Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
     block.type = BlockType::Paragraph;
     block.runs = inlineRuns(node);
     block.text = flattenRuns(block.runs);
+    if (block.text == "[TOC]" || block.text == "[toc]") {
+      block.type = BlockType::TableOfContents;
+      block.text.clear();
+      block.runs.clear();
+    }
   } else if (type == "list") {
     block.type = BlockType::List;
     block.ordered = cmark_node_get_list_type(node) == CMARK_ORDERED_LIST;
@@ -222,6 +293,19 @@ Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
     const char* literal = cmark_node_get_literal(node);
     block.text = literal != nullptr ? literal : "";
     block.info = fenceInfo(node, lines);
+    if (block.info == "typist-math") {
+      block.type = BlockType::Math;
+      block.info.clear();
+    } else if (block.info == "mermaid") {
+      block.type = BlockType::Diagram;
+      block.info.clear();
+    } else if (block.info.compare(0, 16, "typist-footnote-") == 0) {
+      block.type = BlockType::Footnote;
+      block.info = syntaxUnhex(block.info.substr(16));
+    }
+    if ((block.type == BlockType::Math || block.type == BlockType::Footnote) &&
+        !block.text.empty() && block.text.back() == '\n')
+      block.text.pop_back();
   } else if (type == "thematic_break") {
     block.type = BlockType::ThematicBreak;
   } else if (type == "block_quote") {
@@ -232,6 +316,14 @@ Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
     }
   } else if (type == "table" || type == "table_row" || type == "table_header") {
     block.type = type == "table" ? BlockType::Table : BlockType::TableRow;
+    if (type == "table") {
+      const uint16_t columns = cmark_gfm_extensions_get_table_columns(node);
+      const uint8_t* alignments = cmark_gfm_extensions_get_table_alignments(node);
+      for (uint16_t column = 0; column < columns; ++column) {
+        const char value = alignments ? static_cast<char>(alignments[column]) : 0;
+        block.alignments.push_back(value == 'l' ? 1 : value == 'c' ? 2 : value == 'r' ? 3 : 0);
+      }
+    }
     for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
          child = cmark_node_next(child)) {
       block.children.push_back(buildBlock(child, lines));
@@ -290,7 +382,13 @@ std::string serializeTable(const Block& table) {
   if (table.children.empty()) return "\n";
   std::string out = serializeRow(table.children.front());
   out += "|";
-  for (std::size_t i = 0; i < table.children.front().children.size(); ++i) out += " --- |";
+  for (std::size_t i = 0; i < table.children.front().children.size(); ++i) {
+    const int alignment = i < table.alignments.size() ? table.alignments[i] : 0;
+    out += alignment == 1   ? " :--- |"
+           : alignment == 2 ? " :---: |"
+           : alignment == 3 ? " ---: |"
+                            : " --- |";
+  }
   out += "\n";
   for (std::size_t i = 1; i < table.children.size(); ++i) out += serializeRow(table.children[i]);
   out += "\n";
@@ -302,6 +400,26 @@ std::string serializeBlock(const Block& block, int indent) {
   std::string out;
 
   switch (block.type) {
+    case BlockType::Math:
+      out += "$$\n" + block.text + "\n$$\n\n";
+      break;
+    case BlockType::Diagram:
+      out += "```mermaid\n" + block.text +
+             (block.text.empty() || block.text.back() != '\n' ? "\n" : "") + "```\n\n";
+      break;
+    case BlockType::Footnote: {
+      auto body = block.text;
+      std::size_t p = 0;
+      while ((p = body.find('\n', p)) != std::string::npos) {
+        body.insert(p + 1, "    ");
+        p += 5;
+      }
+      out += "[^" + block.info + "]: " + body + "\n\n";
+      break;
+    }
+    case BlockType::TableOfContents:
+      out += "[TOC]\n\n";
+      break;
     case BlockType::Heading:
       out += prefix + std::string(static_cast<std::size_t>(block.level), '#');
       out += " " + renderInline(block.runs, block.text) + "\n\n";
@@ -309,12 +427,14 @@ std::string serializeBlock(const Block& block, int indent) {
     case BlockType::Paragraph:
       out += block.text.empty() ? "\n" : prefix + renderInline(block.runs, block.text) + "\n\n";
       break;
-    case BlockType::CodeBlock:
-      out += prefix + "```" + block.info + "\n";
+    case BlockType::CodeBlock: {
+      const auto fence = codeFence(block.text, block.info);
+      out += prefix + fence + block.info + "\n";
       out += block.text;
-      if (block.text.empty() || block.text.back() != '\n') out += "\n";
-      out += prefix + "```\n\n";
+      if (!block.text.empty() && block.text.back() != '\n') out += "\n";
+      out += prefix + fence + "\n\n";
       break;
+    }
     case BlockType::ThematicBreak:
       out += prefix + "---\n\n";
       break;
@@ -381,7 +501,106 @@ std::vector<const char*> enabledExtensions(const ParseOptions& options) {
 
 }  // namespace
 
+std::string serializeInline(const std::vector<InlineRun>& runs) { return renderInline(runs, {}); }
+
+std::string codeFence(std::string_view code, std::string_view info) {
+  const char marker = info.find('`') == std::string_view::npos ? '`' : '~';
+  std::size_t longest = 0, run = 0;
+  for (const char ch : code) {
+    run = ch == marker ? run + 1 : 0;
+    longest = std::max(longest, run);
+  }
+  return std::string(std::max(std::size_t(3), longest + 1), marker);
+}
+
+std::vector<ImageSource> imageSources(std::string_view source) {
+  std::vector<std::size_t> lines{0};
+  for (std::size_t i = 0; i < source.size(); ++i)
+    if (source[i] == '\n') lines.push_back(i + 1);
+  cmark_gfm_core_extensions_ensure_registered();
+  std::unique_ptr<cmark_parser, decltype(&cmark_parser_free)> parser(
+      cmark_parser_new(CMARK_OPT_DEFAULT), &cmark_parser_free);
+  if (!parser) return {};
+  if (auto* table = cmark_find_syntax_extension("table"))
+    cmark_parser_attach_syntax_extension(parser.get(), table);
+  cmark_parser_feed(parser.get(), source.data(), source.size());
+  std::unique_ptr<cmark_node, decltype(&cmark_node_free)> root(cmark_parser_finish(parser.get()),
+                                                               &cmark_node_free);
+  std::vector<ImageSource> images;
+  if (!root) return images;
+  auto* iterator = cmark_iter_new(root.get());
+  if (!iterator) return images;
+  while (cmark_iter_next(iterator) != CMARK_EVENT_DONE) {
+    if (cmark_iter_get_event_type(iterator) != CMARK_EVENT_ENTER) continue;
+    auto* node = cmark_iter_get_node(iterator);
+    if (cmark_node_get_type(node) != CMARK_NODE_IMAGE) continue;
+    ImageSource image;
+    image.target = cmark_node_get_url(node);
+    const int line = cmark_node_get_start_line(node), column = cmark_node_get_start_column(node);
+    const int endLine = cmark_node_get_end_line(node), endColumn = cmark_node_get_end_column(node);
+    if (line > 0 && endLine >= line && std::size_t(endLine) <= lines.size() && column > 0 &&
+        endColumn > 0) {
+      const auto start = lines[std::size_t(line - 1)] + std::size_t(column - 1);
+      const auto end =
+          std::min(source.size(), lines[std::size_t(endLine - 1)] + std::size_t(endColumn));
+      if (start < end && source.substr(start, 2) == "![") {
+        const auto span = source.substr(start, end - start);
+        std::size_t opening = std::string_view::npos;
+        int brackets = 1;
+        for (std::size_t i = 2; i < span.size(); ++i) {
+          if (span[i] == '\\' && i + 1 < span.size()) {
+            ++i;
+            continue;
+          }
+          if (span[i] == '[') ++brackets;
+          if (span[i] == ']' && --brackets == 0) {
+            if (i + 1 < span.size() && span[i + 1] == '(') opening = i;
+            break;
+          }
+        }
+        if (opening != std::string_view::npos) {
+          std::size_t first = opening + 2;
+          while (first < span.size() &&
+                 (span[first] == ' ' || span[first] == '\n' || span[first] == '\t'))
+            ++first;
+          std::size_t last = first;
+          if (first < span.size() && span[first] == '<') {
+            ++first;
+            last = span.find('>', first);
+          } else {
+            int depth = 0;
+            for (; last < span.size(); ++last) {
+              const char ch = span[last];
+              if (ch == '\\' && last + 1 < span.size()) {
+                ++last;
+                continue;
+              }
+              if (ch == '(') ++depth;
+              if (ch == ')') {
+                if (!depth) break;
+                --depth;
+              }
+              if ((ch == ' ' || ch == '\n' || ch == '\t') && depth == 0) break;
+            }
+          }
+          if (last != std::string_view::npos && last >= first && last < span.size()) {
+            image.start = start + first;
+            image.length = last - first;
+          }
+        }
+      }
+    }
+    images.push_back(std::move(image));
+  }
+  cmark_iter_free(iterator);
+  std::sort(images.begin(), images.end(),
+            [](const auto& a, const auto& b) { return a.start < b.start; });
+  return images;
+}
+
 ParseResult parseMarkdown(std::string_view source, const ParseOptions& options) {
+  const std::string prepared = prepareAdvancedMarkdown(source);
+  source = prepared;
   ParseResult result;
   cmark_gfm_core_extensions_ensure_registered();
 
@@ -429,6 +648,8 @@ std::string serializeMarkdown(const std::vector<Block>& blocks) {
 }
 
 std::string toHtml(std::string_view source, const ParseOptions& options) {
+  const std::string prepared = prepareAdvancedMarkdown(source);
+  source = prepared;
   cmark_gfm_core_extensions_ensure_registered();
   cmark_mem* mem = cmark_get_default_mem_allocator();
 
@@ -456,7 +677,7 @@ std::string toHtml(std::string_view source, const ParseOptions& options) {
   std::string out = html != nullptr ? std::string(html) : std::string();
   if (html != nullptr) mem->free(html);
   cmark_llist_free(mem, extensions);
-  return out;
+  return decorateAdvancedHtml(out);
 }
 
 std::string wrapHtmlDocument(std::string_view body, std::string_view title, std::string_view css) {
@@ -486,7 +707,8 @@ bool runsEqual(const std::vector<InlineRun>& lhs, const std::vector<InlineRun>& 
     const InlineRun& a = lhs[i];
     const InlineRun& b = rhs[i];
     if (a.text != b.text || a.url != b.url || a.bold != b.bold || a.italic != b.italic ||
-        a.strike != b.strike || a.code != b.code || a.link != b.link || a.image != b.image) {
+        a.strike != b.strike || a.code != b.code || a.link != b.link || a.image != b.image ||
+        a.math != b.math || a.footnote != b.footnote) {
       return false;
     }
   }
@@ -504,6 +726,13 @@ bool astEqual(const std::vector<Block>& lhs, const std::vector<Block>& rhs) {
       return false;
     }
     if (!astEqual(a.children, b.children)) return false;
+    if (a.type == BlockType::Table && !a.children.empty()) {
+      for (std::size_t column = 0; column < a.children.front().children.size(); ++column) {
+        const int left = column < a.alignments.size() ? a.alignments[column] : 0;
+        const int right = column < b.alignments.size() ? b.alignments[column] : 0;
+        if (left != right) return false;
+      }
+    }
   }
   return true;
 }

@@ -17,6 +17,10 @@ enum class BlockType {
   Table,
   TableRow,
   TableCell,
+  Math,
+  Diagram,
+  Footnote,
+  TableOfContents,
   Unsupported,
 };
 
@@ -31,6 +35,8 @@ struct InlineRun {
   bool code = false;
   bool link = false;
   bool image = false;
+  bool math = false;
+  bool footnote = false;
 };
 
 struct Block {
@@ -42,6 +48,7 @@ struct Block {
   std::string text;             // flattened inline content
   std::vector<InlineRun> runs;  // styled inline spans; empty when there is no styling
   std::string info;             // fenced code info string
+  std::vector<int> alignments;  // table columns: 0=default, 1=left, 2=center, 3=right
   std::vector<Block> children;
 };
 
@@ -61,9 +68,19 @@ struct ParseResult {
 ParseResult parseMarkdown(std::string_view source, const ParseOptions& options = {});
 
 // Serializes a block tree back to Markdown, re-emitting emphasis, inline code,
-// links and images from the inline runs; table alignment is dropped.
+// links and images from the inline runs, including table column alignment.
 // Fidelity gaps are tracked in docs/ROADMAP.md.
 std::string serializeMarkdown(const std::vector<Block>& blocks);
+std::string serializeInline(const std::vector<InlineRun>& runs);
+std::string codeFence(std::string_view code, std::string_view info = {});
+struct ImageSource {
+  std::string target;
+  std::size_t start = std::string::npos;
+  std::size_t length = 0;
+};
+// UTF-8 byte ranges of inline image destinations. Reference images have no
+// inline range, so callers can refuse relocation without rewriting unrelated text.
+std::vector<ImageSource> imageSources(std::string_view source);
 
 // Renders Markdown to an HTML fragment through cmark-gfm with the same GFM
 // extensions as parsing. CMARK_OPT_UNSAFE is set so raw inline HTML (such as the
