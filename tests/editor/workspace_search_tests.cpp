@@ -165,6 +165,18 @@ class WorkspaceSearchTests : public QObject {
     QTest::keyClick(tree, Qt::Key_Return);
     QCOMPARE(open.count(), 1);
     QCOMPARE(open.first().at(0).value<SearchHit>().line, 1);
+    auto* firstGroup = tree->topLevelItem(0);
+    tree->setCurrentItem(firstGroup);
+    QTest::keyClick(tree, Qt::Key_Enter);
+    QVERIFY(!firstGroup->isExpanded());
+    QTest::keyClick(tree, Qt::Key_Return);
+    QVERIFY(firstGroup->isExpanded());
+    QCOMPARE(open.count(), 1);
+    const auto point = tree->visualItemRect(firstGroup->child(0)).center();
+    QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier, point);
+    QCOMPARE(open.count(), 1);
+    QTest::mouseDClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier, point);
+    QCOMPARE(open.count(), 2);
     query->setText(QStringLiteral("no matches"));
     QCOMPARE(tree->topLevelItemCount(), 0);
     QTest::keyClick(query, Qt::Key_Return);

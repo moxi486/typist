@@ -9,6 +9,7 @@ class QCheckBox;
 class QPushButton;
 class QLabel;
 class QTreeWidget;
+class QTreeWidgetItem;
 class QTimer;
 
 namespace typist::ui {
@@ -36,6 +37,7 @@ class WorkspaceSearchPanel : public QWidget {
   void retranslate();
   void updateStatus();
   void setBusy(bool busy);
+  void activateItem(QTreeWidgetItem* item);
   QString m_root;
   platform::FolderSearchRunner m_runner;
   QTimer* m_debounce = nullptr;

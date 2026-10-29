@@ -49,6 +49,7 @@ WorkspaceSearchPanel::WorkspaceSearchPanel(QWidget* parent) : QWidget(parent) {
   layout->addWidget(m_status);
   m_results = new QTreeWidget(this);
   m_results->setObjectName(QStringLiteral("workspaceSearchResults"));
+  m_results->installEventFilter(this);
   m_results->setHeaderHidden(true);
   m_results->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   m_results->setTextElideMode(Qt::ElideMiddle);
@@ -72,17 +73,17 @@ WorkspaceSearchPanel::WorkspaceSearchPanel(QWidget* parent) : QWidget(parent) {
   connect(m_debounce, &QTimer::timeout, this, &WorkspaceSearchPanel::search);
   connect(&m_runner, &platform::FolderSearchRunner::resultsReady, this,
           &WorkspaceSearchPanel::showResults);
-  connect(m_results, &QTreeWidget::itemActivated, this, [this](QTreeWidgetItem* item) {
-    const auto index = item->data(0, Qt::UserRole);
-    if (!index.isValid()) {
-      item->setExpanded(!item->isExpanded());
-      return;
-    }
-    const int value = index.toInt();
-    if (value >= 0 && value < m_hits.size()) emit hitActivated(m_hits.at(value));
-  });
+  connect(m_results, &QTreeWidget::itemDoubleClicked, this, &WorkspaceSearchPanel::activateItem);
   retranslate();
   setBusy(false);
+}
+
+void WorkspaceSearchPanel::activateItem(QTreeWidgetItem* item) {
+  if (!item) return;
+  const auto index = item->data(0, Qt::UserRole);
+  if (!index.isValid()) return;
+  const int value = index.toInt();
+  if (value >= 0 && value < m_hits.size()) emit hitActivated(m_hits.at(value));
 }
 
 void WorkspaceSearchPanel::setRoot(const QString& root) {
@@ -210,6 +211,17 @@ void WorkspaceSearchPanel::hideEvent(QHideEvent* event) {
   QWidget::hideEvent(event);
 }
 bool WorkspaceSearchPanel::eventFilter(QObject* watched, QEvent* event) {
+  if (watched == m_results && event->type() == QEvent::KeyPress) {
+    const auto* key = static_cast<QKeyEvent*>(event);
+    if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) {
+      auto* item = m_results->currentItem();
+      if (item && !item->data(0, Qt::UserRole).isValid())
+        item->setExpanded(!item->isExpanded());
+      else
+        activateItem(item);
+      return true;
+    }
+  }
   if (watched == m_query && event->type() == QEvent::KeyPress) {
     const auto* key = static_cast<QKeyEvent*>(event);
     if (key->key() == Qt::Key_Escape) {
