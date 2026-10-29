@@ -456,10 +456,6 @@
         <translation>插入表格</translation>
     </message>
     <message>
-        <source>Link destination</source>
-        <translation>链接地址</translation>
-    </message>
-    <message>
         <source>New</source>
         <translation>新建</translation>
     </message>
@@ -667,6 +663,22 @@
         <source>Mark as Incomplete</source>
         <translation>标记为未完成</translation>
     </message>
+    <message>
+        <source>Edit links in rendered view</source>
+        <translation>请在渲染视图中编辑链接</translation>
+    </message>
+    <message>
+        <source>Select text in one paragraph</source>
+        <translation>请在同一段落内选择文字</translation>
+    </message>
+    <message>
+        <source>Cannot open link: %1</source>
+        <translation>无法打开链接：%1</translation>
+    </message>
+    <message>
+        <source>Heading not found: %1</source>
+        <translation>未找到标题：%1</translation>
+    </message>
 </context>
 <context>
     <name>FindBar</name>
@@ -795,6 +807,30 @@
     <message>
         <source>Preview unavailable. The source will be preserved.</source>
         <translation>暂时无法预览，内容将以源码形式保留。</translation>
+    </message>
+    <message>
+        <source>Ctrl/Cmd+click to open link</source>
+        <translation>Ctrl/Cmd+单击打开链接</translation>
+    </message>
+    <message>
+        <source>Open Link</source>
+        <translation>打开链接</translation>
+    </message>
+    <message>
+        <source>Edit Link</source>
+        <translation>编辑链接</translation>
+    </message>
+    <message>
+        <source>Copy Link Address</source>
+        <translation>复制链接地址</translation>
+    </message>
+    <message>
+        <source>Remove Link</source>
+        <translation>移除链接</translation>
+    </message>
+    <message>
+        <source>Copy Link to Heading</source>
+        <translation>复制标题链接</translation>
     </message>
 </context>
 <context>
@@ -986,6 +1022,49 @@
     <message>
         <source>The table data is too large</source>
         <translation>表格数据过大</translation>
+    </message>
+</context>
+<context>
+    <name>LinkDialog</name>
+    <message>
+        <source>Choose Link Target</source>
+        <translation>选择链接目标</translation>
+    </message>
+    <message>
+        <source>Edit Link</source>
+        <translation>编辑链接</translation>
+    </message>
+    <message>
+        <source>Text to display</source>
+        <translation>显示文字</translation>
+    </message>
+    <message>
+        <source>Link destination</source>
+        <translation>链接地址</translation>
+    </message>
+    <message>
+        <source>https://, relative file path, or #heading</source>
+        <translation>https://、相对文件路径或 #标题</translation>
+    </message>
+    <message>
+        <source>Browse...</source>
+        <translation>浏览…</translation>
+    </message>
+    <message>
+        <source>Link to a heading...</source>
+        <translation>链接到标题…</translation>
+    </message>
+    <message>
+        <source>Ctrl/Cmd+click follows a link. Relative paths use the current document folder.</source>
+        <translation>Ctrl/Cmd+单击可打开链接。相对路径以当前文档所在文件夹为起点。</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>确定</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
     </message>
 </context>
 </TS>

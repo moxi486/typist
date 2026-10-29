@@ -92,6 +92,9 @@ class Editor : public QTextEdit {
   bool changeTable(editor::TableCommand command);
   void changeListIndent(int delta);
   bool changeTaskStatus(editor::TaskStatus status);
+  bool openCurrentLink();
+  bool copyHeadingLink();
+  bool jumpToHeading(const QString& fragment);
   void setFocusMode(bool enabled) {
     m_focusMode = enabled;
     updateDecorations();
@@ -140,11 +143,16 @@ class Editor : public QTextEdit {
   void paragraphSourceClosed();
   void markdownFileDropped(const QString& path);
   void tablePasteRejected(const QString& error);
+  void linkActivated(const QString& target);
+  void editLinkRequested();
 
  protected:
   void keyPressEvent(QKeyEvent* event) override;
   void mouseDoubleClickEvent(QMouseEvent* event) override;
   void mouseReleaseEvent(QMouseEvent* event) override;
+  void mousePressEvent(QMouseEvent* event) override;
+  void contextMenuEvent(QContextMenuEvent* event) override;
+  bool viewportEvent(QEvent* event) override;
   void inputMethodEvent(QInputMethodEvent* event) override;
   void insertFromMimeData(const QMimeData* source) override;
   bool canInsertFromMimeData(const QMimeData* source) const override;
@@ -322,6 +330,8 @@ class Editor : public QTextEdit {
   QString m_lastInlineText;
   int m_lastInlineBlock = -1;
   int m_zoomSteps = 0;
+  QPoint m_linkPressPosition;
+  QString m_pressedLink;
   void centerWritingLine();
   bool tryRenderInline();
   QMetaObject::Connection m_documentConnection;

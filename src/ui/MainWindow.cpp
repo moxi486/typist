@@ -12,6 +12,9 @@
 #include "FolderSearchRunner.h"
 #include "ImageAssets.h"
 #include "ImageResources.h"
+#include "LinkDialog.h"
+#include "LinkEditing.h"
+#include "LinkNavigation.h"
 #include "Localization.h"
 #include "PdfWriter.h"
 #include "Settings.h"
@@ -27,6 +30,7 @@
 #include <QActionGroup>
 #include <QApplication>
 #include <QClipboard>
+#include <QDesktopServices>
 #include <QMouseEvent>
 #include <QTextBlock>
 #ifdef TYPIST_HAS_NETWORK
@@ -165,6 +169,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
           &MainWindow::openFile);
   connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::tablePasteRejected, this,
           [this](const QString& error) { statusBar()->showMessage(error, 4000); });
+  connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::linkActivated, this,
+          &MainWindow::followLink);
+  connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::editLinkRequested, this,
+          &MainWindow::insertLinkDialog);
   m_findBar = new ui::FindBar(this);
 
   auto* central = new QWidget(this);
@@ -842,11 +850,51 @@ void MainWindow::insertTableDialog() {
 }
 
 void MainWindow::insertLinkDialog() {
-  bool ok = false;
-  const QString target =
-      QInputDialog::getText(this, tr("Hyperlink"), tr("Link destination"), QLineEdit::Normal,
-                            m_editor->textCursor().charFormat().anchorHref(), &ok);
-  if (ok) static_cast<ui::Editor*>(m_editor)->insertLink(target, target);
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  editor->finishParagraphSourceEdit();
+  if (m_sourceMode) {
+    statusBar()->showMessage(tr("Edit links in rendered view"), 3000);
+    return;
+  }
+  auto cursor = editor::linkSelection(editor->textCursor());
+  const bool existing = !cursor.isNull();
+  if (!existing) cursor = editor->textCursor();
+  if (cursor.selectedText().contains(QChar::ParagraphSeparator)) {
+    statusBar()->showMessage(tr("Select text in one paragraph"), 3000);
+    return;
+  }
+  ui::LinkDialog dialog(cursor.selectedText(),
+                        existing ? cursor.charFormat().anchorHref() : QString(),
+                        ui::documentHeadingLinks(m_document), m_document->baseUrl(), this);
+  if (dialog.exec() == QDialog::Accepted &&
+      editor::replaceLink(cursor, dialog.destination(), dialog.label())) {
+    cursor.clearSelection();
+    editor->setTextCursor(cursor);
+    editor->setCurrentCharFormat(QTextCharFormat());
+  }
+}
+
+void MainWindow::followLink(const QString& target) {
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const auto destination = ui::resolveLink(target, m_view->rendered()->baseUrl());
+  if (destination.kind == ui::LinkDestination::Invalid) {
+    statusBar()->showMessage(tr("Cannot open link: %1").arg(target), 4000);
+    return;
+  }
+  if (destination.kind == ui::LinkDestination::Heading) {
+    if (!editor->jumpToHeading(destination.fragment))
+      statusBar()->showMessage(tr("Heading not found: %1").arg(destination.fragment), 4000);
+    return;
+  }
+  if (destination.kind == ui::LinkDestination::Markdown) {
+    if (QFileInfo(destination.path) != QFileInfo(m_currentPath)) openFile(destination.path);
+    if (QFileInfo(destination.path) == QFileInfo(m_currentPath) &&
+        !destination.fragment.isEmpty() && !editor->jumpToHeading(destination.fragment))
+      statusBar()->showMessage(tr("Heading not found: %1").arg(destination.fragment), 4000);
+    return;
+  }
+  if (!QDesktopServices::openUrl(destination.url))
+    statusBar()->showMessage(tr("Cannot open link: %1").arg(target), 4000);
 }
 
 void MainWindow::replaceOne() {

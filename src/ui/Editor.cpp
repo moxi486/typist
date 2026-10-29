@@ -2,6 +2,8 @@
 
 #include "CodeBlockBar.h"
 #include "CodeEditing.h"
+#include "LinkEditing.h"
+#include "LinkNavigation.h"
 #include "ParagraphSourcePanel.h"
 #include "TableBar.h"
 #include "TableEditing.h"
@@ -9,15 +11,18 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QContextMenuEvent>
 #include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QHelpEvent>
 #include <QInputDialog>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QMenu>
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPlainTextEdit>
@@ -27,6 +32,7 @@
 #include <QSplitter>
 #include <QTextList>
 #include <QTextTable>
+#include <QToolTip>
 #include <QVBoxLayout>
 #include <QtMath>
 
@@ -576,8 +582,113 @@ void Editor::mouseDoubleClickEvent(QMouseEvent* event) {
   QTextEdit::mouseDoubleClickEvent(event);
 }
 
+bool Editor::openCurrentLink() {
+  if (!m_rendered) return false;
+  const auto link = editor::linkSelection(textCursor());
+  if (link.isNull()) return false;
+  emit linkActivated(link.charFormat().anchorHref());
+  return true;
+}
+bool Editor::jumpToHeading(const QString& fragment) {
+  if (!m_rendered) return false;
+  const auto decoded = QUrl::fromPercentEncoding(fragment.toUtf8());
+  for (const auto& heading : documentHeadingLinks(document()))
+    if (heading.id == decoded || heading.title == decoded) {
+      QTextCursor cursor(document());
+      cursor.setPosition(heading.position);
+      setTextCursor(cursor);
+      ensureCursorVisible();
+      setFocus();
+      return true;
+    }
+  return false;
+}
+bool Editor::copyHeadingLink() {
+  if (!m_rendered || textCursor().blockFormat().headingLevel() <= 0) return false;
+  for (const auto& heading : documentHeadingLinks(document()))
+    if (heading.position == textCursor().block().position()) {
+      QApplication::clipboard()->setText('#' + heading.id);
+      return true;
+    }
+  return false;
+}
+void Editor::mousePressEvent(QMouseEvent* event) {
+  m_pressedLink.clear();
+  if (m_rendered && event->button() == Qt::LeftButton &&
+      (event->modifiers().testFlag(Qt::ControlModifier) ||
+       event->modifiers().testFlag(Qt::MetaModifier))) {
+    const auto link = editor::linkSelection(cursorForPosition(event->position().toPoint()));
+    if (!link.isNull() && !anchorAt(event->position().toPoint()).isEmpty())
+      m_pressedLink = link.charFormat().anchorHref();
+    m_linkPressPosition = event->position().toPoint();
+  }
+  QTextEdit::mousePressEvent(event);
+}
+bool Editor::viewportEvent(QEvent* event) {
+  if (m_rendered && event->type() == QEvent::ToolTip) {
+    auto* help = static_cast<QHelpEvent*>(event);
+    const auto link = editor::linkSelection(cursorForPosition(help->pos()));
+    if (!link.isNull() && !anchorAt(help->pos()).isEmpty()) {
+      QToolTip::showText(help->globalPos(),
+                         link.charFormat().anchorHref() + '\n' + tr("Ctrl/Cmd+click to open link"),
+                         viewport());
+      return true;
+    }
+  }
+  return QTextEdit::viewportEvent(event);
+}
+void Editor::contextMenuEvent(QContextMenuEvent* event) {
+  auto* menu = createStandardContextMenu();
+  const auto cursor = cursorForPosition(event->pos());
+  const auto link = m_rendered ? editor::linkSelection(cursor) : QTextCursor();
+  if (!link.isNull() && !anchorAt(event->pos()).isEmpty()) {
+    menu->addSeparator();
+    auto* open = menu->addAction(tr("Open Link"));
+    open->setObjectName(QStringLiteral("link_context_open"));
+    connect(open, &QAction::triggered, this,
+            [this, link] { emit linkActivated(link.charFormat().anchorHref()); });
+    auto* edit = menu->addAction(tr("Edit Link"));
+    edit->setObjectName(QStringLiteral("link_context_edit"));
+    connect(edit, &QAction::triggered, this, [this, link] {
+      setTextCursor(link);
+      emit editLinkRequested();
+    });
+    auto* copy = menu->addAction(tr("Copy Link Address"));
+    copy->setObjectName(QStringLiteral("link_context_copy"));
+    connect(copy, &QAction::triggered, this,
+            [link] { QApplication::clipboard()->setText(link.charFormat().anchorHref()); });
+    auto* remove = menu->addAction(tr("Remove Link"));
+    remove->setObjectName(QStringLiteral("link_context_remove"));
+    connect(remove, &QAction::triggered, this, [this, link] {
+      auto range = link;
+      editor::removeLink(range);
+      setTextCursor(range);
+    });
+  }
+  if (m_rendered && cursor.blockFormat().headingLevel() > 0) {
+    auto* copy = menu->addAction(tr("Copy Link to Heading"));
+    copy->setObjectName(QStringLiteral("heading_context_copy"));
+    connect(copy, &QAction::triggered, this, [this, cursor] {
+      setTextCursor(cursor);
+      copyHeadingLink();
+    });
+  }
+  menu->exec(event->globalPos());
+  delete menu;
+}
 void Editor::mouseReleaseEvent(QMouseEvent* event) {
   QTextEdit::mouseReleaseEvent(event);
+  if (m_rendered && !m_pressedLink.isEmpty() && event->button() == Qt::LeftButton &&
+      !textCursor().hasSelection() &&
+      (event->modifiers().testFlag(Qt::ControlModifier) ||
+       event->modifiers().testFlag(Qt::MetaModifier)) &&
+      (m_linkPressPosition - event->position().toPoint()).manhattanLength() <
+          QApplication::startDragDistance()) {
+    const auto target = m_pressedLink;
+    m_pressedLink.clear();
+    emit linkActivated(target);
+    return;
+  }
   if (!m_rendered || event->button() != Qt::LeftButton || textCursor().hasSelection()) return;
   auto clicked = cursorForPosition(event->position().toPoint());
   if (clicked.blockFormat().property(editor::kSpecialBlockProperty).toString() ==

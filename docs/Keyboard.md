@@ -16,6 +16,7 @@
 | 加粗 / 斜体 / 删除线 | Ctrl+B / Ctrl+I / Alt+Shift+5 |
 | 行内代码 / 清除格式 | Ctrl+Shift+反引号 / Ctrl+反斜杠 |
 | 超链接 / 图片 | Ctrl+K / Ctrl+Shift+I |
+| 打开渲染视图中的链接 | Ctrl+单击（macOS Cmd+单击） |
 | 代码块 / 引用 | Ctrl+Shift+K / Ctrl+Shift+Q |
 | 代码块缩进 / 取消缩进（支持多行选区） | Tab / Shift+Tab |
 | 退出代码块、继续正文 | Ctrl+Enter |
@@ -45,3 +46,5 @@
 `Ctrl+Shift+M` 插入独立数学公式；「格式 → 行内公式」插入行内公式。闭合的 `$…$` 与 `[^id]` 引用可就地渲染；`[TOC]` 后按 Enter 创建自动目录。双击公式或 Mermaid 图表打开源码与实时预览。其他语法边界见 [Advanced-Markdown.md](Advanced-Markdown.md)。
 
 `Ctrl+Enter` 编辑当前正文段落或标题的 Markdown；在就地源码框中再次 `Ctrl+Enter` 应用、`Esc` 取消；在代码块或表格中则退出当前块并继续正文。代码块工具条可选择语言、复制整块原文和退出；语言也可在「段落 → 代码语言」修改，高亮开关在「设置 → 语法高亮」。代码块支持 Enter 自动缩进、Tab / Shift+Tab 多行缩进、缩进 Backspace 和智能 Home。详见 [Writing-Experience.md](Writing-Experience.md)；表格选区及电子表格粘贴见 [Tables.md](Tables.md)。
+
+链接编辑、相对文件跳转与导出锚点见 [Links.md](Links.md)。
