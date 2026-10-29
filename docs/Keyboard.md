@@ -37,6 +37,7 @@
 | 文件侧栏开关 / 打开文件夹 | Ctrl+Shift+L / Ctrl+Shift+O |
 | 目录内搜索 | Ctrl+Shift+F |
 | 大纲面板开关 / 文件树 | Ctrl+Shift+T 或 Ctrl+Shift+1 / Ctrl+Shift+3 |
+| 文件列表 / 文件排序 | 视图 → 文件列表；工作区右侧 ⋯ 菜单选择视图、排序和刷新 |
 | 恢复崩溃草稿 | Ctrl+Shift+R（菜单 File > Recover Draft） |
 | 检查更新 | Ctrl+Shift+U（菜单 Help > Check for Updates） |
 

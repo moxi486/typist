@@ -18,5 +18,6 @@ Typist 是一个开源的所见即所得 Markdown 编辑器：源码与渲染在
 5. 通过文件菜单 [导入 HTML](Import.md) 预览网页内容，或用 `Ctrl+Alt+V` 将网页富文本粘贴为 Markdown。
 6. [PDF 页面设置与预览](PDF.md)：导出前检查纸张、方向、页边距、页眉页脚和分页。
 7. [快速打开](Quick-Open.md)：`Ctrl+P` 模糊查找工作区和最近文件，使用键盘选择打开。
+8. [文件侧栏](File-Browser.md)：文件树 / 列表、自然顺序或修改时间排序、显示偏好与刷新。
 
 许可：应用为 MIT；Qt 以 LGPLv3 动态链接并提供可重链接说明；cmark-gfm 为 BSD-2。第三方许可声明见仓库根目录的 `NOTICE`。

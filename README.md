@@ -6,6 +6,8 @@
 
 ## 当前可用功能
 
+- 文件侧栏：文件树 / 文件列表切换，按文件名、自然顺序或修改时间排序，记住显示偏好；深层目录刷新、选择与折叠状态保留，见 [docs/File-Browser.md](docs/File-Browser.md)
+
 - 快速打开（Ctrl+P）：工作区文件名 / 路径模糊搜索、最近文件、后台目录扫描和键盘选择；中英文及浅深主题，见 [docs/Quick-Open.md](docs/Quick-Open.md)
 
 - 打开 / 保存 Markdown（原子写入）

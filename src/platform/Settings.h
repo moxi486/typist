@@ -36,4 +36,15 @@ void addRecentFile(const QString& path);
 
 void removeRecentFile(const QString& path);
 
+enum class FileBrowserView { Tree, List };
+enum class FileBrowserSort { Name, Natural, Modified };
+struct FileBrowserOptions {
+  FileBrowserView view = FileBrowserView::Tree;
+  FileBrowserSort sort = FileBrowserSort::Name;
+  bool descending = false;
+  bool foldersFirst = false;
+};
+FileBrowserOptions fileBrowserOptions();
+void setFileBrowserOptions(const FileBrowserOptions& options);
+
 }  // namespace typist::platform

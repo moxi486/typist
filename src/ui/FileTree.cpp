@@ -2,283 +2,402 @@
 
 #include "FileOps.h"
 
+#include <QActionGroup>
+#include <QCollator>
 #include <QContextMenuEvent>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QDirIterator>
-#include <QFileDialog>
-#include <QFileInfo>
+#include <QEvent>
 #include <QFileSystemWatcher>
-#include <QHeaderView>
 #include <QInputDialog>
+#include <QKeyEvent>
+#include <QLocale>
 #include <QMenu>
 #include <QMessageBox>
-#include <QSet>
+#include <QStyle>
 #include <QTimer>
-#include <QTreeWidgetItem>
+#include <QTreeWidgetItemIterator>
+#include <algorithm>
 
 namespace typist::ui {
-
 namespace {
-
 constexpr int kPathRole = Qt::UserRole;
 constexpr int kDirRole = Qt::UserRole + 1;
+constexpr int kOrderRole = Qt::UserRole + 2;
 
 bool skippedDirectory(const QString& name) {
-  return name.startsWith(QChar(46)) || name == QStringLiteral("build") ||
-         name == QStringLiteral("node_modules");
+  return name.startsWith('.') || name == QLatin1String("build") ||
+         name == QLatin1String("node_modules");
 }
 
+class FileItem : public QTreeWidgetItem {
+ public:
+  using QTreeWidgetItem::QTreeWidgetItem;
+  bool operator<(const QTreeWidgetItem& other) const override {
+    return data(0, kOrderRole).toInt() < other.data(0, kOrderRole).toInt();
+  }
+};
 }  // namespace
 
 FileTree::FileTree(QWidget* parent) : QTreeWidget(parent) {
   setHeaderHidden(true);
-  setRootIsDecorated(true);
   setUniformRowHeights(true);
+  setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  setTextElideMode(Qt::ElideMiddle);
   connect(this, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int) {
-    if (item == nullptr || item->data(0, kDirRole).toBool()) return;
-    emit entryActivated(item->data(0, kPathRole).toString());
+    if (item && !item->data(0, kDirRole).toBool())
+      emit entryActivated(item->data(0, kPathRole).toString());
   });
 }
 
-QStringList collectExpandedDirs(const QTreeWidget& tree) {
-  QStringList paths;
-  const auto walk = [&paths](const QTreeWidgetItem* item) {
-    if (item != nullptr && item->data(0, kDirRole).toBool() && item->isExpanded()) {
-      paths.append(item->data(0, kPathRole).toString());
+QList<QFileInfo> FileTree::scan() const {
+  QList<QFileInfo> entries;
+  if (m_root.isEmpty() || !QFileInfo(m_root).isDir()) return entries;
+  QStringList pending{m_root};
+  while (!pending.isEmpty()) {
+    QDirIterator iterator(pending.takeLast(), QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot |
+                                                  QDir::NoSymLinks | QDir::Readable);
+    while (iterator.hasNext()) {
+      iterator.next();
+      const auto info = iterator.fileInfo();
+      if (info.isHidden() || info.fileName().startsWith('.')) continue;
+      if (info.isDir()) {
+        if (skippedDirectory(info.fileName())) continue;
+        entries.append(info);
+        pending.append(info.absoluteFilePath());
+      } else if (info.suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0) {
+        entries.append(info);
+      }
     }
-  };
-  for (int i = 0; i < tree.topLevelItemCount(); ++i) {
-    QTreeWidgetItem* top = tree.topLevelItem(i);
-    walk(top);
-    for (int j = 0; top != nullptr && j < top->childCount(); ++j) walk(top->child(j));
   }
-  return paths;
+  // Parents precede descendants; the order also makes the refresh signature deterministic.
+  std::sort(entries.begin(), entries.end(), [](const QFileInfo& a, const QFileInfo& b) {
+    return a.absoluteFilePath() < b.absoluteFilePath();
+  });
+  return entries;
 }
 
-void applyExpandedDirs(QTreeWidgetItem* item, const QSet<QString>& expanded) {
-  if (item == nullptr) return;
-  if (item->data(0, kDirRole).toBool())
-    item->setExpanded(expanded.contains(item->data(0, kPathRole).toString()));
-  for (int i = 0; i < item->childCount(); ++i) applyExpandedDirs(item->child(i), expanded);
+void FileTree::rememberExpansion() {
+  if (m_options.view != platform::FileBrowserView::Tree) return;
+  m_expanded.clear();
+  QTreeWidgetItemIterator iterator(this);
+  while (*iterator) {
+    const auto* item = *iterator;
+    if (item->data(0, kDirRole).toBool() && item->isExpanded())
+      m_expanded.insert(item->data(0, kPathRole).toString());
+    ++iterator;
+  }
+  m_hasExpansionState = true;
 }
 
 void FileTree::setRoot(const QString& rootDir) {
-  // The listing is rebuilt on every watcher tick, so the open/closed state the
-  // user chose has to survive it; an empty capture means a fresh tree, which opens all.
-  const QStringList expanded = collectExpandedDirs(*this);
-  m_root = rootDir;
-  m_directories = 0;
-  clear();
-  buildDirectory(nullptr, rootDir, QString());
-  if (!m_hasExpansionState) {
-    expandAll();
-    m_hasExpansionState = true;
-  } else {
-    // An empty capture is a real choice: the user closed every directory.
-    const QSet<QString> kept{expanded.begin(), expanded.end()};
-    for (int i = 0; i < topLevelItemCount(); ++i) applyExpandedDirs(topLevelItem(i), kept);
+  const QString root = rootDir.isEmpty() ? QString() : QDir(rootDir).absolutePath();
+  const bool sameRoot = root == m_root;
+  if (sameRoot)
+    rememberExpansion();
+  else {
+    m_expanded.clear();
+    m_hasExpansionState = false;
   }
-  m_signature = signature();
+  const auto selected =
+      sameRoot && currentItem() ? currentItem()->data(0, kPathRole).toString() : QString();
+  m_root = root;
+  m_entries = scan();
+  m_signature = signature(m_entries);
+  renderEntries();
+  if (auto* item = m_items.value(selected)) setCurrentItem(item);
   if (m_watchEnabled) watchCurrentDirectories();
 }
 
-void FileTree::buildDirectory(QTreeWidgetItem* parent, const QString& absDir,
-                              const QString& relPath) {
-  QDir dir(absDir);
-  const QStringList files =
-      dir.entryList(QStringList() << QStringLiteral("*.md"), QDir::Files, QDir::Name);
-  for (const QString& file : files) {
-    QTreeWidgetItem* item =
-        parent == nullptr ? new QTreeWidgetItem(this) : new QTreeWidgetItem(parent);
-    const QString path = dir.filePath(file);
-    item->setText(0, file);
+void FileTree::renderEntries() {
+  setUpdatesEnabled(false);
+  clear();
+  m_items.clear();
+  const bool list = m_options.view == platform::FileBrowserView::List;
+  setRootIsDecorated(!list);
+  setIndentation(list ? 0 : 16);
+  const QDir root(m_root);
+  QList<QFileInfo> sorted = m_entries;
+  // A fixed collation locale makes numeric order work even on C-locale CI hosts.
+  QCollator collator(QLocale::English);
+  collator.setCaseSensitivity(Qt::CaseInsensitive);
+  collator.setNumericMode(true);
+  std::sort(sorted.begin(), sorted.end(), [&](const QFileInfo& a, const QFileInfo& b) {
+    if (!list && a.isDir() != b.isDir()) return m_options.foldersFirst ? a.isDir() : !a.isDir();
+    int comparison = 0;
+    if (m_options.sort == platform::FileBrowserSort::Modified) {
+      const auto left = a.lastModified().toMSecsSinceEpoch();
+      const auto right = b.lastModified().toMSecsSinceEpoch();
+      comparison = left < right ? -1 : left > right ? 1 : 0;
+    } else if (m_options.sort == platform::FileBrowserSort::Natural) {
+      comparison = collator.compare(a.fileName(), b.fileName());
+    } else {
+      comparison = QString::compare(a.fileName(), b.fileName(), Qt::CaseInsensitive);
+    }
+    if (!comparison)
+      comparison = QString::compare(root.relativeFilePath(a.absoluteFilePath()),
+                                    root.relativeFilePath(b.absoluteFilePath()), Qt::CaseSensitive);
+    return m_options.descending ? comparison > 0 : comparison < 0;
+  });
+  QHash<QString, int> ranks;
+  for (int i = 0; i < sorted.size(); ++i) ranks.insert(sorted.at(i).absoluteFilePath(), i);
+  const auto directoryIcon = style()->standardIcon(QStyle::SP_DirClosedIcon);
+  const auto fileIcon = style()->standardIcon(QStyle::SP_FileIcon);
+  for (const auto& info : m_entries) {
+    if (list && info.isDir()) continue;
+    const auto path = info.absoluteFilePath();
+    auto* parent = list ? nullptr : m_items.value(info.absolutePath());
+    auto* item = parent ? new FileItem(parent) : new FileItem(this);
+    QString text = info.fileName();
+    if (list) {
+      const auto folder = root.relativeFilePath(info.absolutePath());
+      text +=
+          '\n' + QDir::toNativeSeparators(folder == QLatin1String(".") ? root.dirName() : folder);
+    }
+    item->setText(0, text);
+    item->setToolTip(0, QDir::toNativeSeparators(path));
     item->setData(0, kPathRole, path);
-    item->setData(0, kDirRole, false);
+    item->setData(0, kDirRole, info.isDir());
+    item->setData(0, kOrderRole, ranks.value(path));
+    item->setIcon(0, info.isDir() ? directoryIcon : fileIcon);
+    if (info.isDir()) item->setExpanded(!m_hasExpansionState || m_expanded.contains(path));
+    m_items.insert(path, item);
   }
+  sortItems(0, Qt::AscendingOrder);
+  setUpdatesEnabled(true);
+}
 
-  const QStringList subdirs = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
-  for (const QString& sub : subdirs) {
-    if (skippedDirectory(sub)) continue;
-    QTreeWidgetItem* item =
-        parent == nullptr ? new QTreeWidgetItem(this) : new QTreeWidgetItem(parent);
-    const QString subPath = dir.filePath(sub);
-    item->setText(0, sub);
-    item->setData(0, kDirRole, true);
-    item->setData(0, kPathRole, subPath);
-    ++m_directories;
-    buildDirectory(item, dir.filePath(sub), relPath + sub + QLatin1Char('/'));
-  }
+void FileTree::setOptions(const platform::FileBrowserOptions& options) {
+  if (options.view == m_options.view && options.sort == m_options.sort &&
+      options.descending == m_options.descending && options.foldersFirst == m_options.foldersFirst)
+    return;
+  const auto selected = currentItem() ? currentItem()->data(0, kPathRole).toString() : QString();
+  rememberExpansion();
+  m_options = options;
+  renderEntries();
+  if (auto* item = m_items.value(selected)) setCurrentItem(item);
+  if (m_watchEnabled) watchCurrentDirectories();
+  updateOptionsMenu();
+  emit optionsChanged();
 }
 
 int FileTree::entryCount() const {
-  int count = 0;
-  for (int i = 0; i < topLevelItemCount(); ++i) {
-    QTreeWidgetItem* item = topLevelItem(i);
-    if (item->data(0, kDirRole).toBool())
-      count += item->childCount();
-    else
-      ++count;
-  }
-  return count;
+  return int(std::count_if(m_entries.begin(), m_entries.end(),
+                           [](const QFileInfo& info) { return !info.isDir(); }));
 }
-
-int FileTree::directoryCount() const { return m_directories; }
-
+int FileTree::directoryCount() const { return int(m_entries.size()) - entryCount(); }
 QString FileTree::entryPath(int index) const {
-  int seen = 0;
-  for (int i = 0; i < topLevelItemCount(); ++i) {
-    QTreeWidgetItem* item = topLevelItem(i);
-    if (!item->data(0, kDirRole).toBool()) {
-      if (seen == index) return item->data(0, kPathRole).toString();
-      ++seen;
-      continue;
-    }
-    for (int c = 0; c < item->childCount(); ++c) {
-      QTreeWidgetItem* child = item->child(c);
-      if (child->data(0, kDirRole).toBool()) continue;
-      if (seen == index) return child->data(0, kPathRole).toString();
-      ++seen;
-    }
+  QTreeWidgetItemIterator iterator(const_cast<FileTree*>(this));
+  while (*iterator) {
+    if (!(*iterator)->data(0, kDirRole).toBool() && index-- == 0)
+      return (*iterator)->data(0, kPathRole).toString();
+    ++iterator;
   }
-  return QString();
+  return {};
 }
-
 QTreeWidgetItem* FileTree::findLeaf(const QString& path) const {
-  for (int i = 0; i < topLevelItemCount(); ++i) {
-    QTreeWidgetItem* item = topLevelItem(i);
-    if (!item->data(0, kDirRole).toBool() && item->data(0, kPathRole).toString() == path)
-      return item;
-    for (int c = 0; c < item->childCount(); ++c) {
-      QTreeWidgetItem* child = item->child(c);
-      if (!child->data(0, kDirRole).toBool() && child->data(0, kPathRole).toString() == path)
-        return child;
-    }
-  }
-  return nullptr;
+  auto* item = m_items.value(QDir::cleanPath(QFileInfo(path).absoluteFilePath()));
+  return item && !item->data(0, kDirRole).toBool() ? item : nullptr;
 }
-
 void FileTree::selectPath(const QString& path) {
-  QTreeWidgetItem* item = findLeaf(path);
-  if (item != nullptr) setCurrentItem(item);
+  if (auto* item = findLeaf(path)) setCurrentItem(item);
 }
-
 QString FileTree::selectedPath() const {
-  QTreeWidgetItem* item = currentItem();
-  if (item == nullptr || item->data(0, kDirRole).toBool()) return QString();
-  return item->data(0, kPathRole).toString();
+  const auto* item = currentItem();
+  return item && !item->data(0, kDirRole).toBool() ? item->data(0, kPathRole).toString()
+                                                   : QString();
 }
-
-void FileTree::rebuild() {
-  const QString current = selectedPath();
-  setRoot(m_root);
-  if (!current.isEmpty()) selectPath(current);
-}
-
-QString FileTree::signature() const {
-  QDir root(m_root);
-  QStringList parts;
-  QDirIterator it(m_root, QStringList() << QStringLiteral("*.md"), QDir::Files,
-                  QDirIterator::Subdirectories);
-  while (it.hasNext()) {
-    const QString path = it.next();
-    const QStringList segments = root.relativeFilePath(path).split(QChar(47));
-    bool skip = false;
-    for (int i = 0; i < segments.size() - 1; ++i) {
-      if (skippedDirectory(segments.at(i))) {
-        skip = true;
-        break;
-      }
-    }
-    if (skip) continue;
-    const QFileInfo info(path);
-    parts << QStringLiteral("%1|%2|%3")
-                 .arg(root.relativeFilePath(path))
-                 .arg(info.size())
-                 .arg(info.birthTime().toMSecsSinceEpoch());
+void FileTree::rebuild() { setRoot(m_root); }
+QString FileTree::signature(const QList<QFileInfo>& entries) const {
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  for (const auto& info : entries) {
+    hash.addData(info.absoluteFilePath().toUtf8());
+    hash.addData(QByteArray(1, '\0'));
+    hash.addData(info.isDir() ? QByteArray("dir")
+                              : QByteArray::number(info.size()) + ':' +
+                                    QByteArray::number(info.lastModified().toMSecsSinceEpoch()));
+    hash.addData(QByteArray(1, '\0'));
   }
-  parts.sort();
-  return parts.join(QLatin1Char('#'));
+  return QString::fromLatin1(hash.result().toHex());
 }
-
 void FileTree::collectDirectories(QStringList& dirs) const {
-  dirs << m_root;
-  for (int i = 0; i < topLevelItemCount(); ++i) {
-    QTreeWidgetItem* item = topLevelItem(i);
-    if (!item->data(0, kDirRole).toBool()) continue;
-    collectUnder(item, dirs);
-  }
+  if (!m_root.isEmpty() && QFileInfo(m_root).isDir()) dirs.append(m_root);
+  for (const auto& info : m_entries)
+    if (info.isDir()) dirs.append(info.absoluteFilePath());
 }
-
-void FileTree::collectUnder(const QTreeWidgetItem* item, QStringList& dirs) const {
-  dirs << item->data(0, kPathRole).toString();
-  for (int c = 0; c < item->childCount(); ++c) {
-    QTreeWidgetItem* child = item->child(c);
-    if (child->data(0, kDirRole).toBool()) collectUnder(child, dirs);
-  }
-}
-
 bool FileTree::refreshIfChanged() {
-  const QString current = signature();
+  auto entries = scan();
+  const auto current = signature(entries);
   if (current == m_signature) return false;
-  const QString selected = selectedPath();
+  const auto selected = currentItem() ? currentItem()->data(0, kPathRole).toString() : QString();
+  rememberExpansion();
+  m_entries = std::move(entries);
   m_signature = current;
-  setRoot(m_root);
-  if (!selected.isEmpty()) selectPath(selected);
+  renderEntries();
+  if (auto* item = m_items.value(selected)) setCurrentItem(item);
+  if (m_watchEnabled) watchCurrentDirectories();
   return true;
 }
-
+void FileTree::refresh() {
+  refreshIfChanged();
+  emit directoryChanged();
+}
 void FileTree::watchCurrentDirectories() {
-  if (m_watcher == nullptr) return;
+  if (!m_watcher || !m_watchEnabled) return;
   QStringList dirs;
   collectDirectories(dirs);
-  const QStringList watched = m_watcher->directories();
-  QStringList missing;
-  for (const QString& dir : dirs) {
-    if (!watched.contains(dir)) missing << dir;
-  }
+  if (m_options.sort == platform::FileBrowserSort::Modified)
+    for (const auto& info : m_entries)
+      if (!info.isDir()) dirs.append(info.absoluteFilePath());
+  const QSet<QString> wanted(dirs.begin(), dirs.end());
+  const auto watched = m_watcher->directories() + m_watcher->files();
+  const QSet<QString> existing(watched.begin(), watched.end());
+  QStringList stale, missing;
+  for (const auto& dir : watched)
+    if (!wanted.contains(dir)) stale.append(dir);
+  for (const auto& dir : dirs)
+    if (!existing.contains(dir)) missing.append(dir);
+  if (!stale.isEmpty()) m_watcher->removePaths(stale);
   if (!missing.isEmpty()) m_watcher->addPaths(missing);
 }
-
 void FileTree::scheduleRefresh() {
-  if (m_debounce == nullptr) {
+  if (!m_debounce) {
     m_debounce = new QTimer(this);
     m_debounce->setSingleShot(true);
-    connect(m_debounce, &QTimer::timeout, this, [this] {
-      refreshIfChanged();
-      emit directoryChanged();
-      watchCurrentDirectories();
-    });
+    connect(m_debounce, &QTimer::timeout, this, &FileTree::refresh);
   }
   m_debounce->start(250);
 }
-
 void FileTree::stopDebounce() {
-  if (m_debounce != nullptr) m_debounce->stop();
+  if (m_debounce) m_debounce->stop();
 }
-
 void FileTree::setWatchEnabled(bool enabled) {
   m_watchEnabled = enabled;
   if (!enabled) {
     stopDebounce();
-    if (m_watcher != nullptr) {
-      const QStringList watched = m_watcher->directories();
+    if (m_watcher) {
+      const auto watched = m_watcher->directories() + m_watcher->files();
       if (!watched.isEmpty()) m_watcher->removePaths(watched);
     }
     return;
   }
-  if (m_watcher == nullptr) {
+  if (!m_watcher) {
     m_watcher = new QFileSystemWatcher(this);
     connect(m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] { scheduleRefresh(); });
+    connect(m_watcher, &QFileSystemWatcher::fileChanged, this, [this] { scheduleRefresh(); });
   }
   watchCurrentDirectories();
 }
 
+QMenu* FileTree::createOptionsMenu(QWidget* parent) {
+  if (m_optionsMenu) return m_optionsMenu;
+  m_optionsMenu = new QMenu(parent);
+  m_optionsMenu->setObjectName(QStringLiteral("fileBrowserMenu"));
+  const auto add = [this](const char* id, const char* source, bool checkable) {
+    auto* action = m_optionsMenu->addAction(tr(source));
+    action->setObjectName(QString::fromLatin1(id));
+    action->setProperty("fileBrowserSource", source);
+    action->setCheckable(checkable);
+    return action;
+  };
+  auto* views = new QActionGroup(m_optionsMenu);
+  for (const auto& pair : {qMakePair("browserTree", QT_TR_NOOP("File Tree")),
+                           qMakePair("browserList", QT_TR_NOOP("File List"))}) {
+    auto* action = add(pair.first, pair.second, true);
+    views->addAction(action);
+    connect(action, &QAction::triggered, this, [this, action] {
+      auto options = m_options;
+      options.view = action->objectName() == QLatin1String("browserList")
+                         ? platform::FileBrowserView::List
+                         : platform::FileBrowserView::Tree;
+      setOptions(options);
+    });
+  }
+  m_optionsMenu->addSeparator();
+  auto* sorting = new QActionGroup(m_optionsMenu);
+  for (const auto& pair : {qMakePair("browserName", QT_TR_NOOP("Name")),
+                           qMakePair("browserNatural", QT_TR_NOOP("Natural Order")),
+                           qMakePair("browserModified", QT_TR_NOOP("Modified Date"))}) {
+    auto* action = add(pair.first, pair.second, true);
+    sorting->addAction(action);
+    connect(action, &QAction::triggered, this, [this, action] {
+      auto options = m_options;
+      options.sort = action->objectName() == QLatin1String("browserNatural")
+                         ? platform::FileBrowserSort::Natural
+                     : action->objectName() == QLatin1String("browserModified")
+                         ? platform::FileBrowserSort::Modified
+                         : platform::FileBrowserSort::Name;
+      setOptions(options);
+    });
+  }
+  m_optionsMenu->addSeparator();
+  auto* descending = add("browserDescending", QT_TR_NOOP("Descending"), true);
+  connect(descending, &QAction::triggered, this, [this](bool checked) {
+    auto options = m_options;
+    options.descending = checked;
+    setOptions(options);
+  });
+  auto* folders = add("browserFoldersFirst", QT_TR_NOOP("Folders First"), true);
+  connect(folders, &QAction::triggered, this, [this](bool checked) {
+    auto options = m_options;
+    options.foldersFirst = checked;
+    setOptions(options);
+  });
+  m_optionsMenu->addSeparator();
+  connect(add("browserRefresh", QT_TR_NOOP("Refresh"), false), &QAction::triggered, this,
+          &FileTree::refresh);
+  updateOptionsMenu();
+  return m_optionsMenu;
+}
+void FileTree::updateOptionsMenu() {
+  if (!m_optionsMenu) return;
+  for (auto* action : m_optionsMenu->actions()) {
+    const auto source = action->property("fileBrowserSource").toByteArray();
+    if (!source.isEmpty()) action->setText(tr(source.constData()));
+    const auto id = action->objectName();
+    if (id == QLatin1String("browserTree"))
+      action->setChecked(m_options.view == platform::FileBrowserView::Tree);
+    if (id == QLatin1String("browserList"))
+      action->setChecked(m_options.view == platform::FileBrowserView::List);
+    if (id == QLatin1String("browserName"))
+      action->setChecked(m_options.sort == platform::FileBrowserSort::Name);
+    if (id == QLatin1String("browserNatural"))
+      action->setChecked(m_options.sort == platform::FileBrowserSort::Natural);
+    if (id == QLatin1String("browserModified"))
+      action->setChecked(m_options.sort == platform::FileBrowserSort::Modified);
+    if (id == QLatin1String("browserDescending")) action->setChecked(m_options.descending);
+    if (id == QLatin1String("browserFoldersFirst")) {
+      action->setChecked(m_options.foldersFirst);
+      action->setEnabled(m_options.view == platform::FileBrowserView::Tree);
+    }
+  }
+}
+void FileTree::changeEvent(QEvent* event) {
+  if (event->type() == QEvent::LanguageChange) updateOptionsMenu();
+  QTreeWidget::changeEvent(event);
+}
+void FileTree::keyPressEvent(QKeyEvent* event) {
+  if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+    if (auto* item = currentItem()) {
+      if (item->data(0, kDirRole).toBool())
+        item->setExpanded(!item->isExpanded());
+      else
+        emit entryActivated(item->data(0, kPathRole).toString());
+    }
+    event->accept();
+    return;
+  }
+  QTreeWidget::keyPressEvent(event);
+}
+
 void FileTree::contextMenuEvent(QContextMenuEvent* event) {
-  QTreeWidgetItem* item = currentItem();
+  if (event->reason() == QContextMenuEvent::Mouse) setCurrentItem(itemAt(event->pos()));
+  auto* item = currentItem();
   QMenu menu(this);
-  const bool onDirectory = item == nullptr || item->data(0, kDirRole).toBool();
-  const QString dir = onDirectory ? (item == nullptr ? m_root : item->data(0, kPathRole).toString())
-                                  : QFileInfo(item->data(0, kPathRole).toString()).absolutePath();
+  const bool onDirectory = !item || item->data(0, kDirRole).toBool();
+  const auto dir = onDirectory ? (!item ? m_root : item->data(0, kPathRole).toString())
+                               : QFileInfo(item->data(0, kPathRole).toString()).absolutePath();
   menu.addAction(tr("New Markdown File"), this, [this, dir] { newFileIn(dir); });
   if (!onDirectory) {
     menu.addAction(tr("Rename"), this, &FileTree::renameSelected);
@@ -286,52 +405,49 @@ void FileTree::contextMenuEvent(QContextMenuEvent* event) {
   }
   menu.exec(event->globalPos());
 }
-
 void FileTree::newFileIn(const QString& dir) {
   bool ok = false;
-  const QString name = QInputDialog::getText(this, tr("New Markdown File"), tr("File name"),
-                                             QLineEdit::Normal, QStringLiteral("untitled.md"), &ok);
+  const auto name = QInputDialog::getText(this, tr("New Markdown File"), tr("File name"),
+                                          QLineEdit::Normal, QStringLiteral("untitled.md"), &ok)
+                        .trimmed();
   if (!ok || name.isEmpty()) return;
-
   QString error;
   if (!platform::createMarkdownFile(dir, name, &error)) {
     QMessageBox::warning(this, tr("New Markdown File"), error);
     return;
   }
   rebuild();
-  emit entryActivated(QDir(dir).filePath(
-      name.endsWith(QStringLiteral(".md")) ? name : name + QStringLiteral(".md")));
+  emit entryActivated(QDir(dir).filePath(name.endsWith(QLatin1String(".md"), Qt::CaseInsensitive)
+                                             ? name
+                                             : name + QStringLiteral(".md")));
 }
-
 void FileTree::renameSelected() {
-  const QString path = selectedPath();
+  const auto path = selectedPath();
   if (path.isEmpty()) return;
   bool ok = false;
-  const QString name = QInputDialog::getText(this, tr("Rename File"), tr("New name"),
-                                             QLineEdit::Normal, QFileInfo(path).fileName(), &ok);
+  const auto name = QInputDialog::getText(this, tr("Rename File"), tr("New name"),
+                                          QLineEdit::Normal, QFileInfo(path).fileName(), &ok)
+                        .trimmed();
   if (!ok || name.isEmpty()) return;
-
   QString error;
   if (!platform::renameFile(path, name, &error)) {
     QMessageBox::warning(this, tr("Rename File"), error);
     return;
   }
-  const QString newPath =
-      QDir(QFileInfo(path).absolutePath())
-          .filePath(name.endsWith(QStringLiteral(".md")) ? name : name + QStringLiteral(".md"));
+  const auto newPath = QDir(QFileInfo(path).absolutePath())
+                           .filePath(name.endsWith(QLatin1String(".md"), Qt::CaseInsensitive)
+                                         ? name
+                                         : name + QStringLiteral(".md"));
   rebuild();
   selectPath(newPath);
   emit fileRenamed(path, newPath);
 }
-
 void FileTree::deleteSelected() {
-  const QString path = selectedPath();
+  const auto path = selectedPath();
   if (path.isEmpty()) return;
   if (QMessageBox::question(this, tr("Delete File"),
-                            tr("Delete %1?").arg(QFileInfo(path).fileName())) != QMessageBox::Yes) {
+                            tr("Delete %1?").arg(QFileInfo(path).fileName())) != QMessageBox::Yes)
     return;
-  }
-
   QString error;
   if (!platform::deleteFile(path, &error)) {
     QMessageBox::warning(this, tr("Delete File"), error);
@@ -340,5 +456,4 @@ void FileTree::deleteSelected() {
   rebuild();
   emit fileRemoved(path);
 }
-
 }  // namespace typist::ui

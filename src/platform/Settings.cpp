@@ -8,6 +8,33 @@ namespace {
 QSettings openSettings() { return QSettings(QStringLiteral("Typist"), QStringLiteral("Typist")); }
 }  // namespace
 
+FileBrowserOptions fileBrowserOptions() {
+  const auto settings = openSettings();
+  FileBrowserOptions options;
+  if (settings.value(QStringLiteral("files/view")).toString() == QLatin1String("list"))
+    options.view = FileBrowserView::List;
+  const auto sort = settings.value(QStringLiteral("files/sort")).toString();
+  if (sort == QLatin1String("natural")) options.sort = FileBrowserSort::Natural;
+  if (sort == QLatin1String("modified")) options.sort = FileBrowserSort::Modified;
+  options.descending = settings.value(QStringLiteral("files/descending"), false).toBool();
+  options.foldersFirst = settings.value(QStringLiteral("files/foldersFirst"), false).toBool();
+  return options;
+}
+
+void setFileBrowserOptions(const FileBrowserOptions& options) {
+  auto settings = openSettings();
+  settings.setValue(QStringLiteral("files/view"), options.view == FileBrowserView::List
+                                                      ? QStringLiteral("list")
+                                                      : QStringLiteral("tree"));
+  settings.setValue(QStringLiteral("files/sort"),
+                    options.sort == FileBrowserSort::Natural    ? QStringLiteral("natural")
+                    : options.sort == FileBrowserSort::Modified ? QStringLiteral("modified")
+                                                                : QStringLiteral("name"));
+  settings.setValue(QStringLiteral("files/descending"), options.descending);
+  settings.setValue(QStringLiteral("files/foldersFirst"), options.foldersFirst);
+  settings.sync();
+}
+
 QString themePreference(const QString& fallback) {
   return openSettings().value(QStringLiteral("theme"), fallback).toString();
 }
