@@ -61,6 +61,17 @@ void roundTrip(const QString& source) {
 class LinkWorkflowTests : public QObject {
   Q_OBJECT
  private slots:
+  void headingWhitespaceKeepsCopiedAndExportedTargetsConsistent() {
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    prepare(editor, view, "# Heading\n");
+    auto cursor = editor.textCursor();
+    cursor.movePosition(QTextCursor::EndOfBlock);
+    cursor.insertText("  ");
+    const auto links = ui::documentHeadingLinks(editor.document());
+    QCOMPARE(links.first().id, QStringLiteral("heading"));
+    QVERIFY(render::html(view.currentMarkdown()).contains("id=\"heading\""));
+  }
   void htmlTocTracksCanonicalIdsWithoutCascadingReplacements() {
     const auto html = render::html("[TOC]\n\n# heading-2\n\n# Alpha\n\n> # Quoted\n\n## Alpha\n");
     QVERIFY(html.contains("href=\"#heading-2\">heading-2"));

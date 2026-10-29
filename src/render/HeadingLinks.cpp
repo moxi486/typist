@@ -7,7 +7,7 @@
 namespace typist::render {
 QString headingSlug(const QString& title) {
   QString slug;
-  for (const auto ch : title.normalized(QString::NormalizationForm_C).toLower()) {
+  for (const auto ch : title.trimmed().normalized(QString::NormalizationForm_C).toLower()) {
     if (ch.isLetterOrNumber() || ch == '-' || ch == '_')
       slug += ch;
     else if (ch.isSpace())
