@@ -41,10 +41,12 @@ int main(int argc, char* argv[]) {
   const bool benchDocx = args.contains(QStringLiteral("--bench-docx"));
   const bool benchEpub = args.contains(QStringLiteral("--bench-epub"));
   const bool benchHtmlImport = args.contains(QStringLiteral("--bench-import-html"));
+  const bool benchPdf = args.contains(QStringLiteral("--bench-pdf"));
 
   typist::MainWindow window;
   window.setBenchMode(benchStartup || benchRepaint || benchViewSwitch || benchSearch ||
-                      benchFolderSearch || benchTree || benchDocx || benchEpub || benchHtmlImport);
+                      benchFolderSearch || benchTree || benchDocx || benchEpub || benchHtmlImport ||
+                      benchPdf);
   bool htmlImported = false;
   const auto openInput = [&](const QString& path) {
     const auto suffix = QFileInfo(path).suffix().toLower();
@@ -74,15 +76,16 @@ int main(int argc, char* argv[]) {
   int treeDirectories = 0;
   qint64 docxBytes = 0;
   qint64 epubBytes = 0;
+  qint64 pdfBytes = 0;
 
   if (benchStartup || benchRepaint || benchViewSwitch || benchSearch || benchFolderSearch ||
-      benchTree || benchDocx || benchEpub || benchHtmlImport) {
+      benchTree || benchDocx || benchEpub || benchHtmlImport || benchPdf) {
     QTimer::singleShot(
         0, &application,
         [&startup, &application, &window, benchStartup, benchRepaint, benchViewSwitch, benchSearch,
          benchFolderSearch, benchTree, benchDocx, &repaintBudgetBreaches, &undoKept, &searchMatches,
          &folderHits, &folderScanMs, &treeEntries, &treeDirectories, &docxBytes, benchEpub,
-         &epubBytes, benchHtmlImport, htmlImported] {
+         &epubBytes, benchHtmlImport, htmlImported, benchPdf, &pdfBytes] {
           if (benchHtmlImport) std::printf("html_import_ok=%d\n", htmlImported ? 1 : 0);
           if (benchStartup) {
             std::printf("startup_ms=%lld\n", static_cast<long long>(startup.elapsed()));
@@ -137,6 +140,13 @@ int main(int argc, char* argv[]) {
                   {QStringLiteral("Typist"), {}, QStringLiteral("zh-CN")});
             std::printf("epub_bytes=%lld\n", static_cast<long long>(epubBytes));
           }
+          if (benchPdf) {
+            QTemporaryDir directory;
+            if (directory.isValid())
+              pdfBytes =
+                  window.exportPdfForBench(directory.filePath(QStringLiteral("document.pdf")), {});
+            std::printf("pdf_bytes=%lld\n", static_cast<long long>(pdfBytes));
+          }
           application.quit();
         });
   }
@@ -150,5 +160,6 @@ int main(int argc, char* argv[]) {
   if (benchDocx && docxBytes < 400) return 1;
   if (benchEpub && epubBytes < 400) return 1;
   if (benchHtmlImport && !htmlImported) return 1;
+  if (benchPdf && pdfBytes < 400) return 1;
   return code;
 }

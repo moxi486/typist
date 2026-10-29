@@ -15,10 +15,11 @@ add_library(typist_ui_viewswitch STATIC ViewSwitch.h ViewSwitch.cpp Editor.h Edi
   ParagraphSourcePanel.h ParagraphSourcePanel.cpp CodeBlockBar.h CodeBlockBar.cpp TableBar.h TableBar.cpp
   LinkNavigation.h LinkNavigation.cpp LinkDialog.h LinkDialog.cpp EpubDialog.h EpubDialog.cpp
   HtmlImportDialog.h HtmlImportDialog.cpp)
+target_sources(typist_ui_viewswitch PRIVATE PdfExportDialog.h PdfExportDialog.cpp)
 add_library(typist::ui_viewswitch ALIAS typist_ui_viewswitch)
 target_include_directories(typist_ui_viewswitch PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(typist_ui_viewswitch PROPERTIES AUTOMOC ON)
-target_link_libraries(typist_ui_viewswitch PUBLIC typist::core typist::editor Qt6::Core Qt6::Gui Qt6::Widgets)
+target_link_libraries(typist_ui_viewswitch PUBLIC typist::core typist::editor typist::platform Qt6::Core Qt6::Gui Qt6::Widgets)
 target_compile_options(typist_ui_viewswitch PRIVATE ${TYPIST_WARNING_OPTIONS})
 
 add_library(typist_ui_search STATIC Search.h Search.cpp)
@@ -102,6 +103,7 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/advanced.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/link-writing.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/epub-writing.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/import-writing.html
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/pdf-writing.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/linked-note.md
   DESTINATION share/typist/examples)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../translations DESTINATION share/typist OPTIONAL)

@@ -1259,4 +1259,79 @@
         <translation>无法解码 HTML 文本编码</translation>
     </message>
 </context>
+<context>
+    <name>PdfExportDialog</name>
+    <message>
+        <source>Export PDF</source>
+        <translation>导出 PDF</translation>
+    </message>
+    <message>
+        <source>Paper size</source>
+        <translation>纸张大小</translation>
+    </message>
+    <message>
+        <source>Orientation</source>
+        <translation>方向</translation>
+    </message>
+    <message>
+        <source>Portrait</source>
+        <translation>纵向</translation>
+    </message>
+    <message>
+        <source>Landscape</source>
+        <translation>横向</translation>
+    </message>
+    <message>
+        <source>Margins</source>
+        <translation>页边距</translation>
+    </message>
+    <message>
+        <source>Header</source>
+        <translation>页眉</translation>
+    </message>
+    <message>
+        <source>Footer</source>
+        <translation>页脚</translation>
+    </message>
+    <message>
+        <source>Leave empty to hide</source>
+        <translation>留空则隐藏</translation>
+    </message>
+    <message>
+        <source>{title} inserts the document name. # inserts the page number.</source>
+        <translation>{title} 插入文档名称，# 插入页码。</translation>
+    </message>
+    <message>
+        <source>Repeat table headers</source>
+        <translation>跨页重复表头</translation>
+    </message>
+    <message>
+        <source>Previous</source>
+        <translation>上一页</translation>
+    </message>
+    <message>
+        <source>Next</source>
+        <translation>下一页</translation>
+    </message>
+    <message>
+        <source>Export</source>
+        <translation>导出</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>PDF page preview</source>
+        <translation>PDF 页面预览</translation>
+    </message>
+    <message>
+        <source>Page %1 of %2</source>
+        <translation>第 %1 页，共 %2 页</translation>
+    </message>
+    <message>
+        <source>Cannot preview this document: %1</source>
+        <translation>无法预览此文档：%1</translation>
+    </message>
+</context>
 </TS>

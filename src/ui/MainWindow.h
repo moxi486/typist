@@ -3,6 +3,7 @@
 #include "Conflict.h"
 #include "EpubWriter.h"
 #include "FolderSearchRunner.h"
+#include "PdfWriter.h"
 #include "RecoveryStore.h"
 #include "Search.h"
 
@@ -75,6 +76,7 @@ class MainWindow : public QMainWindow {
 
   // Bench seam: write the current buffer as DOCX and report bytes written, or -1.
   qint64 exportDocxForBench(const QString& path) const;
+  qint64 exportPdfForBench(const QString& path, const platform::PdfPageOptions& options) const;
   qint64 exportEpubForBench(const QString& path, const platform::EpubOptions& options) const;
 
   // Bench seam: folder scan latency; *hitsOut receives the hit count.

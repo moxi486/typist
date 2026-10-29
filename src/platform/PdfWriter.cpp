@@ -9,6 +9,7 @@
 #include <QPainter>
 #include <QPair>
 #include <QPdfWriter>
+#include <QSaveFile>
 #include <QTextBlock>
 #include <QTextDocument>
 #include <QTextLayout>
@@ -81,15 +82,19 @@ void drawBands(QPainter& painter, const QRectF& pageRect, int page, const PdfPag
   QFont font = painter.font();
   font.setPointSizeF(9);
   painter.setFont(font);
+  const auto bandText = [&](QString text) {
+    text.replace(QStringLiteral("#"), QString::number(page));
+    text.replace(QStringLiteral("{title}"), options.title);
+    text.replace('\n', ' ');
+    return painter.fontMetrics().elidedText(text, Qt::ElideRight, qFloor(pageRect.width()));
+  };
   if (!options.header.isEmpty())
     painter.drawText(QRectF(pageRect.left(), pageRect.top(), pageRect.width(), kBandHeightPx),
-                     Qt::AlignLeft | Qt::AlignTop, options.header);
+                     Qt::AlignLeft | Qt::AlignTop, bandText(options.header));
   if (!options.footer.isEmpty()) {
-    QString footer = options.footer;
-    footer.replace(QStringLiteral("#"), QString::number(page));
     painter.drawText(
         QRectF(pageRect.left(), pageRect.bottom() - kBandHeightPx, pageRect.width(), kBandHeightPx),
-        Qt::AlignHCenter | Qt::AlignBottom, footer);
+        Qt::AlignHCenter | Qt::AlignBottom, bandText(options.footer));
   }
   painter.restore();
 }
@@ -102,45 +107,46 @@ bool exportPdf(const QString& path, const QTextDocument* document, QString* erro
   return exportPdf(path, document, PdfPageOptions(), error);
 }
 
-bool exportPdf(const QString& path, const QTextDocument* document, const PdfPageOptions& options,
-               QString* error) {
-  if (document == nullptr) {
-    if (error != nullptr) *error = QStringLiteral("No document to print");
+namespace {
+struct PreparedPages {
+  std::unique_ptr<QTextDocument> document;
+  QRectF pageRect;
+  double headerBand = 0, contentHeight = 0;
+  QVector<QRectF> backgrounds;
+};
+QSize physicalPage(const PdfPageOptions& options) {
+  auto size = paperFor(options.paper).sizePixels(96);
+  if (options.landscape) size.transpose();
+  return size;
+}
+bool preparePages(const QTextDocument* document, const PdfPageOptions& options,
+                  QPaintDevice* device, PreparedPages& pages, QString* error) {
+  const auto fail = [&](const QString& reason) {
+    if (error) *error = reason;
     return false;
-  }
-
-  if (!qIsFinite(options.marginMm) || options.marginMm < 0) {
-    if (error) *error = QStringLiteral("Invalid page margins");
-    return false;
-  }
-  QPdfWriter writer(path);
-  writer.setResolution(96);
-  writer.setTitle(options.header);
-  writer.setCreator(QStringLiteral("Typist"));
-  writer.setPageSize(paperFor(options.paper));
-  // Paint from the physical page origin, so margins are applied exactly once.
-  writer.setPageMargins(QMarginsF(0, 0, 0, 0));
-  const double margin = options.marginMm * writer.resolution() / 25.4;
-  const QRectF pageRect = QRectF(writer.pageLayout().fullRectPixels(writer.resolution()))
-                              .adjusted(margin, margin, -margin, -margin);
+  };
+  if (!document) return fail(QStringLiteral("No document to print"));
+  if (!qIsFinite(options.marginMm) || options.marginMm < 0)
+    return fail(QStringLiteral("Invalid page margins"));
+  const double margin = options.marginMm * 96 / 25.4;
+  const QRectF pageRect =
+      QRectF(QPointF(), physicalPage(options)).adjusted(margin, margin, -margin, -margin);
   const double headerBand = options.header.isEmpty() ? 0.0 : kBandHeightPx;
   const double footerBand = options.footer.isEmpty() ? 0.0 : kBandHeightPx;
   const double contentHeight = pageRect.height() - headerBand - footerBand;
-  if (contentHeight < 1 || pageRect.width() < 1) {
-    if (error) *error = QStringLiteral("No room left for page content");
-    return false;
-  }
-
-  const std::unique_ptr<QTextDocument> copy(document->clone());
-  typist::render::expandTocForPrint(copy.get());
-  typist::render::installDocumentObjects(copy.get());
+  if (contentHeight < 1 || pageRect.width() < 1)
+    return fail(QStringLiteral("No room left for page content"));
+  pages.document.reset(document->clone());
+  auto* copy = pages.document.get();
+  typist::render::expandTocForPrint(copy);
+  typist::render::installDocumentObjects(copy);
   QTextDocument& laidOut = *copy;
   laidOut.setUndoRedoEnabled(false);
   laidOut.setDocumentMargin(0);
   QFont body = laidOut.defaultFont();
   body.setPointSizeF(11);
   laidOut.setDefaultFont(body);
-  laidOut.documentLayout()->setPaintDevice(&writer);
+  laidOut.documentLayout()->setPaintDevice(device);
   auto* syntax = typist::render::installSyntaxHighlighter(&laidOut, false);
   syntax->rehighlight();
   // Qt's native paged layout splits on text lines and repeats real table headers.
@@ -223,43 +229,86 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
     }
   }
   if (codeGroup) codeBackgrounds.append(codeBounds.adjusted(0, -4, 0, 4));
-  QPainter painter(&writer);
-  if (!painter.isActive()) {
-    if (error) *error = QStringLiteral("Cannot open PDF for writing");
-    return false;
-  }
-  const int pages = qMax(1, laidOut.pageCount());
-  for (int page = 0; page < pages; ++page) {
-    if (page > 0) writer.newPage();
-    painter.save();
-    // PaintContext::clip is a layout hint; a real painter clip also protects the bands.
-    painter.setClipRect(
-        QRectF(pageRect.left(), pageRect.top() + headerBand, pageRect.width(), contentHeight));
-    painter.translate(pageRect.left(), pageRect.top() + headerBand - page * contentHeight);
-    for (const auto& background : codeBackgrounds)
-      if (background.intersects(QRectF(0, page * contentHeight, pageRect.width(), contentHeight)))
-        painter.fillRect(background, QColor("#f3f5f8"));
-    QAbstractTextDocumentLayout::PaintContext context;
-    context.palette.setColor(QPalette::Text, QColor("#202632"));
-    context.palette.setColor(QPalette::Base, Qt::white);
-    context.clip = QRectF(0, page * contentHeight, pageRect.width(), contentHeight);
-    layout->draw(&painter, context);
-    painter.restore();
-    drawBands(painter, pageRect, page + 1, options);
-  }
+  pages.pageRect = pageRect;
+  pages.headerBand = headerBand;
+  pages.contentHeight = contentHeight;
+  pages.backgrounds = codeBackgrounds;
+  return true;
+}
 
+void paintPage(QPainter& painter, const PreparedPages& pages, int page,
+               const PdfPageOptions& options) {
+  painter.save();
+  // PaintContext::clip is a layout hint; a real painter clip also protects the bands.
+  painter.setClipRect(QRectF(pages.pageRect.left(), pages.pageRect.top() + pages.headerBand,
+                             pages.pageRect.width(), pages.contentHeight));
+  painter.translate(pages.pageRect.left(),
+                    pages.pageRect.top() + pages.headerBand - page * pages.contentHeight);
+  for (const auto& background : pages.backgrounds)
+    if (background.intersects(
+            QRectF(0, page * pages.contentHeight, pages.pageRect.width(), pages.contentHeight)))
+      painter.fillRect(background, QColor("#f3f5f8"));
+  QAbstractTextDocumentLayout::PaintContext context;
+  context.palette.setColor(QPalette::Text, QColor("#202632"));
+  context.palette.setColor(QPalette::Base, Qt::white);
+  context.clip = QRectF(0, page * pages.contentHeight, pages.pageRect.width(), pages.contentHeight);
+  pages.document->documentLayout()->draw(&painter, context);
+  painter.restore();
+  drawBands(painter, pages.pageRect, page + 1, options);
+}
+}  // namespace
+
+QImage pdfPagePreview(const QTextDocument* document, const PdfPageOptions& options, int page,
+                      int* pageCount, QString* error) {
+  if (pageCount) *pageCount = 0;
+  QImage image(physicalPage(options), QImage::Format_RGB32);
+  image.setDotsPerMeterX(3780);
+  image.setDotsPerMeterY(3780);
+  image.fill(Qt::white);
+  PreparedPages pages;
+  if (!preparePages(document, options, &image, pages, error)) return {};
+  const int count = qMax(1, pages.document->pageCount());
+  if (pageCount) *pageCount = count;
+  QPainter painter(&image);
+  paintPage(painter, pages, qBound(0, page, count - 1), options);
   painter.end();
+  return image;
+}
 
-  QFile file(path);
-  if (!file.open(QIODevice::ReadOnly)) {
-    if (error != nullptr) *error = QStringLiteral("PDF was not written");
+bool exportPdf(const QString& path, const QTextDocument* document, const PdfPageOptions& options,
+               QString* error) {
+  QSaveFile file(path);
+  if (!file.open(QIODevice::WriteOnly)) {
+    if (error) *error = file.errorString();
     return false;
   }
-  const QByteArray head = file.read(5);
-  file.close();
-  if (head != QByteArrayLiteral("%PDF-")) {
-    if (error != nullptr) *error = QStringLiteral("PDF output is not a PDF file");
-    QFile::remove(path);
+  {
+    QPdfWriter writer(&file);
+    writer.setResolution(96);
+    writer.setTitle(options.title.isEmpty() ? options.header : options.title);
+    writer.setCreator(QStringLiteral("Typist"));
+    writer.setPageSize(paperFor(options.paper));
+    writer.setPageOrientation(options.landscape ? QPageLayout::Landscape : QPageLayout::Portrait);
+    writer.setPageMargins(QMarginsF(0, 0, 0, 0));
+    PreparedPages pages;
+    if (!preparePages(document, options, &writer, pages, error)) return false;
+    QPainter painter(&writer);
+    if (!painter.isActive()) {
+      if (error) *error = QStringLiteral("Cannot open PDF for writing");
+      return false;
+    }
+    const int count = qMax(1, pages.document->pageCount());
+    for (int page = 0; page < count; ++page) {
+      if (page > 0 && !writer.newPage()) {
+        if (error) *error = QStringLiteral("Cannot create PDF page");
+        return false;
+      }
+      paintPage(painter, pages, page, options);
+    }
+    painter.end();
+  }
+  if (!file.commit()) {
+    if (error) *error = file.errorString();
     return false;
   }
   return true;
