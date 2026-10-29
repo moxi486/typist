@@ -1,5 +1,6 @@
 #include "DocxWriter.h"
 #include "Editor.h"
+#include "EpubDialog.h"
 #include "FindBar.h"
 #include "LinkDialog.h"
 #include "LinkNavigation.h"
@@ -20,6 +21,7 @@
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QFile>
+#include <QFileDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -1021,6 +1023,155 @@ class WindowTests : public QObject {
         qPrintable(error));
     QVERIFY2(typist::platform::exportDocx(out + QStringLiteral("/table.docx"), markdown, &error),
              qPrintable(error));
+  }
+
+  void epubMetadataLanguageThemeAndCancel() {
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::platform::setThemePreference(QStringLiteral("dark"));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.show();
+    typist::ui::EpubDialog dialog(QStringLiteral("A book"), QStringLiteral("An author"),
+                                  QStringLiteral("en"), &window);
+    dialog.show();
+    auto* title = dialog.findChild<QLineEdit*>(QStringLiteral("epubTitle"));
+    auto* language = dialog.findChild<QLineEdit*>(QStringLiteral("epubLanguage"));
+    auto* apply = dialog.findChild<QPushButton*>(QStringLiteral("confirmEpub"));
+    auto* cancel = dialog.findChild<QPushButton*>(QStringLiteral("cancelEpub"));
+    QVERIFY(title && language && apply && cancel);
+    QVERIFY(dialog.palette().color(QPalette::Window).lightness() < 100);
+    QVERIFY(dialog.palette().color(QPalette::Text).lightness() > 160);
+    title->clear();
+    QVERIFY(!apply->isEnabled());
+    title->setText(QStringLiteral("  我的书 & Ideas  "));
+    language->setText(QStringLiteral("invalid language"));
+    QVERIFY(!apply->isEnabled());
+    language->setText(QStringLiteral("zh-CN"));
+    QVERIFY(apply->isEnabled());
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QTest::qWait(5);
+    QCOMPARE(dialog.windowTitle(), QStringLiteral("导出 EPUB"));
+    QCOMPARE(apply->text(), QStringLiteral("导出"));
+    QCOMPARE(cancel->text(), QStringLiteral("取消"));
+    QCOMPARE(dialog.bookTitle(), QStringLiteral("我的书 & Ideas"));
+    QCOMPARE(dialog.author(), QStringLiteral("An author"));
+    QCOMPARE(dialog.language(), QStringLiteral("zh-CN"));
+    const auto output = qEnvironmentVariable("TYPIST_EPUB_OUTPUT");
+    if (!output.isEmpty())
+      QVERIFY(dialog.grab().save(output + QStringLiteral("/metadata-dark-zh.png")));
+    cancel->click();
+    QCOMPARE(dialog.result(), int(QDialog::Rejected));
+    QTimer::singleShot(0, &window, [&] {
+      auto* active = window.findChild<typist::ui::EpubDialog*>(QStringLiteral("epubDialog"));
+      // The first dialog is hidden; the menu opens a new, visible metadata dialog.
+      for (auto* child : window.findChildren<typist::ui::EpubDialog*>())
+        if (child->isVisible()) active = child;
+      if (active) active->reject();
+    });
+    auto* action = actionBySource(window, QStringLiteral("Export EPUB"));
+    QVERIFY(action);
+    action->trigger();
+    window.findChild<QAction*>(QStringLiteral("language_en"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();
+    typist::ui::EpubDialog light(QStringLiteral("A book"), {}, QStringLiteral("en"), &window);
+    light.show();
+    QCOMPARE(light.windowTitle(), QStringLiteral("Export EPUB"));
+    QVERIFY(light.palette().color(QPalette::Window).lightness() > 200);
+    if (!output.isEmpty())
+      QVERIFY(light.grab().save(output + QStringLiteral("/metadata-light-en.png")));
+  }
+  void epubExportUsesDraftAndSourceWithoutEditing() {
+    QTemporaryDir directory;
+    const auto inputPath = directory.filePath(QStringLiteral("draft.md"));
+    QFile input(inputPath);
+    QVERIFY(input.open(QIODevice::WriteOnly));
+    input.write("Original **word**.\n\nTail.\n");
+    input.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.openFile(inputPath);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(editor);
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(draft);
+    draft->setPlainText(QStringLiteral("Draft **snapshot**."));
+    const auto before = typist::editor::serializeDocument(editor->document());
+    const auto steps = editor->document()->availableUndoSteps();
+    const auto path = directory.filePath(QStringLiteral("book.epub"));
+    const typist::platform::EpubOptions options{QStringLiteral("A book"), {}, QStringLiteral("en")};
+    QVERIFY(window.exportEpubForBench(path, options) > 400);
+    QFile output(path);
+    QVERIFY(output.open(QIODevice::ReadOnly));
+    QVERIFY(output.readAll().contains("Draft <strong>snapshot</strong>"));
+    output.close();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    QCOMPARE(editor->document()->availableUndoSteps(), steps);
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Draft **snapshot**."));
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    editor->textCursor().insertText(QStringLiteral("Source "));
+    const auto source = editor->toPlainText();
+    const auto sourceSteps = editor->document()->availableUndoSteps();
+    QVERIFY(window.exportEpubForBench(path, options) > 400);
+    QVERIFY(output.open(QIODevice::ReadOnly));
+    QVERIFY(output.readAll().contains("Source "));
+    output.close();
+    QCOMPARE(editor->toPlainText(), source);
+    QCOMPARE(editor->document()->availableUndoSteps(), sourceSteps);
+    QVERIFY(input.open(QIODevice::ReadOnly));
+    QCOMPARE(input.readAll(), QByteArray("Original **word**.\n\nTail.\n"));
+  }
+
+  void epubMenuExportsWithDefaultSuffixAndRemembersMetadata() {
+    QTemporaryDir directory;
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    const auto previous = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+    bool metadataAccepted = false, destinationAccepted = false;
+    QTimer automation;
+    automation.setInterval(10);
+    connect(&automation, &QTimer::timeout, &window, [&] {
+      if (auto* dialog = qobject_cast<typist::ui::EpubDialog*>(QApplication::activeModalWidget())) {
+        dialog->findChild<QLineEdit*>(QStringLiteral("epubTitle"))
+            ->setText(QStringLiteral("Menu book"));
+        dialog->findChild<QLineEdit*>(QStringLiteral("epubAuthor"))
+            ->setText(QStringLiteral("Writer"));
+        dialog->findChild<QLineEdit*>(QStringLiteral("epubLanguage"))
+            ->setText(QStringLiteral("en"));
+        metadataAccepted = true;
+        dialog->accept();
+      } else if (auto* destination =
+                     qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+        destination->setDirectory(directory.path());
+        destination->selectFile(QStringLiteral("menu-book"));
+        destinationAccepted = true;
+        QMetaObject::invokeMethod(destination, "accept", Qt::DirectConnection);
+      }
+    });
+    // Ensure a failed automation closes any modal dialog rather than hanging CI.
+    QTimer safety;
+    connect(&safety, &QTimer::timeout, &window, [] {
+      if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+        dialog->reject();
+    });
+    safety.start(3000);
+    automation.start();
+    const bool invoked = QMetaObject::invokeMethod(&window, "exportEpub", Qt::DirectConnection);
+    automation.stop();
+    safety.stop();
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, previous);
+    QVERIFY(invoked && metadataAccepted && destinationAccepted);
+    QFile file(directory.filePath(QStringLiteral("menu-book.epub")));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto bytes = file.readAll();
+    QVERIFY(bytes.contains("<dc:title>Menu book</dc:title>"));
+    QVERIFY(bytes.contains("<dc:creator>Writer</dc:creator>"));
+    QCOMPARE(QSettings().value(QStringLiteral("export/epubAuthor")).toString(),
+             QStringLiteral("Writer"));
+    QCOMPARE(QSettings().value(QStringLiteral("export/epubLanguage")).toString(),
+             QStringLiteral("en"));
   }
 
  private:

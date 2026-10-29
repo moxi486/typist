@@ -6,6 +6,7 @@
 | 快速打开当前目录文件 | Ctrl+P |
 | 打开 / 保存 / 另存为 | Ctrl+O / Ctrl+S / Ctrl+Shift+S |
 | 导出 HTML / PDF / DOCX | Ctrl+Shift+E / Ctrl+Shift+P / Ctrl+Shift+X |
+| 导出 EPUB | 文件 → 导出 EPUB（无默认快捷键） |
 | 撤销 / 重做 | Ctrl+Z / Ctrl+Y（macOS Ctrl+Shift+Z） |
 | 查找 / 下一个 / 上一个 / 关闭 | Ctrl+F / Enter / Shift+Enter / Esc（F3 与 Shift+F3 也能步进） |
 | 源码与渲染视图切换 | Ctrl+/ |

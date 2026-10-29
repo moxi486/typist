@@ -675,6 +675,18 @@
         <source>Heading not found: %1</source>
         <translation>未找到标题：%1</translation>
     </message>
+    <message>
+        <source>Export EPUB</source>
+        <translation>导出 EPUB</translation>
+    </message>
+    <message>
+        <source>Exported EPUB</source>
+        <translation>已导出 EPUB</translation>
+    </message>
+    <message>
+        <source>EPUB exported. Some resources or links were kept as text.</source>
+        <translation>EPUB 已导出。部分资源或链接已保留为文字。</translation>
+    </message>
 </context>
 <context>
     <name>FindBar</name>
@@ -1061,6 +1073,88 @@
     <message>
         <source>Cancel</source>
         <translation>取消</translation>
+    </message>
+</context>
+<context>
+    <name>EpubDialog</name>
+    <message>
+        <source>Export EPUB</source>
+        <translation>导出 EPUB</translation>
+    </message>
+    <message>
+        <source>Book title</source>
+        <translation>书名</translation>
+    </message>
+    <message>
+        <source>Author</source>
+        <translation>作者</translation>
+    </message>
+    <message>
+        <source>Optional</source>
+        <translation>可选</translation>
+    </message>
+    <message>
+        <source>Book language</source>
+        <translation>书籍语言</translation>
+    </message>
+    <message>
+        <source>Use a language tag such as zh-CN or en. Headings become the reader's table of contents.</source>
+        <translation>语言标签示例：zh-CN 或 en。标题会生成阅读器目录。</translation>
+    </message>
+    <message>
+        <source>Export</source>
+        <translation>导出</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+</context>
+<context>
+    <name>EpubWriter</name>
+    <message>
+        <source>Too many EPUB images</source>
+        <translation>EPUB 图片数量过多</translation>
+    </message>
+    <message>
+        <source>EPUB images exceed the 128 MiB limit</source>
+        <translation>EPUB 图片超过 128 MiB 限制</translation>
+    </message>
+    <message>
+        <source>Link kept as text: %1</source>
+        <translation>链接已保留为文字：%1</translation>
+    </message>
+    <message>
+        <source>Image kept as text: %1</source>
+        <translation>图片已保留为文字：%1</translation>
+    </message>
+    <message>
+        <source>Formula kept as text: %1</source>
+        <translation>公式已保留为文字：%1</translation>
+    </message>
+    <message>
+        <source>Block source kept as text: %1</source>
+        <translation>内容源码已保留为文字：%1</translation>
+    </message>
+    <message>
+        <source>Unsupported Markdown block: %1</source>
+        <translation>不支持的 Markdown 内容块：%1</translation>
+    </message>
+    <message>
+        <source>Enter a book title and a valid language tag</source>
+        <translation>请输入书名和有效的语言标签</translation>
+    </message>
+    <message>
+        <source>EPUB source exceeds the 16 MiB limit</source>
+        <translation>EPUB 源文件超过 16 MiB 限制</translation>
+    </message>
+    <message>
+        <source>EPUB content contains invalid XML characters</source>
+        <translation>EPUB 内容含有无效的 XML 字符</translation>
+    </message>
+    <message>
+        <source>Could not encode EPUB image</source>
+        <translation>无法编码 EPUB 图片</translation>
     </message>
 </context>
 </TS>

@@ -4,6 +4,7 @@
 #include "Conflict.h"
 #include "DocxWriter.h"
 #include "Editor.h"
+#include "EpubDialog.h"
 #include "FileOps.h"
 #include "FileSearch.h"
 #include "FileTree.h"
@@ -59,6 +60,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QLocale>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -270,6 +272,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   QAction* exportDocxAction = fileMenu->addAction(tr("Export DOCX"));
   exportDocxAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+X")));
   connect(exportDocxAction, &QAction::triggered, this, &MainWindow::exportDocx);
+  auto* exportEpubAction = fileMenu->addAction(tr("Export EPUB"));
+  connect(exportEpubAction, &QAction::triggered, this, &MainWindow::exportEpub);
 
   QAction* recoverAction = new QAction(tr("Recover Draft"), this);
   recoverAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+R")));
@@ -1183,6 +1187,48 @@ void MainWindow::exportDocx() {
   statusBar()->showMessage(tr("Exported DOCX"));
 }
 
+void MainWindow::exportEpub() {
+  QSettings settings;
+  const auto title =
+      m_currentPath.isEmpty() ? tr("Untitled") : QFileInfo(m_currentPath).completeBaseName();
+  ui::EpubDialog metadata(
+      title, settings.value(QStringLiteral("export/epubAuthor")).toString(),
+      settings.value(QStringLiteral("export/epubLanguage"), QLocale().bcp47Name()).toString(),
+      this);
+  if (metadata.exec() != QDialog::Accepted) return;
+  const platform::EpubOptions options{metadata.bookTitle(), metadata.author(), metadata.language()};
+  const auto directory =
+      m_currentPath.isEmpty() ? QDir::homePath() : QFileInfo(m_currentPath).absolutePath();
+  QFileDialog destination(this, tr("Export EPUB"), directory, QStringLiteral("EPUB book (*.epub)"));
+  destination.setObjectName(QStringLiteral("epubDestination"));
+  destination.setAcceptMode(QFileDialog::AcceptSave);
+  destination.setDefaultSuffix(QStringLiteral("epub"));
+  destination.selectFile(m_currentPath.isEmpty() ? QStringLiteral("untitled.epub")
+                                                 : QFileInfo(m_currentPath).completeBaseName() +
+                                                       QStringLiteral(".epub"));
+  if (destination.exec() != QDialog::Accepted || destination.selectedFiles().isEmpty()) return;
+  QString error;
+  QStringList notices;
+  if (!platform::exportEpub(
+          destination.selectedFiles().first(), currentMarkdown(), options, &error,
+          m_currentPath.isEmpty() ? QString() : QFileInfo(m_currentPath).absolutePath(),
+          &notices)) {
+    QMessageBox::warning(this, tr("Export EPUB"), error);
+    return;
+  }
+  settings.setValue(QStringLiteral("export/epubAuthor"), options.author);
+  settings.setValue(QStringLiteral("export/epubLanguage"), options.language);
+  statusBar()->showMessage(tr("Exported EPUB"));
+  if (!notices.isEmpty()) {
+    QMessageBox message(QMessageBox::Information, tr("Export EPUB"),
+                        tr("EPUB exported. Some resources or links were kept as text."),
+                        QMessageBox::Ok, this);
+    message.setTextFormat(Qt::PlainText);
+    message.setDetailedText(notices.join('\n'));
+    message.exec();
+  }
+}
+
 void MainWindow::autoSaveNow() {
   if (!m_autoSaveEnabled || !m_dirty || m_currentPath.isEmpty()) return;
 
@@ -1298,6 +1344,15 @@ int MainWindow::highlightCountForBench(const QString& pattern) const {
 
 qint64 MainWindow::exportDocxForBench(const QString& path) const {
   return typist::platform::docxSizeForBench(path, currentMarkdown());
+}
+qint64 MainWindow::exportEpubForBench(const QString& path,
+                                      const platform::EpubOptions& options) const {
+  QString error;
+  if (!platform::exportEpub(
+          path, currentMarkdown(), options, &error,
+          m_currentPath.isEmpty() ? QString() : QFileInfo(m_currentPath).absolutePath()))
+    return -1;
+  return QFileInfo(path).size();
 }
 
 int MainWindow::searchMatchesForBench(const QString& pattern) const {
