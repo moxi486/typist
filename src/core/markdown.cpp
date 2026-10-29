@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace typist::core {
@@ -31,7 +32,7 @@ void pushRun(std::vector<InlineRun>& runs, const InlineRun& run) {
 void collectInline(cmark_node* node, const InlineRun& base, std::vector<InlineRun>& runs) {
   for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
        child = cmark_node_next(child)) {
-    const std::string type = cmark_node_get_type_string(child);
+    const std::string_view type = cmark_node_get_type_string(child);
     if (type == "list" || type == "item" || type == "tasklist" || type == "table" ||
         type == "table_row" || type == "table_header" || type == "table_cell") {
       continue;
@@ -250,7 +251,7 @@ std::vector<std::string> sourceLines(std::string_view source) {
 
 Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
   Block block;
-  const std::string type = cmark_node_get_type_string(node);
+  const std::string_view type = cmark_node_get_type_string(node);
 
   if (type == "heading") {
     block.type = BlockType::Heading;
@@ -278,7 +279,7 @@ Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
     // fallthrough below collects inline runs from every child
     for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
          child = cmark_node_next(child)) {
-      const std::string childType = cmark_node_get_type_string(child);
+      const std::string_view childType = cmark_node_get_type_string(child);
       if (childType == "list") {
         block.children.push_back(buildBlock(child, lines));
         continue;
@@ -298,7 +299,7 @@ Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
     block.checked = cmark_gfm_extensions_get_tasklist_item_checked(node);
     for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
          child = cmark_node_next(child)) {
-      const std::string childType = cmark_node_get_type_string(child);
+      const std::string_view childType = cmark_node_get_type_string(child);
       if (childType == "list") {
         block.children.push_back(buildBlock(child, lines));
         continue;

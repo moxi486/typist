@@ -35,12 +35,16 @@ namespace {
 
 struct BuildContext {
   int groupCounter = 0;
+  QTextCharFormat codeFormat;
 };
 
 QTextBlockFormat bodyFormat() {
-  QTextBlockFormat format;
-  format.setBottomMargin(12);
-  format.setLineHeight(160, QTextBlockFormat::ProportionalHeight);
+  static const QTextBlockFormat format = [] {
+    QTextBlockFormat body;
+    body.setBottomMargin(12);
+    body.setLineHeight(160, QTextBlockFormat::ProportionalHeight);
+    return body;
+  }();
   return format;
 }
 
@@ -133,8 +137,9 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
       cursor.setCharFormat(base);
       continue;
     }
-    const QString target = QString::fromStdString(run.url);
-    const QString localTarget = render::localImagePath(target, cursor.document()->baseUrl());
+    const QString target = run.image ? QString::fromStdString(run.url) : QString();
+    const QString localTarget =
+        target.isEmpty() ? QString() : render::localImagePath(target, cursor.document()->baseUrl());
     if (run.image && !target.isEmpty() && QFileInfo(localTarget).isFile()) {
       // Show the image itself; the object run keeps target and alt so serialization
       // can re-emit the Markdown link.
@@ -193,17 +198,20 @@ void insertTaggedInline(QTextCursor& cursor, const std::vector<typist::core::Inl
   if (property == kQuoteProperty) blockFormat.setLeftMargin(20);
   cursor.insertBlock(blockFormat, QTextCharFormat());
   insertInline(runs, text, cursor);
-  fitImageParagraph(cursor);
+  if (std::any_of(runs.begin(), runs.end(), [](const auto& run) { return run.image || run.math; }))
+    fitImageParagraph(cursor);
 }
 void insertCodeBlock(const std::string& code, const std::string& info, QTextCursor& cursor,
                      BuildContext& ctx) {
-  QTextCharFormat codeFormat;
-  QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-  mono.setFamilies(
-      {QStringLiteral("Consolas"), QStringLiteral("Menlo"), QStringLiteral("monospace")});
-  mono.setStyleHint(QFont::TypeWriter);
-  mono.setPointSizeF(10.5);
-  codeFormat.setFont(mono);
+  if (ctx.codeFormat.isEmpty()) {
+    QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    mono.setFamilies(
+        {QStringLiteral("Consolas"), QStringLiteral("Menlo"), QStringLiteral("monospace")});
+    mono.setStyleHint(QFont::TypeWriter);
+    mono.setPointSizeF(10.5);
+    ctx.codeFormat.setFont(mono);
+  }
+  const QTextCharFormat& codeFormat = ctx.codeFormat;
 
   const QVariant groupId = QVariant(++ctx.groupCounter);
   const QVariant infoValue = QString::fromStdString(info);
