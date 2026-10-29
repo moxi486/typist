@@ -18,6 +18,7 @@
 #include <QUrl>
 #include <QUuid>
 #include <QXmlStreamReader>
+#include <algorithm>
 
 namespace typist::platform {
 namespace {
@@ -284,6 +285,67 @@ bool validXml(const QString& source) {
   while (!reader.atEnd()) reader.readNext();
   return !reader.hasError();
 }
+struct Chapter {
+  QString filename, title, body;
+};
+QList<Chapter> chapters(const QString& body, const Context& context) {
+  QList<Chapter> result;
+  qsizetype start = 0;
+  QString title = context.options.title;
+  if (context.options.splitChapters) {
+    for (const auto& heading : context.headings) {
+      if (heading.level != 1) continue;
+      const auto marker = QStringLiteral("<h1 id=\"%1\">").arg(xml(heading.id));
+      const auto position = body.indexOf(marker, start);
+      if (position < 0) continue;
+      if (position > start) result.append({{}, title, body.mid(start, position - start)});
+      title = heading.title.trimmed().isEmpty() ? context.options.title : heading.title;
+      start = position;
+    }
+  }
+  result.append({{}, title, body.mid(start)});
+  for (int index = 0; index < result.size(); ++index)
+    result[index].filename = index == 0 ? QStringLiteral("content.xhtml")
+                                        : QStringLiteral("chapter-%1.xhtml").arg(index + 1);
+  return result;
+}
+QMap<QString, QString> locations(const QList<Chapter>& chapters) {
+  QMap<QString, QString> result;
+  for (const auto& chapter : chapters) {
+    QXmlStreamReader reader;
+    // Inline epub:type attributes are present in footnotes.
+    reader.addData(QStringLiteral("<body xmlns:epub=\"http://www.idpf.org/2007/ops\">") +
+                   chapter.body + QStringLiteral("</body>"));
+    while (!reader.atEnd()) {
+      reader.readNext();
+      if (!reader.isStartElement()) continue;
+      const auto id = reader.attributes().value(QStringLiteral("id")).toString();
+      if (!id.isEmpty()) result[id] = chapter.filename;
+    }
+  }
+  return result;
+}
+QString relocateLinks(const QString& body, const QString& current,
+                      const QMap<QString, QString>& targets) {
+  // Operates only on markup produced above, never on author-supplied raw HTML.
+  static const QRegularExpression link(QStringLiteral("href=\"(?:content\\.xhtml)?#([^\"]*)\""));
+  QString result;
+  qsizetype end = 0;
+  auto matches = link.globalMatch(body);
+  while (matches.hasNext()) {
+    const auto match = matches.next();
+    result += body.mid(end, match.capturedStart() - end);
+    // Heading IDs and generated note IDs contain no XML-special characters.
+    const auto id = match.captured(1);
+    const auto destination = targets.value(id);
+    result += destination.isEmpty()
+                  ? match.captured()
+                  : QStringLiteral("href=\"%1#%2\"")
+                        .arg(destination == current ? QString() : destination, id);
+    end = match.capturedEnd();
+  }
+  return result + body.mid(end);
+}
 }  // namespace
 
 bool exportEpub(const QString& path, const QString& markdown, const EpubOptions& options,
@@ -303,6 +365,21 @@ bool exportEpub(const QString& path, const QString& markdown, const EpubOptions&
   Context context;
   context.options = options;
   context.base = baseDirectory;
+  QString coverMarkup, coverResource;
+  if (!options.coverImage.isEmpty()) {
+    const QUrl base = baseDirectory.isEmpty() ? QUrl() : QUrl::fromLocalFile(baseDirectory + '/');
+    const auto path = render::localImagePath(options.coverImage, base);
+    if (path.isEmpty() || !QFileInfo(path).isAbsolute())
+      return fail(text("Choose a readable local cover image"));
+    const auto pixels = render::imagePreview(path, QSize(1600, 1600));
+    coverMarkup =
+        context.image("local:" + QFileInfo(path).canonicalFilePath(), pixels,
+                      context.chinese() ? QStringLiteral("封面") : QStringLiteral("Cover"));
+    if (coverMarkup.isEmpty())
+      return fail(context.error.isEmpty() ? text("Choose a readable local cover image")
+                                          : context.error);
+    coverResource = context.imageNames.value("local:" + QFileInfo(path).canonicalFilePath());
+  }
   render::HeadingIds ids;
   for (const auto& block : parsed.blocks)
     if (block.type == BlockType::Heading) {
@@ -312,6 +389,10 @@ bool exportEpub(const QString& path, const QString& markdown, const EpubOptions&
       context.targets[id] = id;
       if (!context.targets.contains(title)) context.targets[title] = id;
     }
+  if (options.splitChapters &&
+      std::count_if(context.headings.begin(), context.headings.end(),
+                    [](const Heading& heading) { return heading.level == 1; }) > 1000)
+    return fail(text("EPUB supports at most 1000 chapters"));
   for (const auto& block : parsed.blocks)
     if (block.type == BlockType::Footnote) {
       const auto label = string(block.info);
@@ -340,10 +421,23 @@ bool exportEpub(const QString& path, const QString& markdown, const EpubOptions&
     body += "</section>";
   }
   if (!context.error.isEmpty()) return fail(context.error);
-  const auto content = xhtml(options.title, body, options);
+  auto sections = chapters(body, context);
+  const auto targets = locations(sections);
+  QString navigationBody = relocateLinks(toc(context, true), QStringLiteral("nav.xhtml"), targets);
+  QString cover;
+  if (!coverMarkup.isEmpty()) {
+    cover = xhtml(options.title,
+                  QStringLiteral("<div class=\"cover\">") + coverMarkup + QStringLiteral("</div>"),
+                  options);
+    navigationBody +=
+        QStringLiteral(
+            "<nav epub:type=\"landmarks\" hidden=\"hidden\"><h2>%1</h2><ol><li><a "
+            "epub:type=\"cover\" href=\"cover.xhtml\">%1</a></li></ol></nav>")
+            .arg(context.chinese() ? QStringLiteral("封面") : QStringLiteral("Cover"));
+  }
   const auto navigation =
-      xhtml(context.chinese() ? QStringLiteral("目录") : QStringLiteral("Contents"),
-            toc(context, true), options);
+      xhtml(context.chinese() ? QStringLiteral("目录") : QStringLiteral("Contents"), navigationBody,
+            options);
   const auto identifier = "urn:uuid:" + QUuid::createUuid().toString(QUuid::WithoutBraces);
   QString package =
       QStringLiteral(
@@ -359,16 +453,29 @@ bool exportEpub(const QString& path, const QString& markdown, const EpubOptions&
   package += "<meta property=\"dcterms:modified\">" +
              QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd'T'HH:mm:ss'Z'") +
              "</meta></metadata><manifest>"
-             "<item id=\"content\" href=\"content.xhtml\" media-type=\"application/xhtml+xml\"/>"
              "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" "
              "properties=\"nav\"/>"
              "<item id=\"style\" href=\"style.css\" media-type=\"text/css\"/>";
+  for (int index = 0; index < sections.size(); ++index)
+    package +=
+        QStringLiteral("<item id=\"content%1\" href=\"%2\" media-type=\"application/xhtml+xml\"/>")
+            .arg(index == 0 ? QString() : QString::number(index + 1), sections[index].filename);
+  if (!cover.isEmpty())
+    package += "<item id=\"cover\" href=\"cover.xhtml\" media-type=\"application/xhtml+xml\"/>";
   for (int index = 0; index < context.images.size(); ++index)
     package += QStringLiteral(
-                   "<item id=\"image%1\" href=\"images/image%1.png\" media-type=\"image/png\"/>")
-                   .arg(index + 1);
-  package += "</manifest><spine><itemref idref=\"content\"/></spine></package>";
-  if (!validXml(content) || !validXml(navigation) || !validXml(package))
+                   "<item id=\"image%1\" href=\"images/image%1.png\" media-type=\"image/png\"%2/>")
+                   .arg(index + 1)
+                   .arg(coverResource == QStringLiteral("images/image%1.png").arg(index + 1)
+                            ? QStringLiteral(" properties=\"cover-image\"")
+                            : QString());
+  package += "</manifest><spine>";
+  if (!cover.isEmpty()) package += "<itemref idref=\"cover\"/>";
+  for (int index = 0; index < sections.size(); ++index)
+    package += QStringLiteral("<itemref idref=\"content%1\"/>")
+                   .arg(index == 0 ? QString() : QString::number(index + 1));
+  package += "</spine></package>";
+  if (!validXml(navigation) || !validXml(package) || (!cover.isEmpty() && !validXml(cover)))
     return fail(text("EPUB content contains invalid XML characters"));
   const QByteArray container =
       "<?xml version=\"1.0\" encoding=\"UTF-8\"?><container "
@@ -387,11 +494,20 @@ bool exportEpub(const QString& path, const QString& markdown, const EpubOptions&
       ".math{vertical-align:middle;max-height:3em;}.figure{text-align:center;margin:1em 0;}"
       "table{border-collapse:collapse;width:100%;}th,td{border:1px solid "
       "#a8b0bd;padding:.4em;vertical-align:top;}"
-      "th{background:#f4f6f8;}aside{font-size:.9em;}nav ol{padding-left:1.5em;}";
-  QVector<ZipEntry> entries = {
-      {"mimetype", "application/epub+zip"},      {"META-INF/container.xml", container},
-      {"OEBPS/content.opf", package.toUtf8()},   {"OEBPS/nav.xhtml", navigation.toUtf8()},
-      {"OEBPS/content.xhtml", content.toUtf8()}, {"OEBPS/style.css", css}};
+      "th{background:#f4f6f8;}aside{font-size:.9em;}nav ol{padding-left:1.5em;}"
+      ".cover{text-align:center;}.cover img{max-height:90vh;width:auto;max-width:100%;}";
+  QVector<ZipEntry> entries = {{"mimetype", "application/epub+zip"},
+                               {"META-INF/container.xml", container},
+                               {"OEBPS/content.opf", package.toUtf8()},
+                               {"OEBPS/nav.xhtml", navigation.toUtf8()},
+                               {"OEBPS/style.css", css}};
+  for (const auto& section : sections) {
+    const auto content =
+        xhtml(section.title, relocateLinks(section.body, section.filename, targets), options);
+    if (!validXml(content)) return fail(text("EPUB content contains invalid XML characters"));
+    entries.append({("OEBPS/" + section.filename).toUtf8(), content.toUtf8()});
+  }
+  if (!cover.isEmpty()) entries.append({"OEBPS/cover.xhtml", cover.toUtf8()});
   entries += context.images;
   const auto archive = buildZip(entries);
   QSaveFile file(path);

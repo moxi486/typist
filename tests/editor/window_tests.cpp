@@ -1131,8 +1131,16 @@ class WindowTests : public QObject {
 
   void epubMenuExportsWithDefaultSuffixAndRemembersMetadata() {
     QTemporaryDir directory;
+    QImage cover(100, 160, QImage::Format_RGB32);
+    cover.fill(QColor("#315f99"));
+    const auto coverPath = directory.filePath(QStringLiteral("cover.png"));
+    QVERIFY(cover.save(coverPath));
     typist::MainWindow window;
     window.setBenchMode(true);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(typist::editor::loadMarkdown(QStringLiteral("# First\n\nOne.\n\n# Second\n\nTwo."),
+                                         editor->document(), nullptr));
+    const auto before = typist::editor::serializeDocument(editor->document());
     const auto previous = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
     bool metadataAccepted = false, destinationAccepted = false;
@@ -1146,12 +1154,15 @@ class WindowTests : public QObject {
             ->setText(QStringLiteral("Writer"));
         dialog->findChild<QLineEdit*>(QStringLiteral("epubLanguage"))
             ->setText(QStringLiteral("en"));
+        dialog->findChild<QLineEdit*>(QStringLiteral("epubCover"))->setText(coverPath);
+        dialog->findChild<QCheckBox*>(QStringLiteral("epubSplitChapters"))->setChecked(true);
         metadataAccepted = true;
         dialog->accept();
       } else if (auto* destination =
                      qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
-        destination->setDirectory(directory.path());
-        destination->selectFile(QStringLiteral("menu-book"));
+        auto* name = destination->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
+        if (!name) return;
+        name->setText(directory.filePath(QStringLiteral("menu-book")));
         destinationAccepted = true;
         QMetaObject::invokeMethod(destination, "accept", Qt::DirectConnection);
       }
@@ -1174,10 +1185,96 @@ class WindowTests : public QObject {
     const auto bytes = file.readAll();
     QVERIFY(bytes.contains("<dc:title>Menu book</dc:title>"));
     QVERIFY(bytes.contains("<dc:creator>Writer</dc:creator>"));
+    QVERIFY(bytes.contains("OEBPS/cover.xhtml"));
+    QVERIFY(bytes.contains("OEBPS/chapter-2.xhtml"));
     QCOMPARE(QSettings().value(QStringLiteral("export/epubAuthor")).toString(),
              QStringLiteral("Writer"));
     QCOMPARE(QSettings().value(QStringLiteral("export/epubLanguage")).toString(),
              QStringLiteral("en"));
+    QVERIFY(QSettings().value(QStringLiteral("export/epubSplitChapters")).toBool());
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    bool remembered = false;
+    QTimer::singleShot(0, &window, [&] {
+      if (auto* dialog = qobject_cast<typist::ui::EpubDialog*>(QApplication::activeModalWidget())) {
+        remembered = dialog->splitChapters() && dialog->coverImage().isEmpty();
+        dialog->reject();
+      }
+    });
+    QVERIFY(QMetaObject::invokeMethod(&window, "exportEpub", Qt::DirectConnection));
+    QVERIFY(remembered);
+  }
+  void epubCoverBrowseValidationAndBilingualPreview() {
+    QTemporaryDir directory;
+    const auto coverPath = directory.filePath(QStringLiteral("封面.png"));
+    QImage cover(600, 900, QImage::Format_RGB32);
+    cover.fill(QColor("#315f99"));
+    {
+      QPainter painter(&cover);
+      painter.setPen(Qt::white);
+      QFont font = painter.font();
+      font.setPointSize(32);
+      painter.setFont(font);
+      painter.drawText(cover.rect().adjusted(30, 30, -30, -30), Qt::AlignCenter,
+                       QStringLiteral("Writing\nChapters"));
+    }
+    QVERIFY(cover.save(coverPath));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.show();
+    const auto output = qEnvironmentVariable("TYPIST_CHAPTERS_OUTPUT");
+    for (const auto& language : {QStringLiteral("en"), QStringLiteral("zh")}) {
+      window.findChild<QAction*>(QStringLiteral("language_") + language)->trigger();
+      window
+          .findChild<QAction*>(language == QLatin1String("en") ? QStringLiteral("appearance_light")
+                                                               : QStringLiteral("appearance_dark"))
+          ->trigger();
+      typist::ui::EpubDialog dialog(QStringLiteral("Writing / 章节"), QStringLiteral("Author"),
+                                    QStringLiteral("zh-CN"), &window);
+      dialog.show();
+      auto* input = dialog.findChild<QLineEdit*>(QStringLiteral("epubCover"));
+      auto* confirm = dialog.findChild<QPushButton*>(QStringLiteral("confirmEpub"));
+      input->setText(directory.filePath(QStringLiteral("missing.png")));
+      QVERIFY(!confirm->isEnabled());
+      input->setText(coverPath);
+      QVERIFY(confirm->isEnabled());
+      dialog.setSplitChapters(true);
+      QVERIFY(dialog.splitChapters());
+      QVERIFY(dialog.findChild<QLabel*>(QStringLiteral("epubCoverPreview"))->isVisible());
+      QCOMPARE(dialog.findChild<QCheckBox*>(QStringLiteral("epubSplitChapters"))->text(),
+               language == QLatin1String("en")
+                   ? QStringLiteral("Split chapters at level-one headings")
+                   : QStringLiteral("按一级标题拆分章节"));
+      if (!output.isEmpty())
+        QVERIFY(dialog.grab().save(output + QStringLiteral("/cover-dialog-") + language +
+                                   QStringLiteral(".png")));
+      dialog.findChild<QPushButton*>(QStringLiteral("clearEpubCover"))->click();
+      QVERIFY(input->text().isEmpty());
+      QVERIFY(confirm->isEnabled());
+      const bool previous = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+      QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+      QTimer automation, safety;
+      automation.setInterval(10);
+      connect(&automation, &QTimer::timeout, &dialog, [&] {
+        if (auto* selector = qobject_cast<QFileDialog*>(QApplication::activeModalWidget()))
+          if (auto* name = selector->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"))) {
+            name->setText(coverPath);
+            QMetaObject::invokeMethod(selector, "accept", Qt::DirectConnection);
+          }
+      });
+      connect(&safety, &QTimer::timeout, &dialog, [] {
+        if (auto* modal = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+          modal->reject();
+      });
+      automation.start();
+      safety.start(3000);
+      dialog.findChild<QPushButton*>(QStringLiteral("browseEpubCover"))->click();
+      automation.stop();
+      safety.stop();
+      QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, previous);
+      QCOMPARE(dialog.coverImage(), coverPath);
+      QVERIFY(confirm->isEnabled());
+      dialog.findChild<QPushButton*>(QStringLiteral("cancelEpub"))->click();
+    }
   }
 
   void htmlImportNewBufferSaveAndPreview() {

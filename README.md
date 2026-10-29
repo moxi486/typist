@@ -18,7 +18,7 @@
 - 导出 PDF（Ctrl+Shift+P）：原生页面设置与逐页预览，A4/Letter、横竖方向、页边距、页眉页脚模板与重复表头；成功后记住偏好，失败保留已有文件；见 [docs/PDF.md](docs/PDF.md)
 - PDF 分页：长段落按行边界拆页（不会把一行切成两半）并带防孤行（段末单行不会单独留在下一页、续页不会只以一行开头），长表格按行分页并在续页顶部重画表头（默认开启，可用 `PdfPageOptions.repeatTableHeader=false` 关闭）
 - 导出 DOCX（Ctrl+Shift+X，由 platform::DocxWriter 直接写 OOXML 包：标题、段落、列表、任务列表、代码块、引用、分隔线、表格；A4 20mm 边距与 PDF 默认一致）
-- 导出 EPUB 3（文件 → 导出 EPUB）：设置书名、作者和语言，生成阅读器目录与脚注跳转，内嵌本地图片、公式和图表；使用边界见 [docs/EPUB.md](docs/EPUB.md)
+- 导出 EPUB 3（文件 → 导出 EPUB）：设置书名、作者和语言，选择封面图片，可按一级标题拆分章节；目录、标题和脚注支持跨章节跳转，内嵌本地图片、公式和图表；使用边界见 [docs/EPUB.md](docs/EPUB.md)
 - HTML 导入与网页粘贴：文件 → 导入 HTML 可预览并转换为新的 Markdown 文档；Ctrl+Alt+V 将剪贴板 HTML 转换后插入，可单步撤销；使用边界见 [docs/Import.md](docs/Import.md)
 - DOCX 表格列宽按每列最长内容分配（总宽约 9638 twips，等于 A4 减两侧 20mm），任务项用 ☑/☐ 字形（能否显示取决于阅读器字体）
 - DOCX 链接写成 OOXML 超链接对象（w:hyperlink + 外部关系，同一 URL 共用一条关系）；图片内嵌为 OOXML drawing 对象（图像本体写进 `word/media/imageN.png`，内部关系从 rId1001 起，超过 640×480 按比例缩小，EMU 尺寸 = 像素 × 9525）；图文件读不到时退回带下划线的文字链接

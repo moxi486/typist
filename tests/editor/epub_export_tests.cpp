@@ -32,6 +32,46 @@ QMap<QByteArray, QByteArray> unzip(const QByteArray& bytes) {
 }
 const typist::platform::EpubOptions options{
     QStringLiteral("写作 & Ideas <3>"), QStringLiteral("作者 & Author"), QStringLiteral("zh-CN")};
+QString brokenReference(const QMap<QByteArray, QByteArray>& entries) {
+  QMap<QString, QSet<QString>> ids;
+  QMap<QString, QStringList> links;
+  for (auto it = entries.begin(); it != entries.end(); ++it) {
+    if (!it.key().endsWith(".xhtml")) continue;
+    const auto filename = QString::fromUtf8(it.key()).mid(6);
+    QXmlStreamReader reader(it.value());
+    while (!reader.atEnd()) {
+      reader.readNext();
+      if (!reader.isStartElement()) continue;
+      const auto id = reader.attributes().value(QStringLiteral("id")).toString();
+      if (!id.isEmpty()) {
+        if (ids[filename].contains(id)) return "duplicate id: " + id;
+        ids[filename].insert(id);
+      }
+      for (const auto& attr : {QStringLiteral("href"), QStringLiteral("src")}) {
+        const auto target = reader.attributes().value(attr).toString();
+        if (!target.isEmpty()) links[filename].append(target);
+      }
+    }
+    if (reader.hasError()) return filename + ": " + reader.errorString();
+  }
+  for (auto it = links.begin(); it != links.end(); ++it)
+    for (const auto& link : it.value()) {
+      const QUrl target(link);
+      if (!target.isRelative()) continue;
+      const auto path = target.path().isEmpty() ? it.key() : target.path();
+      if (!entries.contains(("OEBPS/" + path).toUtf8())) return "missing resource: " + link;
+      if (!target.fragment().isEmpty() && !ids[path].contains(target.fragment(QUrl::FullyDecoded)))
+        return "missing anchor: " + link;
+    }
+  return {};
+}
+void saveSpecimen(const QString& name, const QByteArray& bytes) {
+  const auto output = qEnvironmentVariable("TYPIST_EPUB_OUTPUT");
+  if (output.isEmpty()) return;
+  QFile copy(output + '/' + name + QStringLiteral(".epub"));
+  QVERIFY(copy.open(QIODevice::WriteOnly));
+  QCOMPARE(copy.write(bytes), bytes.size());
+}
 }  // namespace
 class EpubExportTests : public QObject {
   Q_OBJECT
@@ -220,6 +260,126 @@ class EpubExportTests : public QObject {
       QVERIFY(copy.open(QIODevice::WriteOnly));
       QCOMPARE(copy.write(bytes), bytes.size());
     }
+  }
+  void coverAndCrossChapterNavigation() {
+    QTemporaryDir directory;
+    QImage cover(800, 1200, QImage::Format_ARGB32);
+    cover.fill(QColor(40, 90, 170, 180));
+    const auto coverPath = directory.filePath(QStringLiteral("封 面.png"));
+    QVERIFY(cover.save(coverPath));
+    auto configured = options;
+    configured.coverImage = coverPath;
+    configured.splitChapters = true;
+    const auto path = directory.filePath(QStringLiteral("chapters.epub"));
+    QString error;
+    QStringList notices;
+    const auto source = QStringLiteral(
+        "Preface [go](#重复-1).\n\n[TOC]\n\n"
+        "# 重复\n\n[Next](#重复-1) and first note.[^n]\n\n![Cover "
+        "again](%E5%B0%81%20%E9%9D%A2.png)\n\n"
+        "## Detail\n\nA detail.\n\n> # Quoted heading\n\n"
+        "# 重复\n\n[Back](#重复) and repeated note.[^n]\n\n"
+        "# End\n\n[Details](#detail)\n\n[^n]: Shared note with a [link](#重复).\n");
+    QVERIFY2(
+        typist::platform::exportEpub(path, source, configured, &error, directory.path(), &notices),
+        qPrintable(error));
+    QVERIFY(notices.isEmpty());
+    const auto bytes = read(path);
+    const auto entries = unzip(bytes);
+    const auto broken = brokenReference(entries);
+    QVERIFY2(broken.isEmpty(), qPrintable(broken));
+    QVERIFY(entries.contains("OEBPS/cover.xhtml"));
+    QVERIFY(entries.contains("OEBPS/chapter-4.xhtml"));
+    QVERIFY(!entries.contains("OEBPS/chapter-5.xhtml"));
+    const auto opf = entries.value("OEBPS/content.opf");
+    QCOMPARE(opf.count("properties=\"cover-image\""), 1);
+    QVERIFY(opf.contains(
+        "<spine><itemref idref=\"cover\"/><itemref idref=\"content\"/><itemref "
+        "idref=\"content2\"/><itemref idref=\"content3\"/><itemref idref=\"content4\"/>"));
+    QCOMPARE(entries.value("OEBPS/content.xhtml").count("Preface"), 1);
+    QVERIFY(entries.value("OEBPS/chapter-2.xhtml")
+                .contains(QStringLiteral("href=\"chapter-3.xhtml#重复-1\"").toUtf8()));
+    QVERIFY(entries.value("OEBPS/chapter-3.xhtml")
+                .contains(QStringLiteral("href=\"chapter-2.xhtml#重复\"").toUtf8()));
+    QVERIFY(
+        entries.value("OEBPS/chapter-2.xhtml").contains("href=\"chapter-4.xhtml#_typist-note-1\""));
+    QVERIFY(
+        entries.value("OEBPS/chapter-4.xhtml").contains("href=\"chapter-2.xhtml#_typist-ref-1\""));
+    const auto nav = entries.value("OEBPS/nav.xhtml");
+    QVERIFY(nav.contains("epub:type=\"landmarks\""));
+    QVERIFY(nav.contains("href=\"chapter-2.xhtml#detail\""));
+    int images = 0;
+    for (auto it = entries.begin(); it != entries.end(); ++it)
+      if (it.key().endsWith(".png")) ++images;
+    QCOMPARE(images, 1);
+    const auto embedded = QImage::fromData(entries.value("OEBPS/images/image1.png"));
+    QCOMPARE(embedded.size(), cover.size());
+    QCOMPARE(embedded.pixelColor(10, 10).alpha(), 180);
+    QFile original(coverPath);
+    QVERIFY(original.open(QIODevice::ReadOnly));
+    QCOMPARE(QImage::fromData(original.readAll()), cover);
+    saveSpecimen(QStringLiteral("chapters-cover"), bytes);
+    configured.coverImage.clear();
+    QVERIFY(typist::platform::exportEpub(path, source, configured, &error, directory.path()));
+    QVERIFY(!unzip(read(path)).contains("OEBPS/cover.xhtml"));
+    saveSpecimen(QStringLiteral("chapters-only"), read(path));
+    configured.splitChapters = false;
+    configured.coverImage = coverPath;
+    QVERIFY(typist::platform::exportEpub(path, source, configured, &error, directory.path()));
+    QVERIFY(!unzip(read(path)).contains("OEBPS/chapter-2.xhtml"));
+    QVERIFY(brokenReference(unzip(read(path))).isEmpty());
+    saveSpecimen(QStringLiteral("cover-only"), read(path));
+  }
+  void splitBoundariesAndInvalidCoverPreserveTarget() {
+    QTemporaryDir directory;
+    QString error;
+    auto configured = options;
+    configured.splitChapters = true;
+    const auto path = directory.filePath(QStringLiteral("book.epub"));
+    for (const auto& source : {QStringLiteral("# One\n\n## Detail\n\nText"),
+                               QStringLiteral("## Only H2\n\nText"), QString()}) {
+      QVERIFY(typist::platform::exportEpub(path, source, configured, &error));
+      const auto entries = unzip(read(path));
+      QVERIFY(!entries.contains("OEBPS/chapter-2.xhtml"));
+      QVERIFY(brokenReference(entries).isEmpty());
+    }
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("existing");
+    file.close();
+    for (const auto& cover :
+         {QStringLiteral("https://example.org/cover.png"), QStringLiteral("relative.png"),
+          directory.filePath(QStringLiteral("missing.png"))}) {
+      configured.coverImage = cover;
+      QVERIFY(!typist::platform::exportEpub(path, QStringLiteral("# One"), configured, &error));
+      QCOMPARE(read(path), QByteArray("existing"));
+    }
+    configured.coverImage.clear();
+    QString excessive;
+    for (int i = 0; i < 1001; ++i) excessive += QStringLiteral("# Heading %1\n\n").arg(i);
+    QVERIFY(!typist::platform::exportEpub(path, excessive, configured, &error));
+    QCOMPARE(read(path), QByteArray("existing"));
+  }
+  void chaptersInstalledSpecimen() {
+    const auto corpus = qEnvironmentVariable("TYPIST_CORPUS_DIR");
+    if (corpus.isEmpty()) QSKIP("Set TYPIST_CORPUS_DIR to check the chapter specimen.");
+    const auto source = read(corpus + QStringLiteral("/epub-chapters.md"));
+    QVERIFY(!source.isEmpty());
+    auto configured = options;
+    configured.splitChapters = true;
+    QTemporaryDir directory;
+    QString error;
+    QStringList notices;
+    const auto path = directory.filePath(QStringLiteral("example.epub"));
+    QVERIFY2(typist::platform::exportEpub(path, QString::fromUtf8(source), configured, &error,
+                                          corpus, &notices),
+             qPrintable(error));
+    QVERIFY(notices.isEmpty());
+    const auto entries = unzip(read(path));
+    QVERIFY(entries.contains("OEBPS/chapter-4.xhtml"));
+    const auto broken = brokenReference(entries);
+    QVERIFY2(broken.isEmpty(), qPrintable(broken));
+    saveSpecimen(QStringLiteral("chapters-specimen"), read(path));
   }
 };
 QTEST_MAIN(EpubExportTests)

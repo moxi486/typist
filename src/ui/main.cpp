@@ -39,7 +39,8 @@ int main(int argc, char* argv[]) {
   const bool benchFolderSearch = args.contains(QStringLiteral("--bench-file-search"));
   const bool benchTree = args.contains(QStringLiteral("--bench-tree"));
   const bool benchDocx = args.contains(QStringLiteral("--bench-docx"));
-  const bool benchEpub = args.contains(QStringLiteral("--bench-epub"));
+  const bool benchEpubChapters = args.contains(QStringLiteral("--bench-epub-chapters"));
+  const bool benchEpub = args.contains(QStringLiteral("--bench-epub")) || benchEpubChapters;
   const bool benchHtmlImport = args.contains(QStringLiteral("--bench-import-html"));
   const bool benchPdf = args.contains(QStringLiteral("--bench-pdf"));
 
@@ -85,7 +86,7 @@ int main(int argc, char* argv[]) {
         [&startup, &application, &window, benchStartup, benchRepaint, benchViewSwitch, benchSearch,
          benchFolderSearch, benchTree, benchDocx, &repaintBudgetBreaches, &undoKept, &searchMatches,
          &folderHits, &folderScanMs, &treeEntries, &treeDirectories, &docxBytes, benchEpub,
-         &epubBytes, benchHtmlImport, htmlImported, benchPdf, &pdfBytes] {
+         &epubBytes, benchHtmlImport, htmlImported, benchPdf, &pdfBytes, benchEpubChapters] {
           if (benchHtmlImport) std::printf("html_import_ok=%d\n", htmlImported ? 1 : 0);
           if (benchStartup) {
             std::printf("startup_ms=%lld\n", static_cast<long long>(startup.elapsed()));
@@ -134,10 +135,14 @@ int main(int argc, char* argv[]) {
           }
           if (benchEpub) {
             QTemporaryDir directory;
-            if (directory.isValid())
-              epubBytes = window.exportEpubForBench(
-                  directory.filePath(QStringLiteral("book.epub")),
-                  {QStringLiteral("Typist"), {}, QStringLiteral("zh-CN")});
+            if (directory.isValid()) {
+              typist::platform::EpubOptions options{
+                  QStringLiteral("Typist"), {}, QStringLiteral("zh-CN")};
+              options.splitChapters = benchEpubChapters;
+              options.coverImage = QString::fromUtf8(qgetenv("TYPIST_EPUB_COVER"));
+              epubBytes = window.exportEpubForBench(directory.filePath(QStringLiteral("book.epub")),
+                                                    options);
+            }
             std::printf("epub_bytes=%lld\n", static_cast<long long>(epubBytes));
           }
           if (benchPdf) {
