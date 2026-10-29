@@ -96,6 +96,7 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/advanced.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/syntax.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/code-writing.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/table-writing.md
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/list-writing.md
   DESTINATION share/typist/examples)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../translations DESTINATION share/typist OPTIONAL)
 add_library(typist_ui_update STATIC UpdateChecker.h UpdateChecker.cpp)

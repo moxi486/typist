@@ -440,9 +440,15 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
           allTasks ? QTextListFormat::ListStyleUndefined
                    : (block.ordered ? QTextListFormat::ListDecimal : QTextListFormat::ListDisc));
       listFormat.setIndent(static_cast<uint>(depth + 1));
+      QTextList* list = nullptr;
       for (const typist::core::Block& item : block.children) {
         cursor.setCharFormat(QTextCharFormat());
-        cursor.insertList(listFormat);
+        if (!list)
+          list = cursor.insertList(listFormat);
+        else {
+          cursor.insertBlock(QTextBlockFormat(), QTextCharFormat());
+          list->add(cursor.block());
+        }
         // insertList inherits the previous block format, including a heading's
         // level. Keep only the list object so items never become outline entries.
         QTextBlockFormat spacing = bodyFormat();
@@ -712,7 +718,7 @@ QString serializeDocument(const QTextDocument* document, int paragraphPosition,
 
   // Nested content must line up with the text after the parent item's marker, so each
   // nesting level contributes its own marker width. Ordered numbering continues across
-  // groups the document interleaves. Marker width assumes single-digit item numbers.
+  // groups the document interleaves. Each parent records its actual marker width.
   std::vector<int> markerWidths;
   std::vector<int> orderedCounters;
   bool prevWasList = false;
@@ -886,6 +892,7 @@ QString serializeDocument(const QTextDocument* document, int paragraphPosition,
       if (orderedCounters.size() <= level) orderedCounters.resize(level + 1, 0);
       if (!prevWasList) orderedCounters[level] = 0;
       int index = ordered ? orderedCounters[level] + 1 : 1;
+      int markerWidth = ordered ? 3 : 2;
 
       QTextBlock current = block;
       while (current.isValid()) {
@@ -910,17 +917,22 @@ QString serializeDocument(const QTextDocument* document, int paragraphPosition,
           continue;
         }
         out += QString(indentSpaces, QLatin1Char(' '));
-        out += ordered ? QString::number(index++) + QStringLiteral(". ") : QStringLiteral("- ");
+        const QString marker =
+            ordered ? QString::number(index++) + QStringLiteral(". ") : QStringLiteral("- ");
+        markerWidth = marker.size();
+        out += marker;
         if (isTaskItem) {
           out += itemFormat.property(kTaskProperty).toBool() ? QStringLiteral("[x] ")
                                                              : QStringLiteral("[ ] ");
         }
+        itemText.replace(QLatin1Char('\n'),
+                         QLatin1Char('\n') + QString(indentSpaces + markerWidth, QLatin1Char(' ')));
         out += itemText + QStringLiteral("\n");
         current = current.next();
       }
       while (markerWidths.size() < level) markerWidths.push_back(2);
       markerWidths.resize(level + 1);
-      markerWidths[level] = ordered ? 3 : 2;
+      markerWidths[level] = markerWidth;
       orderedCounters.resize(level + 1, 0);
       orderedCounters[level] = ordered ? index - 1 : 0;
       prevWasList = true;

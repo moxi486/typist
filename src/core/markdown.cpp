@@ -477,8 +477,14 @@ std::string serializeBlock(const Block& block, int indent) {
         const std::string marker = block.ordered ? std::to_string(index++) + ". " : "- ";
         out += prefix + marker;
         if (item.task) out += item.checked ? "[x] " : "[ ] ";
-        out += renderInline(item.runs, item.text) + "\n";
         const int childIndent = indent + static_cast<int>(marker.size());
+        auto text = renderInline(item.runs, item.text);
+        std::size_t newline = 0;
+        while ((newline = text.find('\n', newline)) != std::string::npos) {
+          text.insert(++newline, static_cast<std::size_t>(childIndent), ' ');
+          newline += static_cast<std::size_t>(childIndent);
+        }
+        out += text + "\n";
         for (const Block& child : item.children) out += serializeBlock(child, childIndent);
       }
       out += "\n";

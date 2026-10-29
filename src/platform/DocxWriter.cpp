@@ -150,8 +150,9 @@ QString runXml(const QString& text, bool bold = false, bool italic = false, bool
     if (underline) props += QStringLiteral("<w:u w:val=\"single\"/>");
     props += QStringLiteral("</w:rPr>");
   }
-  return QStringLiteral("<w:r>%1<w:t xml:space=\"preserve\">%2</w:t></w:r>")
-      .arg(props, escapeXml(text));
+  QString content = escapeXml(text);
+  content.replace(QLatin1Char('\n'), QStringLiteral("</w:t><w:br/><w:t xml:space=\"preserve\">"));
+  return QStringLiteral("<w:r>%1<w:t xml:space=\"preserve\">%2</w:t></w:r>").arg(props, content);
 }
 
 struct ImageAttachment {
@@ -164,6 +165,7 @@ struct ImageAttachment {
 };
 
 struct XmlContext {
+  QVector<QPair<bool, int>> lists;
   QString baseDirectory;
   QVector<QString> hyperlinkTargets;
   QVector<ImageAttachment> images;
@@ -395,7 +397,9 @@ QString breakXml() {
 
 QString listXml(const typist::core::Block& block, int depth, bool ordered, XmlContext& context) {
   QString out;
-  const int numId = ordered ? 2 : 1;
+  const int numberingLevel = qMin(depth, 8);
+  context.lists.append({ordered, numberingLevel});
+  const int numId = context.lists.size();
   const int indent = 720 + depth * 720;
   for (const typist::core::Block& child : block.children) {
     if (child.type == typist::core::BlockType::ListItem) {
@@ -407,7 +411,7 @@ QString listXml(const typist::core::Block& block, int depth, bool ordered, XmlCo
       QString props = QStringLiteral("<w:pPr><w:pStyle w:val=\"ListParagraph\"/>");
       if (!child.task)
         props += QStringLiteral("<w:numPr><w:ilvl w:val=\"%1\"/><w:numId w:val=\"%2\"/></w:numPr>")
-                     .arg(depth)
+                     .arg(numberingLevel)
                      .arg(numId);
       props += QStringLiteral("<w:ind w:left=\"%1\" w:hanging=\"360\"/></w:pPr>").arg(indent);
       const QString body =
@@ -647,7 +651,7 @@ QString stylesXml() {
   return out;
 }
 
-QString numberingXml() {
+QString numberingXml(const QVector<QPair<bool, int>>& lists) {
   QString out = QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
   out += QStringLiteral(
       "<w:numbering xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">");
@@ -656,13 +660,14 @@ QString numberingXml() {
   for (int abstract = 0; abstract < 2; ++abstract) {
     out += QStringLiteral("<w:abstractNum w:abstractNumId=\"%1\">").arg(abstract);
     const bool bullet = abstract == 0;
-    for (int level = 0; level < 3; ++level) {
+    for (int level = 0; level < 9; ++level) {
       out += QStringLiteral("<w:lvl w:ilvl=\"%1\">").arg(level);
+      out += QStringLiteral("<w:start w:val=\"1\"/>");
       out += bullet ? QStringLiteral("<w:numFmt w:val=\"bullet\"/>")
                     : QStringLiteral("<w:numFmt w:val=\"decimal\"/>");
-      out += bullet ? QStringLiteral("<w:lvlText w:val=\"%1\"/>").arg(bullets.at(level))
+      out += bullet ? QStringLiteral("<w:lvlText w:val=\"%1\"/>").arg(bullets.at(level % 3))
                     : QStringLiteral("<w:lvlText w:val=\"%1\"/>")
-                          .arg(QStringLiteral("%1.").arg(level + 1));
+                          .arg(QLatin1Char('%') + QString::number(level + 1) + QLatin1Char('.'));
       out += QStringLiteral("<w:lvlJc w:val=\"left\"/>");
       out += QStringLiteral("<w:pPr><w:ind w:left=\"%1\" w:hanging=\"360\"/></w:pPr>")
                  .arg(720 + level * 720);
@@ -673,8 +678,14 @@ QString numberingXml() {
     }
     out += QStringLiteral("</w:abstractNum>");
   }
-  out += QStringLiteral("<w:num w:numId=\"1\"><w:abstractNumId w:val=\"0\"/></w:num>");
-  out += QStringLiteral("<w:num w:numId=\"2\"><w:abstractNumId w:val=\"1\"/></w:num>");
+  for (int index = 0; index < lists.size(); ++index)
+    out += QStringLiteral(
+               "<w:num w:numId=\"%1\"><w:abstractNumId w:val=\"%2\"/>"
+               "<w:lvlOverride w:ilvl=\"%3\"><w:startOverride w:val=\"1\"/>"
+               "</w:lvlOverride></w:num>")
+               .arg(index + 1)
+               .arg(lists[index].first ? 1 : 0)
+               .arg(lists[index].second);
   out += QStringLiteral("</w:numbering>");
   return out;
 }
@@ -855,7 +866,8 @@ bool exportDocx(const QString& path, const QString& markdown, QString* error,
     entries.append(ZipEntry{image.partName.toUtf8(), image.data});
   }
   entries.append(ZipEntry{QByteArrayLiteral("word/styles.xml"), stylesXml().toUtf8()});
-  entries.append(ZipEntry{QByteArrayLiteral("word/numbering.xml"), numberingXml().toUtf8()});
+  entries.append(
+      ZipEntry{QByteArrayLiteral("word/numbering.xml"), numberingXml(context.lists).toUtf8()});
   entries.append(ZipEntry{QByteArrayLiteral("word/document.xml"), document.toUtf8()});
 
   const QByteArray zip = buildZip(entries);

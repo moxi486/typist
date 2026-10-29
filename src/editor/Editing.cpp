@@ -1,5 +1,6 @@
 #include "Editing.h"
 
+#include "ListEditing.h"
 #include "TableEditing.h"
 #include "editor_document.h"
 
@@ -79,9 +80,11 @@ void styleCharacters(QTextBlock block, int heading, bool code, bool wasCode) {
 
 bool setParagraphStyle(QTextCursor& cursor, ParagraphStyle style, int heading) {
   if (cursor.currentTable()) return false;
+  if (style == ParagraphStyle::BulletList || style == ParagraphStyle::OrderedList ||
+      style == ParagraphStyle::TaskList)
+    return setListStyle(cursor, style);
   cursor.beginEditBlock();
   const QVector<QTextBlock> blocks = selectedBlocks(cursor);
-  QTextList* list = nullptr;
   const int group = ++nextGroup;
   for (QTextBlock block : blocks) {
     const bool wasCode = block.blockFormat().hasProperty(kCodeBlockProperty);
@@ -112,37 +115,6 @@ bool setParagraphStyle(QTextCursor& cursor, ParagraphStyle style, int heading) {
       format.setProperty(kRuleProperty, true);
     }
     line.setBlockFormat(format);
-    const bool isList = style == ParagraphStyle::BulletList ||
-                        style == ParagraphStyle::OrderedList || style == ParagraphStyle::TaskList;
-    if (isList) {
-      format.setBottomMargin(5);
-      line.setBlockFormat(format);
-      if (!list) {
-        QTextListFormat listFormat;
-        listFormat.setIndent(1);
-        listFormat.setStyle(style == ParagraphStyle::OrderedList ? QTextListFormat::ListDecimal
-                            : style == ParagraphStyle::TaskList
-                                ? QTextListFormat::ListStyleUndefined
-                                : QTextListFormat::ListDisc);
-        // Continue an adjacent list instead of restarting its numbering.
-        QTextList* previous = block.previous().textList();
-        if (previous && previous->format().style() == listFormat.style() &&
-            previous->format().indent() == 1)
-          list = previous;
-        else
-          list = line.createList(listFormat);
-      }
-      list->add(block);
-      if (style == ParagraphStyle::TaskList) {
-        format = line.blockFormat();
-        format.setProperty(kTaskProperty, false);
-        line.setBlockFormat(format);
-        QTextCharFormat marker;
-        marker.setProperty(kTaskMarkProperty, false);
-        line.movePosition(QTextCursor::StartOfBlock);
-        line.insertText(QString(QChar(0x2610)) + QLatin1Char(' '), marker);
-      }
-    }
     styleCharacters(block, style == ParagraphStyle::Heading ? heading : 0,
                     style == ParagraphStyle::Code, wasCode);
     if (block.text().isEmpty() || style == ParagraphStyle::Code || wasCode) {
@@ -208,30 +180,6 @@ void setLink(QTextCursor& cursor, const QString& destination, const QString& lab
   else
     cursor.mergeCharFormat(format);
   cursor.endEditBlock();
-}
-
-bool indentList(QTextCursor& cursor, int delta) {
-  const QVector<QTextBlock> blocks = selectedBlocks(cursor);
-  if (blocks.isEmpty() || !blocks.front().textList()) return false;
-  const int oldIndent = blocks.front().textList()->format().indent();
-  if (delta > 0 && (!blocks.front().previous().textList() ||
-                    blocks.front().previous().textList()->format().indent() < oldIndent))
-    return false;
-  if (oldIndent + delta < 1) return setParagraphStyle(cursor, ParagraphStyle::Body);
-  cursor.beginEditBlock();
-  QTextList* nested = nullptr;
-  for (const QTextBlock& block : blocks) {
-    if (!block.textList()) continue;
-    QTextListFormat format = block.textList()->format();
-    format.setIndent(qMax(1, format.indent() + delta));
-    QTextCursor line(block);
-    if (!nested)
-      nested = line.createList(format);
-    else
-      nested->add(block);
-  }
-  cursor.endEditBlock();
-  return true;
 }
 
 QTextTable* insertTable(QTextCursor& cursor, int rows, int columns) {

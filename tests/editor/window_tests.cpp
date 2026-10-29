@@ -30,6 +30,7 @@
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextEdit>
+#include <QTextList>
 #include <QTextTable>
 #include <QTimer>
 #include <QToolBar>
@@ -652,6 +653,87 @@ class WindowTests : public QObject {
     window.resize(800, 650);
     QTest::qWait(20);
     QVERIFY(window.grab().save(out + QStringLiteral("/code-toolbar-compact-zh.png")));
+  }
+  void listStatusLanguageSaveAndSource() {
+    QTemporaryDir directory;
+    const auto path = directory.filePath(QStringLiteral("list.md"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("- [x] **Done**\n- [ ] Next\n\nTAIL\n");
+    file.close();
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.openFile(path);
+    window.resize(1080, 800);
+    window.show();
+    window.activateWindow();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(editor);
+    auto cursor = editor->textCursor();
+    cursor.setPosition(0);
+    cursor.setPosition(editor->document()->findBlockByNumber(1).position() + 2,
+                       QTextCursor::KeepAnchor);
+    editor->setTextCursor(cursor);
+    const auto original = typist::editor::serializeDocument(editor->document());
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("appearance_dark"))->trigger();
+    QCOMPARE(window.findChild<QAction*>(QStringLiteral("task_done"))->text(),
+             QStringLiteral("标记为已完成"));
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+    QVERIFY(!editor->document()->isUndoAvailable());
+    window.findChild<QAction*>(QStringLiteral("task_done"))->trigger();
+    const auto saved = typist::editor::serializeDocument(editor->document());
+    QVERIFY(saved.contains("- [x] Next"));
+    QVERIFY(saved.contains("**Done**"));
+    QVERIFY(QMetaObject::invokeMethod(&window, "save", Qt::DirectConnection));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), saved.toUtf8());
+    file.close();
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    QVERIFY(!editor->changeTaskStatus(typist::editor::TaskStatus::Todo));
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), saved);
+    editor->undo();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+    window.findChild<QAction*>(QStringLiteral("language_en"))->trigger();
+    QCOMPARE(window.findChild<QAction*>(QStringLiteral("task_done"))->text(),
+             QStringLiteral("Mark as Complete"));
+    editor->document()->setModified(false);
+  }
+  void listWorkflowVisuals() {
+    const auto output = QString::fromUtf8(qgetenv("TYPIST_LIST_VISUAL_DIR"));
+    if (output.isEmpty()) QSKIP("Set TYPIST_LIST_VISUAL_DIR to capture list specimens");
+    QVERIFY(QDir().mkpath(output));
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::platform::setThemePreference(QStringLiteral("light"));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.openFile(QStringLiteral(TYPIST_SOURCE_DIR "/tests/corpus/list-writing.md"));
+    window.resize(1180, 940);
+    window.show();
+    window.activateWindow();
+    QTest::qWait(50);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(window.grab().save(output + "/list-light.png"));
+    QString error;
+    QVERIFY2(typist::platform::exportPdf(output + "/list.pdf", editor->document(), &error),
+             qPrintable(error));
+    QVERIFY2(
+        typist::platform::exportDocx(output + "/list.docx",
+                                     typist::editor::serializeDocument(editor->document()), &error),
+        qPrintable(error));
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("appearance_dark"))->trigger();
+    QTest::qWait(30);
+    QVERIFY(window.grab().save(output + "/list-dark-zh.png"));
+    auto* menu =
+        qobject_cast<QMenu*>(window.findChild<QAction*>(QStringLiteral("task_done"))->parent());
+    QVERIFY(menu);
+    menu->popup(window.mapToGlobal(QPoint(200, 75)));
+    QTest::qWait(30);
+    QVERIFY(menu->grab().save(output + "/list-task-menu-zh.png"));
+    menu->close();
   }
   void tableToolbarLanguagePasteSaveAndSource() {
     QTemporaryDir directory;

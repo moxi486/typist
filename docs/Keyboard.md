@@ -21,6 +21,8 @@
 | 退出代码块、继续正文 | Ctrl+Enter |
 | 有序列表 / 无序列表 | Ctrl+Shift+[ / Ctrl+Shift+] |
 | 列表缩进 / 取消缩进 | Tab / Shift+Tab（也可 Ctrl+[ / Ctrl+]） |
+| 切换当前 / 所选任务状态 | Ctrl+Shift+Space |
+| 列表项内换行 | Shift+Enter |
 | 插入表格 | Ctrl+T |
 | 表格下一格 / 上一格 | Tab / Shift+Tab；末行最后一格 Tab 新增一行 |
 | 退出表格，继续正文 | Ctrl+Enter |
@@ -36,7 +38,7 @@
 
 导出 HTML 占用 Ctrl+Shift+E，恢复草稿用 Ctrl+Shift+R，两者不再冲突（此前它们共用 Ctrl+Shift+E，后注册的那个会吃掉前一个的按键）。
 
-渲染视图中输入 `# `、`## `、`- `、`1. `、`> `、`- [ ] ` 会转换为对应段落。输入三个反引号和可选语言名后按 Enter 创建代码块；空代码行再次 Enter 可退出，Shift+Enter 保留空代码行。列表空项 Enter 退出列表，Tab / Shift+Tab 调整层级。
+渲染视图中输入 `# `、`## `、`- `、`1. `、`> `、`- [ ] ` 会转换为对应段落。输入三个反引号和可选语言名后按 Enter 创建代码块；空代码行再次 Enter 可退出，Shift+Enter 保留空代码行。嵌套列表空项 Enter 退一级，顶层空项 Enter 退出列表；Tab / Shift+Tab 携带子项调整层级。详见 [Lists.md](Lists.md)。
 
 闭合的 `**粗体**`、`*斜体*`、`~~删除线~~`、行内代码和链接会就地渲染，转换可以撤销。普通粘贴自动解析多行 Markdown；纯文本粘贴保留输入原文。底部字符数可点击打开文档或选区统计。
 
