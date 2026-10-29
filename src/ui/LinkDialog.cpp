@@ -17,6 +17,7 @@ namespace typist::ui {
 LinkDialog::LinkDialog(const QString& label, const QString& target,
                        const QList<HeadingLink>& headings, const QUrl& base, QWidget* parent)
     : QDialog(parent) {
+  if (parent) setPalette(parent->palette());
   setObjectName(QStringLiteral("linkDialog"));
   setMinimumWidth(480);
   auto* form = new QFormLayout(this);
