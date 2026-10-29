@@ -102,6 +102,7 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/advanced.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/list-writing.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/link-writing.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/epub-writing.md
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/epub-chapters.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/import-writing.html
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/pdf-writing.md
   ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/corpus/linked-note.md

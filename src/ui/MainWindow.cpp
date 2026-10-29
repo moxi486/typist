@@ -1247,8 +1247,12 @@ void MainWindow::exportEpub() {
       title, settings.value(QStringLiteral("export/epubAuthor")).toString(),
       settings.value(QStringLiteral("export/epubLanguage"), QLocale().bcp47Name()).toString(),
       this);
+  metadata.setSplitChapters(
+      settings.value(QStringLiteral("export/epubSplitChapters"), false).toBool());
   if (metadata.exec() != QDialog::Accepted) return;
-  const platform::EpubOptions options{metadata.bookTitle(), metadata.author(), metadata.language()};
+  platform::EpubOptions options{metadata.bookTitle(), metadata.author(), metadata.language()};
+  options.coverImage = metadata.coverImage();
+  options.splitChapters = metadata.splitChapters();
   const auto directory =
       m_currentPath.isEmpty() ? QDir::homePath() : QFileInfo(m_currentPath).absolutePath();
   QFileDialog destination(this, tr("Export EPUB"), directory, QStringLiteral("EPUB book (*.epub)"));
@@ -1270,6 +1274,7 @@ void MainWindow::exportEpub() {
   }
   settings.setValue(QStringLiteral("export/epubAuthor"), options.author);
   settings.setValue(QStringLiteral("export/epubLanguage"), options.language);
+  settings.setValue(QStringLiteral("export/epubSplitChapters"), options.splitChapters);
   statusBar()->showMessage(tr("Exported EPUB"));
   if (!notices.isEmpty()) {
     QMessageBox message(QMessageBox::Information, tr("Export EPUB"),

@@ -1133,6 +1133,46 @@
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
+    <message>
+        <source>Choose Cover Image</source>
+        <translation>选择封面图片</translation>
+    </message>
+    <message>
+        <source>Images (*.png *.jpg *.jpeg *.webp *.bmp)</source>
+        <translation>图片 (*.png *.jpg *.jpeg *.webp *.bmp)</translation>
+    </message>
+    <message>
+        <source>Cover image</source>
+        <translation>封面图片</translation>
+    </message>
+    <message>
+        <source>No cover</source>
+        <translation>不使用封面</translation>
+    </message>
+    <message>
+        <source>Browse...</source>
+        <translation>浏览…</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>清除</translation>
+    </message>
+    <message>
+        <source>Cover preview</source>
+        <translation>封面预览</translation>
+    </message>
+    <message>
+        <source>Split chapters at level-one headings</source>
+        <translation>按一级标题拆分章节</translation>
+    </message>
+    <message>
+        <source>Optional local cover image. It is embedded in the book; the original stays unchanged.</source>
+        <translation>可选的本地封面图片。图片会嵌入书中，原文件保持不变。</translation>
+    </message>
+    <message>
+        <source>Choose a readable local image, or clear the cover.</source>
+        <translation>请选择可读取的本地图片，或清除封面。</translation>
+    </message>
 </context>
 <context>
     <name>EpubWriter</name>
@@ -1179,6 +1219,14 @@
     <message>
         <source>Could not encode EPUB image</source>
         <translation>无法编码 EPUB 图片</translation>
+    </message>
+    <message>
+        <source>Choose a readable local cover image</source>
+        <translation>请选择可读取的本地封面图片</translation>
+    </message>
+    <message>
+        <source>EPUB supports at most 1000 chapters</source>
+        <translation>EPUB 最多支持 1000 个章节</translation>
     </message>
 </context>
 <context>
