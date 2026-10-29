@@ -66,6 +66,24 @@ const QString tree = QStringLiteral(
 class ListWorkflowTests : public QObject {
   Q_OBJECT
  private slots:
+  void docxUsesListCountersRestartsAndNineLevels() {
+    QString source = QStringLiteral("1. Parent\n   1. Child\n2. Sibling\n\nBody\n\n1. Restart\n");
+    for (int level = 0; level < 9; ++level)
+      source += QString(level * 3, ' ') + QStringLiteral("1. Level %1\n").arg(level + 1);
+    QTemporaryDir temp;
+    QString error;
+    QVERIFY2(platform::exportDocx(temp.filePath("numbering.docx"), source, &error),
+             qPrintable(error));
+    QFile file(temp.filePath("numbering.docx"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto bytes = file.readAll();
+    QVERIFY(bytes.contains("<w:lvlText w:val=\"%1.\"/>"));
+    QVERIFY(bytes.contains("<w:lvlText w:val=\"%9.\"/>"));
+    QVERIFY(!bytes.contains("<w:lvlText w:val=\"1.\"/>"));
+    QVERIFY(bytes.contains("<w:num w:numId=\"3\">"));
+    QVERIFY(bytes.contains("<w:lvlOverride w:ilvl=\"8\"><w:startOverride w:val=\"1\"/>"));
+    QVERIFY(bytes.contains("<w:ilvl w:val=\"8\"/>"));
+  }
   void orderedNumbersContinueAcrossChildrenAndRestartAfterProse() {
     ui::Editor editor;
     ui::ViewSwitch view;
