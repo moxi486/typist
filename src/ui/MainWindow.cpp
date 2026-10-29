@@ -73,6 +73,7 @@
 #include <QPalette>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QScreen>
 #include <QSettings>
 #include <QSpinBox>
@@ -832,6 +833,10 @@ void MainWindow::newDocument() {
 }
 
 void MainWindow::openQuickly() {
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+  const auto restoreFocus = qScopeGuard(
+      [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
   QString root = m_tree->rootPath();
   if (root.isEmpty())
     root = m_currentPath.isEmpty() ? QDir::currentPath() : QFileInfo(m_currentPath).absolutePath();

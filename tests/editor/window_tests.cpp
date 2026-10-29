@@ -112,6 +112,22 @@ class WindowTests : public QObject {
       if (auto* modal = qobject_cast<QDialog*>(QApplication::activeModalWidget())) modal->reject();
     });
     safety.start(3000);
+    auto* quickOpen = window.findChild<QAction*>(QStringLiteral("openQuickly"));
+    QVERIFY(quickOpen);
+    bool dismissed = false;
+    QTimer::singleShot(0, &window, [&] {
+      if (auto* picker =
+              qobject_cast<typist::ui::QuickOpenDialog*>(QApplication::activeModalWidget())) {
+        dismissed = true;
+        QTest::keyClick(picker->findChild<QLineEdit*>(), Qt::Key_Escape);
+      }
+    });
+    quickOpen->trigger();
+    QCoreApplication::processEvents();
+    QVERIFY(dismissed);
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Unsaved **draft**."));
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
     for (bool discard : {false, true}) {
       bool chosen = false, prompted = false;
       QTimer automate;
@@ -129,9 +145,8 @@ class WindowTests : public QObject {
         }
       });
       automate.start(10);
-      auto* action = window.findChild<QAction*>(QStringLiteral("openQuickly"));
-      QVERIFY(action);
-      action->trigger();
+      quickOpen->trigger();
+      QCoreApplication::processEvents();
       QVERIFY(chosen && prompted);
       if (!discard) {
         QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
