@@ -3,6 +3,7 @@
 #include "ImageAssets.h"
 #include "ImageResources.h"
 #include "MainWindow.h"
+#include "PdfWriter.h"
 #include "Settings.h"
 #include "editor_document.h"
 #include "markdown.h"
@@ -14,6 +15,7 @@
 #include <QDropEvent>
 #include <QFile>
 #include <QMimeData>
+#include <QPainter>
 #include <QPlainTextEdit>
 #include <QSettings>
 #include <QStandardPaths>
@@ -73,6 +75,10 @@ class ImageAssetsTests : public QObject {
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settings.path());
     platform::setCopyImagesToAssets(true);
+  }
+  void init() {
+    platform::setLanguagePreference(QStringLiteral("en"));
+    platform::setThemePreference(QStringLiteral("light"));
   }
   void storesAlphaAndDeduplicatesWithoutOverwriting() {
     QTemporaryDir temp;
@@ -194,6 +200,9 @@ class ImageAssetsTests : public QObject {
     QVERIFY(QFileInfo(asset).isFile());
     editor->redo();
     QCOMPARE(images(editor->document()).size(), 1);
+    QTest::keyClicks(editor, " and text");
+    QCOMPARE(images(editor->document()).size(), 1);
+    QVERIFY(editor::serializeDocument(editor->document()).contains(" and textTAIL"));
     QVERIFY(window.saveDocumentAs(temp.filePath("copy.md")));
     QVERIFY(read(temp.filePath("copy.md")).contains("copy.assets/"));
   }
@@ -269,6 +278,7 @@ class ImageAssetsTests : public QObject {
     QApplication::sendEvent(editor->viewport(), &drop);
     QVERIFY(drop.isAccepted());
     const auto markdown = editor::serializeDocument(editor->document());
+    QCOMPARE(images(editor->document()).size(), 1);
     QVERIFY(markdown.indexOf("![") > markdown.indexOf("First"));
     QVERIFY(markdown.indexOf("![") < markdown.indexOf("TAIL"));
     QVERIFY(QFileInfo(file).isFile());
@@ -302,6 +312,75 @@ class ImageAssetsTests : public QObject {
     QVERIFY(editor::loadMarkdown(absolute, &document, &error));
     QCOMPARE(images(&document).size(), 1);
     QVERIFY(images(&document).first().isImageFormat());
+  }
+  void imageVisualSpecimens() {
+    const QString out = qEnvironmentVariable("TYPIST_IMAGE_OUTPUT");
+    if (out.isEmpty())
+      QSKIP("Set TYPIST_IMAGE_OUTPUT to retain native image and export specimens.");
+    QVERIFY(QDir().mkpath(out));
+    QImage picture(1200, 540, QImage::Format_RGB32);
+    QPainter painter(&picture);
+    QLinearGradient gradient(0, 0, 1200, 540);
+    gradient.setColorAt(0, QColor("#d9eaff"));
+    gradient.setColorAt(1, QColor("#edf8ed"));
+    painter.fillRect(picture.rect(), gradient);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor("#ffffff"));
+    painter.drawRoundedRect(QRectF(70, 65, 1060, 410), 25, 25);
+    QFont font;
+    font.setFamilies({"Segoe UI", "Microsoft YaHei"});
+    font.setPointSize(31);
+    font.setBold(true);
+    painter.setFont(font);
+    painter.setPen(QColor("#314866"));
+    painter.drawText(QRect(125, 115, 950, 90), Qt::AlignLeft | Qt::AlignVCenter,
+                     QStringLiteral("A picture belongs with its words."));
+    font.setPointSize(19);
+    font.setBold(false);
+    painter.setFont(font);
+    painter.drawText(QRect(125, 225, 950, 90), Qt::AlignLeft | Qt::AlignVCenter,
+                     QStringLiteral("图片与文字，一起保存。"));
+    painter.setPen(QColor("#65809b"));
+    font.setPointSize(14);
+    painter.setFont(font);
+    painter.drawText(QRect(125, 335, 950, 60), Qt::AlignLeft | Qt::AlignVCenter,
+                     QStringLiteral("Clipboard → document assets → portable exports"));
+    painter.end();
+    const auto path = QDir(out).filePath(QStringLiteral("图片示例.md"));
+    QVERIFY(write(path, QStringLiteral("# Keep your ideas together\n\n粘贴截图，继续写作。Images "
+                                       "stay beside your Markdown.\n\n")
+                            .toUtf8()));
+    platform::setLanguagePreference("en");
+    platform::setThemePreference("light");
+    MainWindow window;
+    auto* editor = prepare(window, path);
+    editor->moveCursor(QTextCursor::End);
+    editor->insertPlainText(QStringLiteral("\n"));
+    paste(editor, picture);
+    editor->moveCursor(QTextCursor::End);
+    editor->insertPlainText(
+        QStringLiteral("\n\nOne paste, one undo. Move the document and its assets together.\n"));
+    const auto markdown = editor::serializeDocument(editor->document());
+    QCOMPARE(images(editor->document()).size(), 1);
+    QVERIFY(markdown.contains("One paste, one undo."));
+    QTest::qWait(30);
+    QVERIFY(window.grab().save(QDir(out).filePath("images-light.png")));
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("appearance_dark"))->trigger();
+    QTest::qWait(20);
+    QVERIFY(window.grab().save(QDir(out).filePath("images-dark-zh.png")));
+    QVERIFY(window.saveDocumentAs(path));
+    const auto html =
+        render::embedLocalImages(QString::fromStdString(core::toHtml(markdown.toStdString())),
+                                 editor->document()->baseUrl());
+    QVERIFY(write(QDir(out).filePath("images.html"),
+                  QByteArray::fromStdString(core::wrapHtmlDocument(html.toStdString(), "Images"))));
+    QString error;
+    QVERIFY2(platform::exportPdf(QDir(out).filePath("images.pdf"), editor->document(), &error),
+             qPrintable(error));
+    QVERIFY2(platform::exportDocx(QDir(out).filePath("images.docx"), markdown, &error, out),
+             qPrintable(error));
   }
 
  private:

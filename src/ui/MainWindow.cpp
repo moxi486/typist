@@ -1705,6 +1705,7 @@ bool MainWindow::insertImageMarkdown(const QStringList& images) {
   }
   m_editor->setTextCursor(cursor);
   statusBar()->showMessage(tr("Inserted %1 images").arg(images.size()));
+  m_editor->setCurrentCharFormat(QTextCharFormat());
   return true;
 }
 

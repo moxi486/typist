@@ -217,6 +217,7 @@ class Editor : public QTextEdit {
   }
   void updateParagraphSourceGeometry();
   void updateParagraphSourceTheme();
+  void clearImageTypingFormat();
   void updateCodeBlockBar(bool reset = false);
   void updateCodeBlockTheme();
   CodeBlockBar* m_codeBar = nullptr;

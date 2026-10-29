@@ -224,6 +224,7 @@ void Editor::insertPlainText(const QString& text) {
   if (m_paragraphSourceActive)
     m_paragraphPanel->input()->insertPlainText(text);
   else {
+    clearImageTypingFormat();
     QTextCursor cursor = textCursor();
     if (m_rendered && editor::insertCodeText(cursor, text))
       setTextCursor(cursor);
@@ -689,6 +690,7 @@ void Editor::centerWritingLine() {
 }
 
 void Editor::inputMethodEvent(QInputMethodEvent* event) {
+  if (!event->commitString().isEmpty()) clearImageTypingFormat();
   QTextEdit::inputMethodEvent(event);
   if (m_rendered && event->preeditString().isEmpty() && !event->commitString().isEmpty()) {
     tryRenderInline();
@@ -696,6 +698,7 @@ void Editor::inputMethodEvent(QInputMethodEvent* event) {
 }
 
 void Editor::insertFromMimeData(const QMimeData* source) {
+  clearImageTypingFormat();
   if (m_imagePasteHandler && m_imagePasteHandler(source)) return;
   if (m_rendered && source->hasText()) {
     QTextCursor cursor = textCursor();
@@ -766,6 +769,7 @@ void Editor::dropEvent(QDropEvent* event) {
 }
 
 void Editor::keyPressEvent(QKeyEvent* event) {
+  if (!event->text().isEmpty()) clearImageTypingFormat();
   QTextCursor cursor = textCursor();
   const bool control = event->modifiers().testFlag(Qt::ControlModifier) ||
                        event->modifiers().testFlag(Qt::MetaModifier);
@@ -1068,6 +1072,24 @@ void Editor::keyPressEvent(QKeyEvent* event) {
        event->text() == QStringLiteral("]") || event->key() == Qt::Key_Space)) {
     tryRenderInline();
   }
+}
+
+void Editor::clearImageTypingFormat() {
+  if (!m_rendered || textCursor().hasSelection()) return;
+  const auto current = currentCharFormat();
+  if (!current.isImageFormat() && !current.hasProperty(editor::kImageProperty) &&
+      !current.hasProperty(editor::kSpecialSourceProperty) &&
+      !current.hasProperty(editor::kMathSourceProperty))
+    return;
+  QTextCharFormat typing;
+  const int heading = textCursor().blockFormat().headingLevel();
+  if (heading > 0) {
+    static const double sizes[] = {28, 22, 18, 15, 13, 12};
+    typing.setFontPointSize(sizes[qBound(1, heading, 6) - 1]);
+    typing.setFontWeight(QFont::Bold);
+    typing.setProperty(editor::kPresentationBoldProperty, true);
+  }
+  setCurrentCharFormat(typing);
 }
 
 bool Editor::tryRenderInline() {
