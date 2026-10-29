@@ -1353,7 +1353,11 @@ class WindowTests : public QObject {
     automation.setInterval(10);
     connect(&automation, &QTimer::timeout, &window, [&] {
       if (auto* selector = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
-        selector->selectFile(path);
+        // selectFile() deliberately leaves a focused filename field unchanged on
+        // some Qt versions. Enter the absolute path in that field like a user would.
+        auto* name = selector->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
+        if (!name) return;
+        name->setText(path);
         selected = true;
         QMetaObject::invokeMethod(selector, "accept", Qt::DirectConnection);
       } else if (auto* preview = qobject_cast<typist::ui::HtmlImportDialog*>(
@@ -1375,12 +1379,14 @@ class WindowTests : public QObject {
     const bool actionFound = action;
     if (action) action->trigger();
     const bool cancelledUnchanged = typist::editor::serializeDocument(editor->document()) == before;
+    const bool cancelledReviewed = selected && reviewed;
+    selected = reviewed = false;
     accepting = true;
     if (action) action->trigger();
     automation.stop();
     safety.stop();
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, previous);
-    QVERIFY(actionFound && selected && reviewed && cancelledUnchanged);
+    QVERIFY(actionFound && cancelledReviewed && selected && reviewed && cancelledUnchanged);
     QVERIFY(typist::editor::serializeDocument(editor->document())
                 .contains(QStringLiteral("# Menu import")));
   }
