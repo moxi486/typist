@@ -852,22 +852,24 @@ void MainWindow::insertTableDialog() {
 void MainWindow::insertLinkDialog() {
   auto* editor = static_cast<ui::Editor*>(m_editor);
   editor->finishParagraphSourceEdit();
-  if (m_sourceMode) {
-    statusBar()->showMessage(tr("Edit links in rendered view"), 3000);
-    return;
-  }
-  auto cursor = editor::linkSelection(editor->textCursor());
+  auto cursor = m_sourceMode ? QTextCursor() : editor::linkSelection(editor->textCursor());
   const bool existing = !cursor.isNull();
   if (!existing) cursor = editor->textCursor();
   if (cursor.selectedText().contains(QChar::ParagraphSeparator)) {
     statusBar()->showMessage(tr("Select text in one paragraph"), 3000);
     return;
   }
-  ui::LinkDialog dialog(cursor.selectedText(),
-                        existing ? cursor.charFormat().anchorHref() : QString(),
-                        ui::documentHeadingLinks(m_document), m_document->baseUrl(), this);
-  if (dialog.exec() == QDialog::Accepted &&
-      editor::replaceLink(cursor, dialog.destination(), dialog.label())) {
+  ui::LinkDialog dialog(
+      cursor.selectedText(), existing ? cursor.charFormat().anchorHref() : QString(),
+      m_sourceMode ? QList<ui::HeadingLink>() : ui::documentHeadingLinks(m_document),
+      m_view->rendered()->baseUrl(), this);
+  if (dialog.exec() != QDialog::Accepted) return;
+  if (m_sourceMode) {
+    cursor.beginEditBlock();
+    cursor.insertText(QStringLiteral("[%1](%2)").arg(dialog.label(), dialog.destination()));
+    cursor.endEditBlock();
+    editor->setTextCursor(cursor);
+  } else if (editor::replaceLink(cursor, dialog.destination(), dialog.label())) {
     cursor.clearSelection();
     editor->setTextCursor(cursor);
     editor->setCurrentCharFormat(QTextCharFormat());

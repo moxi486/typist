@@ -664,10 +664,6 @@
         <translation>标记为未完成</translation>
     </message>
     <message>
-        <source>Edit links in rendered view</source>
-        <translation>请在渲染视图中编辑链接</translation>
-    </message>
-    <message>
         <source>Select text in one paragraph</source>
         <translation>请在同一段落内选择文字</translation>
     </message>

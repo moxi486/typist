@@ -764,6 +764,33 @@ class WindowTests : public QObject {
     window.findChild<QAction*>(QStringLiteral("format_link"))->trigger();
     QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
   }
+  void sourceViewLinkDialogKeepsMarkdownEditingAndUndo() {
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    editor->insertPlainText("raw text");
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    editor->setTextCursor(editor->document()->find("raw text"));
+    const auto before = editor->toPlainText();
+    QTimer::singleShot(0, &window, [&] {
+      auto* dialog = qobject_cast<typist::ui::LinkDialog*>(QApplication::activeModalWidget());
+      QVERIFY(dialog);
+      QTimer::singleShot(1000, dialog, &QDialog::reject);
+      dialog->findChild<QLineEdit*>("linkLabel")->setText("Source **label**");
+      dialog->findChild<QLineEdit*>("linkDestination")->setText("https://example.test/a b");
+      dialog->accept();
+    });
+    window.findChild<QAction*>(QStringLiteral("format_link"))->trigger();
+    QVERIFY(editor->toPlainText().contains("[Source **label**](https://example.test/a%20b)"));
+    editor->undo();
+    QCOMPARE(editor->toPlainText(), before);
+    editor->redo();
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    QVERIFY(editor->toPlainText().contains("Source label"));
+    const auto linked = editor->document()->find("Source label");
+    QCOMPARE(linked.charFormat().anchorHref(), QStringLiteral("https://example.test/a%20b"));
+  }
   void linkWorkflowVisuals() {
     const auto output = QString::fromUtf8(qgetenv("TYPIST_LINK_VISUAL_DIR"));
     if (output.isEmpty()) QSKIP("Set TYPIST_LINK_VISUAL_DIR to capture link specimens");
