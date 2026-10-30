@@ -9,14 +9,16 @@
 #include <QContextMenuEvent>
 #include <QCryptographicHash>
 #include <QDesktopServices>
+#include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDirIterator>
 #include <QEvent>
 #include <QFileSystemWatcher>
-#include <QInputDialog>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QLayout>
+#include <QLineEdit>
 #include <QLocale>
 #include <QMenu>
 #include <QMessageBox>
@@ -25,6 +27,7 @@
 #include <QStyle>
 #include <QTimer>
 #include <QTreeWidgetItemIterator>
+#include <QVBoxLayout>
 #include <algorithm>
 
 namespace typist::ui {
@@ -463,12 +466,20 @@ QMenu* FileTree::createContextMenu(QWidget* parent) {
 }
 
 QString FileTree::askName(const QString& title, const QString& label, const QString& value) {
-  QInputDialog dialog(this);
+  QDialog dialog(this);
   dialog.setObjectName(QStringLiteral("fileNameDialog"));
   dialog.setWindowTitle(title);
-  dialog.setLabelText(label);
-  dialog.setTextValue(value);
-  dialog.setOption(QInputDialog::NoButtons);
+  dialog.setMinimumWidth(320);
+  auto* layout = new QVBoxLayout(&dialog);
+  auto* caption = new QLabel(label, &dialog);
+  caption->setTextFormat(Qt::PlainText);
+  auto* input = new QLineEdit(value, &dialog);
+  input->setObjectName(QStringLiteral("fileNameInput"));
+  input->setAccessibleName(label);
+  input->selectAll();
+  caption->setBuddy(input);
+  layout->addWidget(caption);
+  layout->addWidget(input);
   // Custom buttons keep the application translation when Qt shows the dialog.
   auto* buttons = new QDialogButtonBox(&dialog);
   buttons->setObjectName(QStringLiteral("fileNameButtons"));
@@ -477,10 +488,10 @@ QString FileTree::askName(const QString& title, const QString& label, const QStr
   accept->setDefault(true);
   buttons->addButton(tr("Cancel"), QDialogButtonBox::RejectRole)
       ->setObjectName(QStringLiteral("fileNameCancel"));
-  dialog.layout()->addWidget(buttons);
+  layout->addWidget(buttons);
   connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
   connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-  return dialog.exec() == QDialog::Accepted ? dialog.textValue().trimmed() : QString();
+  return dialog.exec() == QDialog::Accepted ? input->text().trimmed() : QString();
 }
 
 QString FileTree::operationError(const QString& error) const {

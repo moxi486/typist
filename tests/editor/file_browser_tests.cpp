@@ -6,9 +6,10 @@
 #include <QClipboard>
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QDialog>
 #include <QFile>
 #include <QFileSystemWatcher>
-#include <QInputDialog>
+#include <QLineEdit>
 #include <QMenu>
 #include <QSaveFile>
 #include <QScopedPointer>
@@ -190,10 +191,12 @@ class FileBrowserTests : public QObject {
     safety.start(3000);
     bool prompted = false;
     QTimer::singleShot(0, &tree, [&] {
-      if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget())) {
+      if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget())) {
         prompted = true;
-        dialog->setTextValue(QStringLiteral("新文件夹"));
-        dialog->accept();
+        auto* input = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameInput"));
+        QVERIFY(input);
+        input->setText(QStringLiteral("新文件夹"));
+        QTest::keyClick(input, Qt::Key_Return);
       }
     });
     menu->findChild<QAction*>("fileNewFolder")->trigger();
@@ -206,7 +209,7 @@ class FileBrowserTests : public QObject {
     QCOMPARE(opened.count(), 0);
     menu.reset(tree.createContextMenu());
     QTimer::singleShot(0, &tree, [] {
-      if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+      if (auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
         dialog->reject();
     });
     menu->findChild<QAction*>("fileNewFolder")->trigger();
