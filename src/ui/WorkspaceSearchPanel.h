@@ -5,7 +5,7 @@
 #include <QWidget>
 
 class QLineEdit;
-class QCheckBox;
+class QToolButton;
 class QPushButton;
 class QLabel;
 class QTreeWidget;
@@ -42,7 +42,9 @@ class WorkspaceSearchPanel : public QWidget {
   platform::FolderSearchRunner m_runner;
   QTimer* m_debounce = nullptr;
   QLineEdit* m_query = nullptr;
-  QCheckBox* m_case = nullptr;
+  QToolButton* m_case = nullptr;
+  QToolButton* m_words = nullptr;
+  QToolButton* m_regex = nullptr;
   QPushButton* m_search = nullptr;
   QPushButton* m_cancel = nullptr;
   QTreeWidget* m_results = nullptr;

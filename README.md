@@ -8,7 +8,7 @@
 
 - 最近与固定文件夹：在侧栏及文件菜单中记录、固定与切换工作区，Ctrl+P 可搜索这些目录；切换保留文档和未保存草稿，见 [docs/Folder-Locations.md](docs/Folder-Locations.md)
 
-- 工作区全文搜索（Ctrl+Shift+F）：独立侧栏输入、大小写选项、分组结果、后台取消与重搜，打开结果定位源码行；见 [docs/Workspace-Search.md](docs/Workspace-Search.md)
+- 工作区全文搜索（Ctrl+Shift+F）：独立侧栏输入、大小写 / Unicode 全字 / 正则选项、分组结果、后台取消与重搜，打开结果精确选择源码匹配；见 [docs/Workspace-Search.md](docs/Workspace-Search.md)
 
 - 文件侧栏：文件树 / 文件列表切换，按文件名、自然顺序或修改时间排序，记住显示偏好；深层目录刷新、选择与折叠状态保留，见 [docs/File-Browser.md](docs/File-Browser.md)
 

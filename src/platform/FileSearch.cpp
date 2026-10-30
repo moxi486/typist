@@ -4,6 +4,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QStringList>
 #include <algorithm>
 
@@ -39,9 +40,37 @@ QVector<SearchHit> scanFiles(const SearchRequest& request, QString* error,
     return stop;
   };
   if (stopped()) return hits;
-  if (request.pattern.isEmpty() || request.pattern.size() > 512 || request.pattern.contains('\n')) {
+  if (request.pattern.isEmpty() || request.pattern.size() > 512 || request.pattern.contains('\n') ||
+      request.pattern.contains('\r')) {
     if (error) *error = QStringLiteral("invalid_pattern");
     return hits;
+  }
+  const bool useRegex = request.regularExpression || request.wholeWords;
+  QRegularExpression expression;
+  if (useRegex) {
+    QString pattern =
+        request.regularExpression ? request.pattern : QRegularExpression::escape(request.pattern);
+    // Validate the user's expression on its own: wrapping an unclosed character class
+    // could otherwise make it accidentally consume a boundary assertion's closing bracket.
+    if (request.regularExpression && !QRegularExpression(pattern).isValid()) {
+      if (error) *error = QStringLiteral("invalid_regex");
+      return hits;
+    }
+    if (request.wholeWords) {
+      // Explicit Unicode categories keep boundaries consistent across PCRE2 versions.
+      const auto word = QStringLiteral("[\\p{L}\\p{M}\\p{N}\\p{Pc}]");
+      pattern = QStringLiteral("(?<!%1)(?:%2)(?!%1)").arg(word, pattern);
+    }
+    // Bound an individual match too: cancellation is checked between source lines.
+    expression.setPattern(QStringLiteral("(*LIMIT_MATCH=100000)(*LIMIT_DEPTH=1000)") + pattern);
+    expression.setPatternOptions(QRegularExpression::UseUnicodePropertiesOption |
+                                 (request.caseSensitive
+                                      ? QRegularExpression::NoPatternOption
+                                      : QRegularExpression::CaseInsensitiveOption));
+    if (!expression.isValid()) {
+      if (error) *error = QStringLiteral("invalid_regex");
+      return hits;
+    }
   }
   if (!QFileInfo(request.rootDir).isDir() || !QFileInfo(request.rootDir).isReadable()) {
     if (error) *error = QStringLiteral("folder_unavailable");
@@ -95,18 +124,31 @@ QVector<SearchHit> scanFiles(const SearchRequest& request, QString* error,
       ++stats.scannedFiles;
       const QString text = QString::fromUtf8(data);
       int line = 0, offset = 0;
-      while (offset < text.size()) {
+      while (offset <= text.size()) {
         if (stopped()) return hits;
         const int newline = text.indexOf('\n', offset);
         QString content = newline < 0 ? text.mid(offset) : text.mid(offset, newline - offset);
         if (content.endsWith('\r')) content.chop(1);
         ++line;
-        const int column = content.indexOf(
-            request.pattern, 0, request.caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive);
+        int column = -1;
+        int length = int(request.pattern.size());
+        if (useRegex) {
+          const auto match = expression.match(content);
+          if (!match.isValid()) {
+            if (error) *error = QStringLiteral("regex_match_failed");
+            return hits;
+          }
+          if (match.hasMatch()) {
+            column = int(match.capturedStart());
+            length = int(match.capturedLength());
+          }
+        } else {
+          column = content.indexOf(request.pattern, 0,
+                                   request.caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive);
+        }
         if (column >= 0) {
-          hits.append({info.absoluteFilePath(), line,
-                       previewOf(content, column, int(request.pattern.size())), column, content,
-                       int(request.pattern.size())});
+          hits.append({info.absoluteFilePath(), line, previewOf(content, column, length), column,
+                       content, length});
           if (request.maxHits > 0 && hits.size() >= request.maxHits) {
             stats.limited = true;
             return hits;

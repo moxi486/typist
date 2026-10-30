@@ -1488,6 +1488,34 @@
 <context>
     <name>WorkspaceSearchPanel</name>
     <message>
+        <source>Invalid regular expression. Check the pattern.</source>
+        <translation>正则表达式无效，请检查表达式。</translation>
+    </message>
+    <message>
+        <source>Enter a single-line search pattern (up to 512 characters).</source>
+        <translation>请输入单行搜索表达式（最多 512 个字符）。</translation>
+    </message>
+    <message>
+        <source>Pattern is too complex. Simplify the regular expression and search again.</source>
+        <translation>表达式过于复杂，请简化正则表达式后重新搜索。</translation>
+    </message>
+    <message>
+        <source>Match whole word</source>
+        <translation>全字匹配</translation>
+    </message>
+    <message>
+        <source>Match boundaries of Unicode letters, marks, numbers and connector punctuation.</source>
+        <translation>以 Unicode 字母、组合标记、数字和连接标点的边界匹配完整词语。</translation>
+    </message>
+    <message>
+        <source>Regular expression</source>
+        <translation>正则表达式</translation>
+    </message>
+    <message>
+        <source>Search each source line with a regular expression, for example: ^#{1,6}\s</source>
+        <translation>逐行搜索源码，例如：^#{1,6}\s 匹配 Markdown 标题标记。</translation>
+    </message>
+    <message>
         <source>No workspace selected</source>
         <translation>尚未选择工作区</translation>
     </message>

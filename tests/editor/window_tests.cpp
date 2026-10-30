@@ -322,6 +322,18 @@ class WindowTests : public QObject {
     draft->setPlainText(QStringLiteral("Unsaved **search draft**."));
     const auto before = typist::editor::serializeDocument(editor->document());
     const auto steps = editor->document()->availableUndoSteps();
+    panel->findChild<QToolButton*>(QStringLiteral("workspaceSearchRegex"))->setChecked(true);
+    panel->findChild<QToolButton*>(QStringLiteral("workspaceSearchWords"))->setChecked(true);
+    query->setText(QStringLiteral("["));
+    QTest::keyClick(query, Qt::Key_Return);
+    QTRY_VERIFY(status->text().startsWith(QStringLiteral("Invalid regular expression.")));
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Unsaved **search draft**."));
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    QCOMPARE(editor->document()->availableUndoSteps(), steps);
+    query->setText(QStringLiteral("needle"));
+    QTest::keyClick(query, Qt::Key_Return);
+    QTRY_VERIFY(status->text().startsWith(QStringLiteral("Matching lines: 2")));
     QTimer safety;
     connect(&safety, &QTimer::timeout, &window, [] {
       if (auto* modal = qobject_cast<QDialog*>(QApplication::activeModalWidget())) modal->reject();
@@ -367,6 +379,54 @@ class WindowTests : public QObject {
     QSettings().setValue(QStringLiteral("editor/autoSave"), true);
   }
 
+  void workspaceRegexSelectsActualSpanAndZeroWidth() {
+    QTemporaryDir directory;
+    const auto target = directory.filePath(QStringLiteral("note.md"));
+    const auto text = QStringLiteral("# Heading\r\n\r\n😀 Note42 note7\r\n\r\n");
+    QFile file(target);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(text.toUtf8());
+    file.close();
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.show();
+    QVERIFY(window.openFile(target));
+    actionBySource(window, QStringLiteral("Search in Folder"))->trigger();
+    auto* panel = window.findChild<typist::ui::WorkspaceSearchPanel*>();
+    auto* query = panel->findChild<QLineEdit*>(QStringLiteral("workspaceSearchQuery"));
+    auto* results = panel->findChild<QTreeWidget*>(QStringLiteral("workspaceSearchResults"));
+    auto* status = panel->findChild<QLabel*>(QStringLiteral("workspaceSearchStatus"));
+    panel->findChild<QToolButton*>(QStringLiteral("workspaceSearchRegex"))->setChecked(true);
+    panel->findChild<QToolButton*>(QStringLiteral("workspaceSearchCase"))->setChecked(true);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    for (const auto& pattern :
+         {QStringLiteral("note\\d+"), QStringLiteral("(?=Note)"), QStringLiteral("^$")}) {
+      query->setText(pattern);
+      QTest::keyClick(query, Qt::Key_Return);
+      QTRY_VERIFY(status->text().startsWith(QStringLiteral("Matching lines:")));
+      QCOMPARE(results->topLevelItemCount(), 1);
+      results->setCurrentItem(results->topLevelItem(0)->child(0));
+      QTest::keyClick(results, Qt::Key_Return);
+      const auto cursor = editor->textCursor();
+      if (pattern == QLatin1String("note\\d+")) {
+        QCOMPARE(cursor.blockNumber(), 2);
+        QCOMPARE(cursor.selectedText(), QStringLiteral("note7"));
+        QCOMPARE(cursor.selectionStart() - cursor.block().position(), 10);
+      } else if (pattern == QLatin1String("(?=Note)")) {
+        QCOMPARE(cursor.blockNumber(), 2);
+        QCOMPARE(cursor.positionInBlock(), 3);
+        QVERIFY(!cursor.hasSelection());
+      } else {
+        QCOMPARE(cursor.blockNumber(), 1);
+        QCOMPARE(cursor.positionInBlock(), 0);
+        QVERIFY(!cursor.hasSelection());
+      }
+    }
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), text.toUtf8());
+  }
+
   void workspaceSearchBilingualThemesAndSavedScope() {
     QTemporaryDir directory;
     const auto target = directory.filePath(QStringLiteral("写作计划.md"));
@@ -382,7 +442,11 @@ class WindowTests : public QObject {
     auto* panel = window.findChild<typist::ui::WorkspaceSearchPanel*>();
     auto* query = panel->findChild<QLineEdit*>(QStringLiteral("workspaceSearchQuery"));
     auto* results = panel->findChild<QTreeWidget*>(QStringLiteral("workspaceSearchResults"));
-    query->setText(QStringLiteral("计划"));
+    auto* regex = panel->findChild<QToolButton*>(QStringLiteral("workspaceSearchRegex"));
+    auto* words = panel->findChild<QToolButton*>(QStringLiteral("workspaceSearchWords"));
+    regex->setChecked(true);
+    words->setChecked(true);
+    query->setText(QStringLiteral("计划：.+"));
     QTest::keyClick(query, Qt::Key_Return);
     QTRY_COMPARE(results->topLevelItemCount(), 1);
     QCOMPARE(results->topLevelItem(0)->childCount(), 2);
@@ -401,12 +465,33 @@ class WindowTests : public QObject {
                language == QLatin1String("en") ? QStringLiteral("Search") : QStringLiteral("搜索"));
       QCOMPARE(window.findChild<QTabWidget*>(QStringLiteral("sidebarTabs"))->tabText(2),
                language == QLatin1String("en") ? QStringLiteral("Search") : QStringLiteral("搜索"));
+      QCOMPARE(regex->accessibleName(), language == QLatin1String("en")
+                                            ? QStringLiteral("Regular expression")
+                                            : QStringLiteral("正则表达式"));
+      QCOMPARE(words->accessibleName(), language == QLatin1String("en")
+                                            ? QStringLiteral("Match whole word")
+                                            : QStringLiteral("全字匹配"));
+      QVERIFY(regex->isChecked());
+      QVERIFY(words->isChecked());
       if (!output.isEmpty()) {
         window.resize(1120, 760);
         QTest::qWait(60);
         QVERIFY(window.grab().save(output + QStringLiteral("/search-") + language +
                                    QStringLiteral(".png")));
       }
+      auto* status = panel->findChild<QLabel*>(QStringLiteral("workspaceSearchStatus"));
+      query->setText(QStringLiteral("["));
+      QTest::keyClick(query, Qt::Key_Return);
+      const auto invalid = language == QLatin1String("en")
+                               ? QStringLiteral("Invalid regular expression. Check the pattern.")
+                               : QStringLiteral("正则表达式无效，请检查表达式。");
+      QTRY_COMPARE(status->text(), invalid);
+      if (!output.isEmpty())
+        QVERIFY(window.grab().save(output + QStringLiteral("/invalid-") + language +
+                                   QStringLiteral(".png")));
+      query->setText(QStringLiteral("计划：.+"));
+      QTest::keyClick(query, Qt::Key_Return);
+      QTRY_COMPARE(results->topLevelItemCount(), 1);
     }
     window.findChild<QAction*>(QStringLiteral("language_en"))->trigger();
     window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();

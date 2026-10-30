@@ -25,6 +25,8 @@ struct SearchRequest {
   int maxFiles = 10000;
   int maxEntries = 100000;
   qint64 maxTotalBytes = 64 * 1024 * 1024;
+  bool regularExpression = false;
+  bool wholeWords = false;
 };
 
 struct SearchStats {
