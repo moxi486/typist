@@ -25,6 +25,181 @@ bool write(const QString& path, const QByteArray& text) {
 class WorkspaceSearchTests : public QObject {
   Q_OBJECT
  private slots:
+  void matchingOptions_data() {
+    QTest::addColumn<QString>("text");
+    QTest::addColumn<QString>("pattern");
+    QTest::addColumn<bool>("regex");
+    QTest::addColumn<bool>("words");
+    QTest::addColumn<bool>("sensitive");
+    QTest::addColumn<int>("column");
+    QTest::addColumn<int>("length");
+    QTest::newRow("literal-metacharacters")
+        << QStringLiteral("a-b a.b") << QStringLiteral("a.b") << false << false << false << 4 << 3;
+    QTest::newRow("literal-escaped-whole-word")
+        << QStringLiteral("xa.b a.b!") << QStringLiteral("a.b") << false << true << false << 5 << 3;
+    QTest::newRow("regex-variable-length")
+        << QStringLiteral("TODO: note42") << QStringLiteral("note\\d+") << true << false << false
+        << 6 << 6;
+    QTest::newRow("regex-case-fold") << QStringLiteral("Plan12 plan3") << QStringLiteral("plan\\d+")
+                                     << true << false << false << 0 << 6;
+    QTest::newRow("regex-case-sensitive")
+        << QStringLiteral("Plan12 plan3") << QStringLiteral("plan\\d+") << true << false << true
+        << 7 << 5;
+    QTest::newRow("regex-whole-alternation")
+        << QStringLiteral("scatter dogs cat") << QStringLiteral("cat|dog") << true << true << false
+        << 13 << 3;
+    QTest::newRow("whole-word-retry-alternation")
+        << QStringLiteral("cat") << QStringLiteral("ca|cat") << true << true << false << 0 << 3;
+    QTest::newRow("whole-word-letter-number-connector")
+        << QStringLiteral("cat2 _cat cat_ cat") << QStringLiteral("cat") << false << true << false
+        << 15 << 3;
+    QTest::newRow("whole-word-combining-mark")
+        << QStringLiteral("cafe\u0301 cafe") << QStringLiteral("cafe") << false << true << false
+        << 6 << 4;
+    QTest::newRow("whole-word-chinese") << QStringLiteral("新计划 计划！") << QStringLiteral("计划")
+                                        << false << true << false << 4 << 2;
+    QTest::newRow("unicode-properties-and-utf16")
+        << QStringLiteral("😀 计划42") << QStringLiteral("\\p{L}+\\d+") << true << false << false
+        << 3 << 4;
+    QTest::newRow("backreferences") << QStringLiteral("go go!") << QStringLiteral("(go)\\s+\\1")
+                                    << true << true << false << 0 << 5;
+    QTest::newRow("heading-anchor") << QStringLiteral("## Heading") << QStringLiteral("^#{1,6}\\s")
+                                    << true << false << false << 0 << 3;
+    QTest::newRow("zero-width") << QStringLiteral("TODO") << QStringLiteral("(?=TODO)") << true
+                                << false << false << 0 << 0;
+    QTest::newRow("end-anchor") << QStringLiteral("TODO") << QStringLiteral("$") << true << false
+                                << false << 4 << 0;
+    QTest::newRow("no-substring") << QStringLiteral("scatter cats") << QStringLiteral("cat")
+                                  << false << true << false << -1 << 0;
+  }
+
+  void matchingOptions() {
+    QFETCH(QString, text);
+    QFETCH(QString, pattern);
+    QFETCH(bool, regex);
+    QFETCH(bool, words);
+    QFETCH(bool, sensitive);
+    QFETCH(int, column);
+    QFETCH(int, length);
+    QTemporaryDir directory;
+    QVERIFY(write(directory.filePath("note.md"), text.toUtf8()));
+    SearchRequest request;
+    request.rootDir = directory.path();
+    request.pattern = pattern;
+    request.regularExpression = regex;
+    request.wholeWords = words;
+    request.caseSensitive = sensitive;
+    QString error;
+    const auto hits = searchFiles(request, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(hits.size(), column < 0 ? 0 : 1);
+    if (column < 0) return;
+    QCOMPARE(hits.first().column, column);
+    QCOMPARE(hits.first().length, length);
+    QCOMPARE(hits.first().sourceLine, text);
+  }
+
+  void regexEmptyLinesErrorsAndLimits() {
+    QTemporaryDir directory;
+    const auto path = directory.filePath("note.md");
+    QVERIFY(write(path, "first\r\n\r\nlast\r\n"));
+    SearchRequest request;
+    request.rootDir = directory.path();
+    request.pattern = QStringLiteral("^$");
+    request.regularExpression = true;
+    QString error;
+    auto hits = searchFiles(request, &error);
+    QVERIFY(error.isEmpty());
+    QCOMPARE(hits.size(), 2);
+    QCOMPARE(hits.first().line, 2);
+    QCOMPARE(hits.last().line, 4);
+    for (const auto& hit : hits) {
+      QCOMPARE(hit.column, 0);
+      QCOMPARE(hit.length, 0);
+      QVERIFY(hit.sourceLine.isEmpty());
+    }
+    QVERIFY(write(path, ""));
+    QCOMPARE(searchFiles(request, &error).size(), 1);
+    SearchStats stats;
+    for (bool words : {false, true}) {
+      request.wholeWords = words;
+      for (const auto& pattern : {QStringLiteral("["), QStringLiteral("("), QStringLiteral("\\"),
+                                  QStringLiteral("a{2,1}")}) {
+        request.pattern = pattern;
+        QVERIFY(searchFiles(request, &error, &stats).isEmpty());
+        QCOMPARE(error, QStringLiteral("invalid_regex"));
+        QCOMPARE(stats.scannedFiles, 0);
+      }
+    }
+    request.wholeWords = false;
+    request.pattern = QStringLiteral("one\rtwo");
+    QVERIFY(searchFiles(request, &error).isEmpty());
+    QCOMPARE(error, QStringLiteral("invalid_pattern"));
+    request.pattern = QStringLiteral("(a+)+$");
+    QVERIFY(write(path, "a\n" + QByteArray(10000, 'a') + "!"));
+    hits = searchFiles(request, &error);
+    QCOMPARE(error, QStringLiteral("regex_match_failed"));
+    QCOMPARE(hits.size(), 1);  // Keep the completed lines, but report the incomplete search.
+    request.pattern = QStringLiteral("^a+$");
+    hits = searchFiles(request, &error);
+    QVERIFY(error.isEmpty());
+    QCOMPARE(hits.size(), 1);
+    request.pattern = QStringLiteral("a");
+    request.maxHits = 1;
+    QCOMPARE(searchFiles(request, &error, &stats).size(), 1);
+    QVERIFY(stats.limited);
+  }
+
+  void panelOptionsRerunAndRecoverFromErrors() {
+    QTemporaryDir directory;
+    QVERIFY(write(directory.filePath("note.md"), "cat\ncat2\ncat+\nCAT\n"));
+    typist::ui::WorkspaceSearchPanel panel;
+    panel.setRoot(directory.path());
+    panel.show();
+    auto* query = panel.findChild<QLineEdit*>("workspaceSearchQuery");
+    auto* words = panel.findChild<QCheckBox*>("workspaceSearchWords");
+    auto* regex = panel.findChild<QCheckBox*>("workspaceSearchRegex");
+    auto* sensitive = panel.findChild<QCheckBox*>("workspaceSearchCase");
+    auto* tree = panel.findChild<QTreeWidget*>("workspaceSearchResults");
+    auto* status = panel.findChild<QLabel*>("workspaceSearchStatus");
+    query->setText(QStringLiteral("cat"));
+    QTest::keyClick(query, Qt::Key_Return);
+    QTRY_VERIFY(status->text().startsWith(QStringLiteral("Matching lines: 4")));
+    words->click();
+    QCOMPARE(tree->topLevelItemCount(), 0);
+    QTRY_VERIFY(status->text().startsWith(QStringLiteral("Matching lines: 3")));
+    sensitive->click();
+    QTRY_VERIFY(status->text().startsWith(QStringLiteral("Matching lines: 2")));
+    query->setText(QStringLiteral("cat+"));
+    QTest::keyClick(query, Qt::Key_Return);
+    QTRY_VERIFY(status->text().startsWith(QStringLiteral("Matching lines: 1")));
+    regex->click();
+    QTRY_VERIFY(status->text().startsWith(QStringLiteral("Matching lines: 2")));
+    // Replace multiple queued requests, including an invalid regular expression.
+    query->setText(QStringLiteral("["));
+    QTest::keyClick(query, Qt::Key_Return);
+    query->setText(QStringLiteral("^CAT$"));
+    QTest::keyClick(query, Qt::Key_Return);
+    QTRY_VERIFY(status->text().startsWith(QStringLiteral("Matching lines: 1")));
+    QCOMPARE(tree->topLevelItem(0)->child(0)->text(0), QStringLiteral("4: CAT"));
+    query->setText(QStringLiteral("["));
+    QTest::keyClick(query, Qt::Key_Return);
+    QTRY_VERIFY(status->text().startsWith(QStringLiteral("Invalid regular expression.")));
+    QCOMPARE(tree->topLevelItemCount(), 0);
+    regex->click();
+    QTRY_VERIFY(status->text().startsWith(QStringLiteral("Matching lines: 0")));
+    regex->click();
+    query->setText(QStringLiteral("(a+)+$"));
+    QVERIFY(write(directory.filePath("note.md"), QByteArray(10000, 'a') + "!"));
+    QTest::keyClick(query, Qt::Key_Return);
+    QTRY_VERIFY(status->text().startsWith(QStringLiteral("Pattern is too complex.")));
+    panel.hide();
+    panel.show();
+    query->setText(QStringLiteral("^a+!$"));
+    QTest::keyClick(query, Qt::Key_Return);
+    QTRY_VERIFY(status->text().startsWith(QStringLiteral("Matching lines: 1")));
+  }
+
   void sourceLinesUnicodeCaseAndPreviewContext() {
     QTemporaryDir directory;
     const auto path = directory.filePath(QStringLiteral("中文.MD"));

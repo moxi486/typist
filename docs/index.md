@@ -19,7 +19,7 @@ Typist 是一个开源的所见即所得 Markdown 编辑器：源码与渲染在
 6. [PDF 页面设置与预览](PDF.md)：导出前检查纸张、方向、页边距、页眉页脚和分页。
 7. [快速打开](Quick-Open.md)：`Ctrl+P` 模糊查找工作区和最近文件，使用键盘选择打开。
 8. [文件侧栏](File-Browser.md)：文件树 / 列表、自然顺序或修改时间排序、显示偏好与刷新。
-9. [工作区全文搜索](Workspace-Search.md)：`Ctrl+Shift+F` 搜索已保存的 Markdown，按文件分组并定位源码行。
+9. [工作区全文搜索](Workspace-Search.md)：`Ctrl+Shift+F` 搜索已保存的 Markdown，支持大小写、全字与正则匹配，按文件分组并精确定位源码。
 10. [最近文件夹与固定工作区](Folder-Locations.md)：记录常用目录，从侧栏菜单或 Ctrl+P 切换，保留当前编辑。
 
 许可：应用为 MIT；Qt 以 LGPLv3 动态链接并提供可重链接说明；cmark-gfm 为 BSD-2。第三方许可声明见仓库根目录的 `NOTICE`。

@@ -35,6 +35,12 @@ WorkspaceSearchPanel::WorkspaceSearchPanel(QWidget* parent) : QWidget(parent) {
   m_case = new QCheckBox(this);
   m_case->setObjectName(QStringLiteral("workspaceSearchCase"));
   layout->addWidget(m_case);
+  m_words = new QCheckBox(this);
+  m_words->setObjectName(QStringLiteral("workspaceSearchWords"));
+  layout->addWidget(m_words);
+  m_regex = new QCheckBox(this);
+  m_regex->setObjectName(QStringLiteral("workspaceSearchRegex"));
+  layout->addWidget(m_regex);
   auto* buttons = new QHBoxLayout;
   m_search = new QPushButton(this);
   m_search->setObjectName(QStringLiteral("workspaceSearchStart"));
@@ -64,6 +70,8 @@ WorkspaceSearchPanel::WorkspaceSearchPanel(QWidget* parent) : QWidget(parent) {
   m_debounce->setInterval(300);
   connect(m_query, &QLineEdit::textChanged, this, &WorkspaceSearchPanel::invalidate);
   connect(m_case, &QCheckBox::toggled, this, &WorkspaceSearchPanel::invalidate);
+  connect(m_words, &QCheckBox::toggled, this, &WorkspaceSearchPanel::invalidate);
+  connect(m_regex, &QCheckBox::toggled, this, &WorkspaceSearchPanel::invalidate);
   connect(m_query, &QLineEdit::returnPressed, this, &WorkspaceSearchPanel::search);
   connect(m_search, &QPushButton::clicked, this, &WorkspaceSearchPanel::search);
   connect(m_cancel, &QPushButton::clicked, this, [this] {
@@ -124,6 +132,8 @@ void WorkspaceSearchPanel::search() {
   request.rootDir = m_root;
   request.pattern = m_query->text();
   request.caseSensitive = m_case->isChecked();
+  request.wholeWords = m_words->isChecked();
+  request.regularExpression = m_regex->isChecked();
   m_hits.clear();
   m_results->clear();
   m_done = false;
@@ -176,6 +186,13 @@ void WorkspaceSearchPanel::updateStatus() {
     m_status->setText(tr("Searching…"));
   else if (!m_done)
     m_status->setText(tr("Search saved Markdown files in this workspace."));
+  else if (m_error == QLatin1String("invalid_regex"))
+    m_status->setText(tr("Invalid regular expression. Check the pattern."));
+  else if (m_error == QLatin1String("invalid_pattern"))
+    m_status->setText(tr("Enter a single-line search pattern (up to 512 characters)."));
+  else if (m_error == QLatin1String("regex_match_failed"))
+    m_status->setText(
+        tr("Pattern is too complex. Simplify the regular expression and search again."));
   else if (!m_error.isEmpty())
     m_status->setText(tr("Folder unavailable. Choose another workspace."));
   else {
@@ -195,6 +212,12 @@ void WorkspaceSearchPanel::retranslate() {
   m_query->setPlaceholderText(tr("Search in workspace…"));
   m_query->setAccessibleName(tr("Search in workspace"));
   m_case->setText(tr("Match case"));
+  m_words->setText(tr("Match whole word"));
+  m_words->setToolTip(
+      tr("Match boundaries of Unicode letters, marks, numbers and connector punctuation."));
+  m_regex->setText(tr("Regular expression"));
+  m_regex->setToolTip(
+      tr("Search each source line with a regular expression, for example: ^#{1,6}\\s"));
   m_search->setText(tr("Search"));
   m_cancel->setText(tr("Cancel"));
   m_results->setAccessibleName(tr("Workspace search results"));

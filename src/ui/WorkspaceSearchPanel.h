@@ -43,6 +43,8 @@ class WorkspaceSearchPanel : public QWidget {
   QTimer* m_debounce = nullptr;
   QLineEdit* m_query = nullptr;
   QCheckBox* m_case = nullptr;
+  QCheckBox* m_words = nullptr;
+  QCheckBox* m_regex = nullptr;
   QPushButton* m_search = nullptr;
   QPushButton* m_cancel = nullptr;
   QTreeWidget* m_results = nullptr;
