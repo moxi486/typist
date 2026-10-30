@@ -322,8 +322,8 @@ class WindowTests : public QObject {
     draft->setPlainText(QStringLiteral("Unsaved **search draft**."));
     const auto before = typist::editor::serializeDocument(editor->document());
     const auto steps = editor->document()->availableUndoSteps();
-    panel->findChild<QCheckBox*>(QStringLiteral("workspaceSearchRegex"))->setChecked(true);
-    panel->findChild<QCheckBox*>(QStringLiteral("workspaceSearchWords"))->setChecked(true);
+    panel->findChild<QToolButton*>(QStringLiteral("workspaceSearchRegex"))->setChecked(true);
+    panel->findChild<QToolButton*>(QStringLiteral("workspaceSearchWords"))->setChecked(true);
     query->setText(QStringLiteral("["));
     QTest::keyClick(query, Qt::Key_Return);
     QTRY_VERIFY(status->text().startsWith(QStringLiteral("Invalid regular expression.")));
@@ -397,8 +397,8 @@ class WindowTests : public QObject {
     auto* query = panel->findChild<QLineEdit*>(QStringLiteral("workspaceSearchQuery"));
     auto* results = panel->findChild<QTreeWidget*>(QStringLiteral("workspaceSearchResults"));
     auto* status = panel->findChild<QLabel*>(QStringLiteral("workspaceSearchStatus"));
-    panel->findChild<QCheckBox*>(QStringLiteral("workspaceSearchRegex"))->setChecked(true);
-    panel->findChild<QCheckBox*>(QStringLiteral("workspaceSearchCase"))->setChecked(true);
+    panel->findChild<QToolButton*>(QStringLiteral("workspaceSearchRegex"))->setChecked(true);
+    panel->findChild<QToolButton*>(QStringLiteral("workspaceSearchCase"))->setChecked(true);
     auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
     for (const auto& pattern :
          {QStringLiteral("note\\d+"), QStringLiteral("(?=Note)"), QStringLiteral("^$")}) {
@@ -442,8 +442,8 @@ class WindowTests : public QObject {
     auto* panel = window.findChild<typist::ui::WorkspaceSearchPanel*>();
     auto* query = panel->findChild<QLineEdit*>(QStringLiteral("workspaceSearchQuery"));
     auto* results = panel->findChild<QTreeWidget*>(QStringLiteral("workspaceSearchResults"));
-    auto* regex = panel->findChild<QCheckBox*>(QStringLiteral("workspaceSearchRegex"));
-    auto* words = panel->findChild<QCheckBox*>(QStringLiteral("workspaceSearchWords"));
+    auto* regex = panel->findChild<QToolButton*>(QStringLiteral("workspaceSearchRegex"));
+    auto* words = panel->findChild<QToolButton*>(QStringLiteral("workspaceSearchWords"));
     regex->setChecked(true);
     words->setChecked(true);
     query->setText(QStringLiteral("计划：.+"));
@@ -465,10 +465,12 @@ class WindowTests : public QObject {
                language == QLatin1String("en") ? QStringLiteral("Search") : QStringLiteral("搜索"));
       QCOMPARE(window.findChild<QTabWidget*>(QStringLiteral("sidebarTabs"))->tabText(2),
                language == QLatin1String("en") ? QStringLiteral("Search") : QStringLiteral("搜索"));
-      QCOMPARE(regex->text(), language == QLatin1String("en") ? QStringLiteral("Regular expression")
-                                                              : QStringLiteral("正则表达式"));
-      QCOMPARE(words->text(), language == QLatin1String("en") ? QStringLiteral("Match whole word")
-                                                              : QStringLiteral("全字匹配"));
+      QCOMPARE(regex->accessibleName(), language == QLatin1String("en")
+                                            ? QStringLiteral("Regular expression")
+                                            : QStringLiteral("正则表达式"));
+      QCOMPARE(words->accessibleName(), language == QLatin1String("en")
+                                            ? QStringLiteral("Match whole word")
+                                            : QStringLiteral("全字匹配"));
       QVERIFY(regex->isChecked());
       QVERIFY(words->isChecked());
       if (!output.isEmpty()) {

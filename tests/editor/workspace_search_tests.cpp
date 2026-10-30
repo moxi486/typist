@@ -2,7 +2,6 @@
 #include "FolderSearchRunner.h"
 #include "WorkspaceSearchPanel.h"
 
-#include <QCheckBox>
 #include <QDir>
 #include <QFile>
 #include <QLabel>
@@ -10,6 +9,7 @@
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QToolButton>
 #include <QTreeWidget>
 #include <QtTest>
 
@@ -157,9 +157,9 @@ class WorkspaceSearchTests : public QObject {
     panel.setRoot(directory.path());
     panel.show();
     auto* query = panel.findChild<QLineEdit*>("workspaceSearchQuery");
-    auto* words = panel.findChild<QCheckBox*>("workspaceSearchWords");
-    auto* regex = panel.findChild<QCheckBox*>("workspaceSearchRegex");
-    auto* sensitive = panel.findChild<QCheckBox*>("workspaceSearchCase");
+    auto* words = panel.findChild<QToolButton*>("workspaceSearchWords");
+    auto* regex = panel.findChild<QToolButton*>("workspaceSearchRegex");
+    auto* sensitive = panel.findChild<QToolButton*>("workspaceSearchCase");
     auto* tree = panel.findChild<QTreeWidget*>("workspaceSearchResults");
     auto* status = panel.findChild<QLabel*>("workspaceSearchStatus");
     query->setText(QStringLiteral("cat"));

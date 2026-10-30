@@ -1,6 +1,5 @@
 #include "WorkspaceSearchPanel.h"
 
-#include <QCheckBox>
 #include <QDir>
 #include <QEvent>
 #include <QFileInfo>
@@ -11,6 +10,7 @@
 #include <QMap>
 #include <QPushButton>
 #include <QTimer>
+#include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 #include <algorithm>
@@ -32,15 +32,23 @@ WorkspaceSearchPanel::WorkspaceSearchPanel(QWidget* parent) : QWidget(parent) {
   m_query->setClearButtonEnabled(true);
   m_query->installEventFilter(this);
   layout->addWidget(m_query);
-  m_case = new QCheckBox(this);
+  auto* options = new QHBoxLayout;
+  options->setSpacing(4);
+  m_case = new QToolButton(this);
   m_case->setObjectName(QStringLiteral("workspaceSearchCase"));
-  layout->addWidget(m_case);
-  m_words = new QCheckBox(this);
+  m_case->setText(QStringLiteral("Aa"));
+  m_words = new QToolButton(this);
   m_words->setObjectName(QStringLiteral("workspaceSearchWords"));
-  layout->addWidget(m_words);
-  m_regex = new QCheckBox(this);
+  m_words->setText(QStringLiteral("ab"));
+  m_regex = new QToolButton(this);
   m_regex->setObjectName(QStringLiteral("workspaceSearchRegex"));
-  layout->addWidget(m_regex);
+  m_regex->setText(QStringLiteral(".*"));
+  for (auto* option : {m_case, m_words, m_regex}) {
+    option->setCheckable(true);
+    options->addWidget(option);
+  }
+  options->addStretch();
+  layout->addLayout(options);
   auto* buttons = new QHBoxLayout;
   m_search = new QPushButton(this);
   m_search->setObjectName(QStringLiteral("workspaceSearchStart"));
@@ -69,9 +77,9 @@ WorkspaceSearchPanel::WorkspaceSearchPanel(QWidget* parent) : QWidget(parent) {
   m_debounce->setSingleShot(true);
   m_debounce->setInterval(300);
   connect(m_query, &QLineEdit::textChanged, this, &WorkspaceSearchPanel::invalidate);
-  connect(m_case, &QCheckBox::toggled, this, &WorkspaceSearchPanel::invalidate);
-  connect(m_words, &QCheckBox::toggled, this, &WorkspaceSearchPanel::invalidate);
-  connect(m_regex, &QCheckBox::toggled, this, &WorkspaceSearchPanel::invalidate);
+  connect(m_case, &QToolButton::toggled, this, &WorkspaceSearchPanel::invalidate);
+  connect(m_words, &QToolButton::toggled, this, &WorkspaceSearchPanel::invalidate);
+  connect(m_regex, &QToolButton::toggled, this, &WorkspaceSearchPanel::invalidate);
   connect(m_query, &QLineEdit::returnPressed, this, &WorkspaceSearchPanel::search);
   connect(m_search, &QPushButton::clicked, this, &WorkspaceSearchPanel::search);
   connect(m_cancel, &QPushButton::clicked, this, [this] {
@@ -211,12 +219,15 @@ void WorkspaceSearchPanel::updateStatus() {
 void WorkspaceSearchPanel::retranslate() {
   m_query->setPlaceholderText(tr("Search in workspace…"));
   m_query->setAccessibleName(tr("Search in workspace"));
-  m_case->setText(tr("Match case"));
-  m_words->setText(tr("Match whole word"));
+  m_case->setAccessibleName(tr("Match case"));
+  m_case->setToolTip(m_case->accessibleName());
+  m_words->setAccessibleName(tr("Match whole word"));
   m_words->setToolTip(
+      m_words->accessibleName() + '\n' +
       tr("Match boundaries of Unicode letters, marks, numbers and connector punctuation."));
-  m_regex->setText(tr("Regular expression"));
+  m_regex->setAccessibleName(tr("Regular expression"));
   m_regex->setToolTip(
+      m_regex->accessibleName() + '\n' +
       tr("Search each source line with a regular expression, for example: ^#{1,6}\\s"));
   m_search->setText(tr("Search"));
   m_cancel->setText(tr("Cancel"));
