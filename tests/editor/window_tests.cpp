@@ -33,6 +33,7 @@
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileDialog>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -43,6 +44,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScopeGuard>
+#include <QScopedPointer>
 #include <QScrollBar>
 #include <QSettings>
 #include <QStatusBar>
@@ -282,6 +284,95 @@ class WindowTests : public QObject {
     QCOMPARE(tree->options().view, typist::platform::FileBrowserView::List);
     QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
     QCOMPARE(editor->document()->availableUndoSteps(), steps);
+    window.findChild<QAction*>(QStringLiteral("language_en"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();
+  }
+
+  void fileActionsBilingualThemesKeepUnsavedDocument() {
+    QTemporaryDir directory;
+    const auto path = directory.filePath(QStringLiteral("写作.md"));
+    const auto original = QStringLiteral("# Writing\n\nSaved paragraph.\n").toUtf8();
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write(original), qint64(original.size()));
+    file.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.show();
+    QVERIFY(window.openFile(path));
+    QVERIFY(window.openFolderPath(directory.path()));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto cursor = editor->textCursor();
+    cursor.movePosition(QTextCursor::End);
+    cursor.insertText(QStringLiteral(" Unsaved edits."));
+    const auto before = typist::editor::serializeDocument(editor->document());
+    const auto steps = editor->document()->availableUndoSteps();
+    const auto base = editor->document()->baseUrl();
+    auto* tree = window.findChild<typist::ui::FileTree*>();
+    const auto output = qEnvironmentVariable("TYPIST_FILE_ACTIONS_OUTPUT");
+    for (const auto& language : {QStringLiteral("en"), QStringLiteral("zh")}) {
+      const bool chinese = language == QLatin1String("zh");
+      window.findChild<QAction*>(QStringLiteral("language_") + language)->trigger();
+      window
+          .findChild<QAction*>(chinese ? QStringLiteral("appearance_dark")
+                                       : QStringLiteral("appearance_light"))
+          ->trigger();
+      tree->selectPath(path);
+      QScopedPointer<QMenu> menu(tree->createContextMenu());
+      QCOMPARE(menu->findChild<QAction*>("fileDuplicate")->text(),
+               chinese ? QStringLiteral("创建副本") : QStringLiteral("Duplicate"));
+      QCOMPARE(menu->findChild<QAction*>("fileNewFolder")->text(),
+               chinese ? QStringLiteral("新建文件夹") : QStringLiteral("New Folder"));
+      QCOMPARE(menu->findChild<QAction*>("fileCopyRelativePath")->text(),
+               chinese ? QStringLiteral("复制相对路径") : QStringLiteral("Copy Relative Path"));
+      if (!output.isEmpty()) {
+        window.resize(1120, 760);
+        menu->popup(tree->mapToGlobal(QPoint(30, 50)));
+        QTest::qWait(60);
+        QVERIFY(window.grab().save(output + QStringLiteral("/window-") + language +
+                                   QStringLiteral(".png")));
+        QVERIFY(menu->grab().save(output + QStringLiteral("/menu-") + language +
+                                  QStringLiteral(".png")));
+        menu->hide();
+      }
+      QTimer safety;
+      connect(&safety, &QTimer::timeout, &window, [] {
+        if (auto* modal = qobject_cast<QDialog*>(QApplication::activeModalWidget()))
+          modal->reject();
+      });
+      safety.start(3000);
+      bool prompted = false;
+      QTimer::singleShot(0, &window, [&] {
+        if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget())) {
+          prompted = true;
+          auto* buttons = dialog->findChild<QDialogButtonBox*>(QStringLiteral("fileNameButtons"));
+          QVERIFY(buttons);
+          QCOMPARE(buttons->findChild<QPushButton*>(QStringLiteral("fileNameAccept"))->text(),
+                   chinese ? QStringLiteral("确定") : QStringLiteral("OK"));
+          QCOMPARE(buttons->findChild<QPushButton*>(QStringLiteral("fileNameCancel"))->text(),
+                   chinese ? QStringLiteral("取消") : QStringLiteral("Cancel"));
+          dialog->setTextValue(language + QStringLiteral("-notes"));
+          if (!output.isEmpty())
+            QVERIFY(dialog->grab().save(output + QStringLiteral("/folder-dialog-") + language +
+                                        QStringLiteral(".png")));
+          dialog->accept();
+        }
+      });
+      menu->findChild<QAction*>("fileNewFolder")->trigger();
+      QVERIFY(prompted);
+      QVERIFY(QFileInfo(directory.filePath(language + QStringLiteral("-notes"))).isDir());
+      menu->findChild<QAction*>("fileCopyPath")->trigger();
+      QCOMPARE(QApplication::clipboard()->text(), QDir::toNativeSeparators(path));
+      menu->findChild<QAction*>("fileDuplicate")->trigger();
+      QFile copy(tree->selectedPath());
+      QVERIFY(copy.open(QIODevice::ReadOnly));
+      QCOMPARE(copy.readAll(), original);
+      QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+      QCOMPARE(editor->document()->availableUndoSteps(), steps);
+      QCOMPARE(editor->document()->baseUrl(), base);
+    }
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), original);
     window.findChild<QAction*>(QStringLiteral("language_en"))->trigger();
     window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();
   }

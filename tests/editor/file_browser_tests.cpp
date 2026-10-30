@@ -1,12 +1,17 @@
+#include "FileOps.h"
 #include "FileTree.h"
 #include "Settings.h"
 
 #include <QAction>
+#include <QClipboard>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QFile>
 #include <QFileSystemWatcher>
+#include <QInputDialog>
 #include <QMenu>
 #include <QSaveFile>
+#include <QScopedPointer>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -45,9 +50,169 @@ QStringList filenames(const FileTree& tree) {
 }
 }  // namespace
 
+class FolderReceiver : public QObject {
+  Q_OBJECT
+ public:
+  QUrl last;
+  ~FolderReceiver() override { QDesktopServices::unsetUrlHandler("file"); }
+ public slots:
+  void capture(const QUrl& url) { last = url; }
+};
+
 class FileBrowserTests : public QObject {
   Q_OBJECT
  private slots:
+  void fileOperationsPreserveBytesAndNeverOverwrite() {
+    using namespace typist::platform;
+    QTemporaryDir directory;
+    const auto source = directory.filePath(QStringLiteral("中文 note.MD"));
+    const auto existing = directory.filePath(QStringLiteral("中文 note-copy.MD"));
+    const auto bytes = QByteArray::fromHex("efbbbf") +
+                       QStringLiteral("# 计划\r\n\r\n![图](assets/p.png)\r\n").toUtf8();
+    QVERIFY(writeFile(source, bytes));
+    QVERIFY(writeFile(existing, "keep"));
+    QString error = QStringLiteral("old");
+    const auto copy = duplicateMarkdownFile(source, &error);
+    QVERIFY(error.isEmpty());
+    QCOMPARE(copy, directory.filePath(QStringLiteral("中文 note-copy-2.MD")));
+    for (const auto& path : {source, copy, existing}) {
+      QFile file(path);
+      QVERIFY(file.open(QIODevice::ReadOnly));
+      QCOMPARE(file.readAll(), path == existing ? QByteArray("keep") : bytes);
+    }
+    QCOMPARE(duplicateMarkdownFile(source, &error),
+             directory.filePath(QStringLiteral("中文 note-copy-3.MD")));
+    QVERIFY(createDirectory(directory.path(), QStringLiteral("子目录"), &error));
+    QVERIFY(!createDirectory(directory.path(), QStringLiteral("子目录"), &error));
+    QVERIFY(!createDirectory(directory.path(), QStringLiteral("中文 note.MD"), &error));
+    QVERIFY(!createMarkdownFile(directory.path(), QStringLiteral("中文 note.MD"), &error));
+    QVERIFY(!renameFile(copy, QStringLiteral("中文 note.MD"), &error));
+    QCOMPARE(containingDirectoryUrl(source), QUrl::fromLocalFile(directory.path()));
+    QCOMPARE(containingDirectoryUrl(directory.filePath(QStringLiteral("子目录"))),
+             QUrl::fromLocalFile(directory.filePath(QStringLiteral("子目录"))));
+    QVERIFY(containingDirectoryUrl(directory.filePath("missing.md")).isEmpty());
+    QVERIFY(duplicateMarkdownFile(directory.path(), &error).isEmpty());
+    QVERIFY(duplicateMarkdownFile(directory.filePath("missing.md"), &error).isEmpty());
+#ifdef Q_OS_UNIX
+    const auto alias = directory.filePath("alias.md");
+    QVERIFY(QFile::link(source, alias));
+    QVERIFY(duplicateMarkdownFile(alias, &error).isEmpty());
+#endif
+  }
+
+  void namesStayInsideTheirParent() {
+    using namespace typist::platform;
+    QTemporaryDir directory;
+    const auto parent = directory.filePath("notes");
+    QVERIFY(QDir().mkdir(parent));
+    const auto source = QDir(parent).filePath("original.md");
+    QVERIFY(writeFile(source));
+    for (const auto& name :
+         {QString(), QStringLiteral("."), QStringLiteral(".."), QStringLiteral("../escape"),
+          QStringLiteral("sub/note"), QStringLiteral("sub\\note"), QStringLiteral("CON"),
+          QStringLiteral("com1.md"), QStringLiteral("LPT9"), QStringLiteral("bad:name"),
+          QStringLiteral("trailing."), QStringLiteral("bad\nname")}) {
+      QString error;
+      QVERIFY(!createDirectory(parent, name, &error));
+      QVERIFY(!error.isEmpty());
+      QVERIFY(!createMarkdownFile(parent, name, &error));
+      QVERIFY(!renameFile(source, name, &error));
+      QVERIFY(QFileInfo::exists(source));
+    }
+    QVERIFY(!QFileInfo::exists(directory.filePath("escape.md")));
+    QString error;
+    QVERIFY(!createDirectory({}, QStringLiteral("folder"), &error));
+    QVERIFY(!createMarkdownFile(directory.filePath("missing"), QStringLiteral("note"), &error));
+    QCOMPARE(QDir(parent).entryList(QDir::Files), QStringList({QStringLiteral("original.md")}));
+  }
+
+  void contextActionsUseSnapshotAndDoNotOpenCopies() {
+    QTemporaryDir directory;
+    const auto path = directory.filePath("sub/note.md");
+    const auto other = directory.filePath("other.md");
+    QVERIFY(writeFile(path));
+    QVERIFY(writeFile(other));
+    FileTree tree;
+    tree.setRoot(directory.path());
+    tree.selectPath(path);
+    QSignalSpy opened(&tree, &FileTree::entryActivated);
+    QScopedPointer<QMenu> menu(tree.createContextMenu());
+    tree.selectPath(other);  // A live selection change must not redirect a menu action.
+    menu->findChild<QAction*>("fileCopyPath")->trigger();
+    QCOMPARE(QApplication::clipboard()->text(), QDir::toNativeSeparators(path));
+    menu->findChild<QAction*>("fileCopyRelativePath")->trigger();
+    QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("sub/note.md"));
+    FolderReceiver receiver;
+    QDesktopServices::setUrlHandler("file", &receiver, "capture");
+    menu->findChild<QAction*>("fileReveal")->trigger();
+    QCOMPARE(receiver.last, QUrl::fromLocalFile(directory.filePath("sub")));
+    menu->findChild<QAction*>("fileDuplicate")->trigger();
+    QCOMPARE(tree.selectedPath(), directory.filePath("sub/note-copy.md"));
+    QCOMPARE(tree.entryCount(), 3);
+    QCOMPARE(opened.count(), 0);
+    auto options = tree.options();
+    options.view = FileBrowserView::List;
+    tree.setOptions(options);
+    tree.selectPath(path);
+    menu.reset(tree.createContextMenu());
+    menu->findChild<QAction*>("fileDuplicate")->trigger();
+    QCOMPARE(tree.selectedPath(), directory.filePath("sub/note-copy-2.md"));
+    QCOMPARE(opened.count(), 0);
+    tree.setCurrentItem(nullptr);
+    menu.reset(tree.createContextMenu());
+    QVERIFY(!menu->findChild<QAction*>("fileDuplicate"));
+    QVERIFY(!menu->findChild<QAction*>("fileDelete"));
+    menu->findChild<QAction*>("fileCopyRelativePath")->trigger();
+    QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("."));
+    tree.setRoot({});
+    menu.reset(tree.createContextMenu());
+    QVERIFY(!menu->findChild<QAction*>("fileNewFolder")->isEnabled());
+    QVERIFY(!menu->findChild<QAction*>("fileCopyPath")->isEnabled());
+    QVERIFY(!menu->findChild<QAction*>("fileReveal")->isEnabled());
+  }
+
+  void newFolderInSelectedDirectoryAndCancel() {
+    QTemporaryDir directory;
+    QVERIFY(writeFile(directory.filePath("sub/note.md")));
+    FileTree tree;
+    tree.setRoot(directory.path());
+    tree.show();
+    auto* parent = itemForPath(tree, directory.filePath("sub"));
+    parent->setExpanded(false);
+    tree.setCurrentItem(parent);
+    QScopedPointer<QMenu> menu(tree.createContextMenu());
+    QVERIFY(!menu->findChild<QAction*>("fileDuplicate"));
+    QSignalSpy opened(&tree, &FileTree::entryActivated);
+    QTimer safety;
+    connect(&safety, &QTimer::timeout, &tree, [] {
+      if (auto* modal = qobject_cast<QDialog*>(QApplication::activeModalWidget())) modal->reject();
+    });
+    safety.start(3000);
+    bool prompted = false;
+    QTimer::singleShot(0, &tree, [&] {
+      if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget())) {
+        prompted = true;
+        dialog->setTextValue(QStringLiteral("新文件夹"));
+        dialog->accept();
+      }
+    });
+    menu->findChild<QAction*>("fileNewFolder")->trigger();
+    QVERIFY(prompted);
+    const auto path = directory.filePath(QStringLiteral("sub/新文件夹"));
+    QVERIFY(QFileInfo(path).isDir());
+    QVERIFY(itemForPath(tree, path));
+    QCOMPARE(tree.currentItem(), itemForPath(tree, path));
+    QVERIFY(itemForPath(tree, directory.filePath("sub"))->isExpanded());
+    QCOMPARE(opened.count(), 0);
+    menu.reset(tree.createContextMenu());
+    QTimer::singleShot(0, &tree, [] {
+      if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget()))
+        dialog->reject();
+    });
+    menu->findChild<QAction*>("fileNewFolder")->trigger();
+    QVERIFY(QDir(path).entryList(QDir::NoDotAndDotDot | QDir::AllEntries).isEmpty());
+  }
+
   void treeAndListIncludeAllDepthsAndSkipExcludedEntries() {
     QTemporaryDir directory;
     for (const auto& name : {QStringLiteral("root.md"), QStringLiteral("a/b/c/计划.MD"),

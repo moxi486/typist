@@ -3,18 +3,25 @@
 #include "FileOps.h"
 
 #include <QActionGroup>
+#include <QApplication>
+#include <QClipboard>
 #include <QCollator>
 #include <QContextMenuEvent>
 #include <QCryptographicHash>
+#include <QDesktopServices>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDirIterator>
 #include <QEvent>
 #include <QFileSystemWatcher>
 #include <QInputDialog>
 #include <QKeyEvent>
+#include <QLayout>
 #include <QLocale>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPushButton>
+#include <QScopedPointer>
 #include <QStyle>
 #include <QTimer>
 #include <QTreeWidgetItemIterator>
@@ -397,27 +404,111 @@ void FileTree::keyPressEvent(QKeyEvent* event) {
 
 void FileTree::contextMenuEvent(QContextMenuEvent* event) {
   if (event->reason() == QContextMenuEvent::Mouse) setCurrentItem(itemAt(event->pos()));
-  auto* item = currentItem();
-  QMenu menu(this);
+  QScopedPointer<QMenu> menu(createContextMenu());
+  menu->exec(event->globalPos());
+}
+
+QMenu* FileTree::createContextMenu(QWidget* parent) {
+  const auto* item = currentItem();
+  auto* menu = new QMenu(parent ? parent : this);
+  menu->setObjectName(QStringLiteral("fileContextMenu"));
+  menu->setToolTipsVisible(true);
   const bool onDirectory = !item || item->data(0, kDirRole).toBool();
-  const auto dir = onDirectory ? (!item ? m_root : item->data(0, kPathRole).toString())
-                               : QFileInfo(item->data(0, kPathRole).toString()).absolutePath();
-  menu.addAction(tr("New Markdown File"), this, [this, dir] { newFileIn(dir); });
+  const auto path = item ? item->data(0, kPathRole).toString() : m_root;
+  const auto dir = onDirectory ? path : QFileInfo(path).absolutePath();
+  const auto root = m_root;
+  const auto add = [menu](const char* id, const QString& label) {
+    auto* action = menu->addAction(label);
+    action->setObjectName(QString::fromLatin1(id));
+    return action;
+  };
+  auto* newFile = add("fileNewMarkdown", tr("New Markdown File"));
+  auto* newFolder = add("fileNewFolder", tr("New Folder"));
+  newFile->setEnabled(!dir.isEmpty() && QFileInfo(dir).isDir());
+  newFolder->setEnabled(newFile->isEnabled());
+  connect(newFile, &QAction::triggered, this, [this, dir] { newFileIn(dir); });
+  connect(newFolder, &QAction::triggered, this, [this, dir] { newFolderIn(dir); });
   if (!onDirectory) {
-    menu.addAction(tr("Rename"), this, &FileTree::renameSelected);
-    menu.addAction(tr("Delete"), this, &FileTree::deleteSelected);
+    menu->addSeparator();
+    auto* duplicate = add("fileDuplicate", tr("Duplicate"));
+    duplicate->setToolTip(
+        tr("Copy the saved file beside the original. Unsaved edits are not included."));
+    duplicate->setEnabled(QFileInfo(path).isFile() && !QFileInfo(path).isSymLink());
+    connect(duplicate, &QAction::triggered, this, [this, path] { duplicateFile(path); });
+    connect(add("fileRename", tr("Rename")), &QAction::triggered, this,
+            [this, path] { renameFile(path); });
+    connect(add("fileDelete", tr("Delete")), &QAction::triggered, this,
+            [this, path] { deleteFile(path); });
   }
-  menu.exec(event->globalPos());
+  menu->addSeparator();
+  auto* copy = add("fileCopyPath", tr("Copy File Path"));
+  copy->setEnabled(!path.isEmpty());
+  connect(copy, &QAction::triggered, this, [path] {
+    QApplication::clipboard()->setText(
+        QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath()));
+  });
+  auto* relative = add("fileCopyRelativePath", tr("Copy Relative Path"));
+  relative->setEnabled(!path.isEmpty() && !root.isEmpty());
+  connect(relative, &QAction::triggered, this,
+          [path, root] { QApplication::clipboard()->setText(QDir(root).relativeFilePath(path)); });
+  auto* reveal = add("fileReveal", tr("Open Containing Folder"));
+  reveal->setEnabled(!platform::containingDirectoryUrl(path).isEmpty());
+  connect(reveal, &QAction::triggered, this, [this, path] {
+    const auto url = platform::containingDirectoryUrl(path);
+    if (url.isEmpty() || !QDesktopServices::openUrl(url))
+      QMessageBox::warning(this, tr("Open Containing Folder"),
+                           tr("Cannot open the folder in the file manager."));
+  });
+  return menu;
+}
+
+QString FileTree::askName(const QString& title, const QString& label, const QString& value) {
+  QInputDialog dialog(this);
+  dialog.setObjectName(QStringLiteral("fileNameDialog"));
+  dialog.setWindowTitle(title);
+  dialog.setLabelText(label);
+  dialog.setTextValue(value);
+  dialog.setOption(QInputDialog::NoButtons);
+  // Custom buttons keep the application translation when Qt shows the dialog.
+  auto* buttons = new QDialogButtonBox(&dialog);
+  buttons->setObjectName(QStringLiteral("fileNameButtons"));
+  auto* accept = buttons->addButton(tr("OK"), QDialogButtonBox::AcceptRole);
+  accept->setObjectName(QStringLiteral("fileNameAccept"));
+  accept->setDefault(true);
+  buttons->addButton(tr("Cancel"), QDialogButtonBox::RejectRole)
+      ->setObjectName(QStringLiteral("fileNameCancel"));
+  dialog.layout()->addWidget(buttons);
+  connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+  connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+  return dialog.exec() == QDialog::Accepted ? dialog.textValue().trimmed() : QString();
+}
+
+QString FileTree::operationError(const QString& error) const {
+  if (error == QLatin1String("Invalid name"))
+    return tr("Use a single name without path separators or reserved characters.");
+  if (error == QLatin1String("Folder unavailable")) return tr("The folder is no longer available.");
+  if (error == QLatin1String("File unavailable")) return tr("The file is no longer available.");
+  if (error == QLatin1String("A file with that name already exists"))
+    return tr("A file or folder with that name already exists.");
+  if (error == QLatin1String("Cannot create file"))
+    return tr("Cannot create the file. Check folder permissions.");
+  if (error == QLatin1String("Cannot create folder"))
+    return tr("Cannot create the folder. Check folder permissions.");
+  if (error == QLatin1String("Copy failed"))
+    return tr("Cannot copy the file. Check the source and folder permissions.");
+  if (error == QLatin1String("Rename failed"))
+    return tr("Cannot rename the file. Check the name and permissions.");
+  if (error == QLatin1String("Delete failed"))
+    return tr("Cannot delete the file. Check file permissions.");
+  return error;
 }
 void FileTree::newFileIn(const QString& dir) {
-  bool ok = false;
-  const auto name = QInputDialog::getText(this, tr("New Markdown File"), tr("File name"),
-                                          QLineEdit::Normal, QStringLiteral("untitled.md"), &ok)
-                        .trimmed();
-  if (!ok || name.isEmpty()) return;
+  const auto name =
+      askName(tr("New Markdown File"), tr("File name"), QStringLiteral("untitled.md"));
+  if (name.isEmpty()) return;
   QString error;
   if (!platform::createMarkdownFile(dir, name, &error)) {
-    QMessageBox::warning(this, tr("New Markdown File"), error);
+    QMessageBox::warning(this, tr("New Markdown File"), operationError(error));
     return;
   }
   rebuild();
@@ -425,17 +516,42 @@ void FileTree::newFileIn(const QString& dir) {
                                              ? name
                                              : name + QStringLiteral(".md")));
 }
-void FileTree::renameSelected() {
-  const auto path = selectedPath();
+void FileTree::newFolderIn(const QString& dir) {
+  const auto name = askName(tr("New Folder"), tr("Folder name"), tr("New Folder"));
+  if (name.isEmpty()) return;
+  QString error;
+  if (!platform::createDirectory(dir, name, &error)) {
+    QMessageBox::warning(this, tr("New Folder"), operationError(error));
+    return;
+  }
+  rebuild();
+  if (auto* item = m_items.value(QDir(dir).filePath(name))) {
+    setCurrentItem(item);
+    for (auto* ancestor = item->parent(); ancestor; ancestor = ancestor->parent())
+      ancestor->setExpanded(true);
+    scrollToItem(item);
+  }
+}
+
+void FileTree::duplicateFile(const QString& path) {
+  QString error;
+  const auto target = platform::duplicateMarkdownFile(path, &error);
+  if (target.isEmpty()) {
+    QMessageBox::warning(this, tr("Duplicate"), operationError(error));
+    return;
+  }
+  rebuild();
+  selectPath(target);
+  if (currentItem()) scrollToItem(currentItem());
+}
+
+void FileTree::renameFile(const QString& path) {
   if (path.isEmpty()) return;
-  bool ok = false;
-  const auto name = QInputDialog::getText(this, tr("Rename File"), tr("New name"),
-                                          QLineEdit::Normal, QFileInfo(path).fileName(), &ok)
-                        .trimmed();
-  if (!ok || name.isEmpty()) return;
+  const auto name = askName(tr("Rename File"), tr("New name"), QFileInfo(path).fileName());
+  if (name.isEmpty()) return;
   QString error;
   if (!platform::renameFile(path, name, &error)) {
-    QMessageBox::warning(this, tr("Rename File"), error);
+    QMessageBox::warning(this, tr("Rename File"), operationError(error));
     return;
   }
   const auto newPath = QDir(QFileInfo(path).absolutePath())
@@ -446,15 +562,14 @@ void FileTree::renameSelected() {
   selectPath(newPath);
   emit fileRenamed(path, newPath);
 }
-void FileTree::deleteSelected() {
-  const auto path = selectedPath();
+void FileTree::deleteFile(const QString& path) {
   if (path.isEmpty()) return;
   if (QMessageBox::question(this, tr("Delete File"),
                             tr("Delete %1?").arg(QFileInfo(path).fileName())) != QMessageBox::Yes)
     return;
   QString error;
   if (!platform::deleteFile(path, &error)) {
-    QMessageBox::warning(this, tr("Delete File"), error);
+    QMessageBox::warning(this, tr("Delete File"), operationError(error));
     return;
   }
   rebuild();

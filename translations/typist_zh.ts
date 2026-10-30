@@ -770,6 +770,82 @@
 <context>
     <name>FileTree</name>
     <message>
+        <source>New Folder</source>
+        <translation>新建文件夹</translation>
+    </message>
+    <message>
+        <source>Duplicate</source>
+        <translation>创建副本</translation>
+    </message>
+    <message>
+        <source>Copy the saved file beside the original. Unsaved edits are not included.</source>
+        <translation>复制磁盘上已保存的文件到原目录；副本不包含未保存的编辑。</translation>
+    </message>
+    <message>
+        <source>Copy File Path</source>
+        <translation>复制文件路径</translation>
+    </message>
+    <message>
+        <source>Copy Relative Path</source>
+        <translation>复制相对路径</translation>
+    </message>
+    <message>
+        <source>Open Containing Folder</source>
+        <translation>打开所在文件夹</translation>
+    </message>
+    <message>
+        <source>Cannot open the folder in the file manager.</source>
+        <translation>无法在文件管理器中打开此文件夹。</translation>
+    </message>
+    <message>
+        <source>Folder name</source>
+        <translation>文件夹名称</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>确定</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Use a single name without path separators or reserved characters.</source>
+        <translation>请输入单个名称，不要包含路径分隔符或系统保留字符。</translation>
+    </message>
+    <message>
+        <source>The folder is no longer available.</source>
+        <translation>此文件夹已无法访问。</translation>
+    </message>
+    <message>
+        <source>The file is no longer available.</source>
+        <translation>此文件已无法访问。</translation>
+    </message>
+    <message>
+        <source>A file or folder with that name already exists.</source>
+        <translation>已存在同名文件或文件夹。</translation>
+    </message>
+    <message>
+        <source>Cannot create the file. Check folder permissions.</source>
+        <translation>无法创建文件，请检查文件夹权限。</translation>
+    </message>
+    <message>
+        <source>Cannot create the folder. Check folder permissions.</source>
+        <translation>无法创建文件夹，请检查文件夹权限。</translation>
+    </message>
+    <message>
+        <source>Cannot copy the file. Check the source and folder permissions.</source>
+        <translation>无法复制文件，请检查源文件和文件夹权限。</translation>
+    </message>
+    <message>
+        <source>Cannot rename the file. Check the name and permissions.</source>
+        <translation>无法重命名文件，请检查名称和权限。</translation>
+    </message>
+    <message>
+        <source>Cannot delete the file. Check file permissions.</source>
+        <translation>无法删除文件，请检查文件权限。</translation>
+    </message>
+    <message>
         <source>New Markdown File</source>
         <translation>新建 Markdown 文件</translation>
     </message>
