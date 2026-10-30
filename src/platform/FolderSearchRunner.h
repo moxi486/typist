@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QThread>
 #include <atomic>
+#include <optional>
 
 namespace typist::platform {
 
@@ -15,9 +16,12 @@ class ScanThread : public QThread {
   QVector<SearchHit> hits;
   bool wasCancelled = false;
   QString error;
+  SearchStats stats;
 
  protected:
-  void run() override { hits = searchFilesCancellable(request, &error, cancelled, &wasCancelled); }
+  void run() override {
+    hits = searchFilesCancellable(request, &error, cancelled, &wasCancelled, &stats);
+  }
 };
 
 // Runs the Markdown scan off the UI thread; a scan can be cancelled and returns partial hits.
@@ -30,7 +34,10 @@ class FolderSearchRunner : public QObject {
 
   void start(const SearchRequest& request);
   void cancel();
+  // Cancel and suppress results, for a changed query or closed panel.
+  void discard();
   bool isRunning() const;
+  const SearchStats& stats() const { return m_stats; }
 
  signals:
   void resultsReady(const QVector<typist::platform::SearchHit>& hits, bool cancelled,
@@ -41,6 +48,11 @@ class FolderSearchRunner : public QObject {
 
  private:
   ScanThread* m_thread = nullptr;
+  std::optional<SearchRequest> m_pending;
+  bool m_discard = false;
+  bool m_cancelled = false;
+  bool m_cancelPending = false;
+  SearchStats m_stats;
 };
 
 }  // namespace typist::platform

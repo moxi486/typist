@@ -4,10 +4,6 @@
 <context>
     <name>MainWindow</name>
     <message>
-        <source>The file changed on disk while you have unsaved edits. Reload the disk version and discard your edits?</source>
-        <translation>文件已在磁盘上更改，而你还有未保存的编辑。是否重新载入磁盘版本并放弃当前编辑？</translation>
-    </message>
-    <message>
         <source>Markdown editor</source>
         <translation>Markdown 编辑器</translation>
     </message>
@@ -18,10 +14,6 @@
     <message>
         <source>Outline</source>
         <translation>大纲</translation>
-    </message>
-    <message>
-        <source>Search Results</source>
-        <translation>搜索结果</translation>
     </message>
     <message>
         <source>File</source>
@@ -146,26 +138,6 @@
     <message>
         <source>Deleted file; buffer is now unsaved</source>
         <translation>已删除文件，缓冲区尚未保存</translation>
-    </message>
-    <message>
-        <source>Enter a pattern in the find bar first.</source>
-        <translation>请先在查找栏输入要查找的内容。</translation>
-    </message>
-    <message>
-        <source>Searching %1...</source>
-        <translation>正在搜索 %1…</translation>
-    </message>
-    <message>
-        <source>Search cancelled after %1 matches in %2</source>
-        <translation>在 %2 中搜索到 %1 处匹配后取消</translation>
-    </message>
-    <message>
-        <source>%1 matches in %2</source>
-        <translation>%2 中找到 %1 处匹配</translation>
-    </message>
-    <message>
-        <source>%1 matches in %2 (%3)</source>
-        <translation>%2 中找到 %1 处匹配（%3）</translation>
     </message>
     <message>
         <source>Theme: %1</source>
@@ -714,6 +686,18 @@
     <message>
         <source>File List</source>
         <translation>文件列表</translation>
+    </message>
+    <message>
+        <source>Search result changed. Search again.</source>
+        <translation>搜索结果已变化，请重新搜索。</translation>
+    </message>
+    <message>
+        <source>Search</source>
+        <translation>搜索</translation>
+    </message>
+    <message>
+        <source>The file changed on disk while you have unsaved edits. Reload the disk version and discard your edits?</source>
+        <translation>文件已在磁盘上更改，而你还有未保存的编辑。是否重新载入磁盘版本并放弃当前编辑？</translation>
     </message>
 </context>
 <context>
@@ -1471,6 +1455,73 @@
     <message>
         <source>Cancel</source>
         <translation>取消</translation>
+    </message>
+</context>
+<context>
+    <name>WorkspaceSearchPanel</name>
+    <message>
+        <source>No workspace selected</source>
+        <translation>尚未选择工作区</translation>
+    </message>
+    <message>
+        <source>In %1</source>
+        <translation>在 %1 中搜索</translation>
+    </message>
+    <message>
+        <source>Searching…</source>
+        <translation>正在搜索…</translation>
+    </message>
+    <message>
+        <source>Search saved Markdown files in this workspace.</source>
+        <translation>搜索此工作区中已保存的 Markdown 文件。</translation>
+    </message>
+    <message>
+        <source>Folder unavailable. Choose another workspace.</source>
+        <translation>无法访问文件夹，请选择其他工作区。</translation>
+    </message>
+    <message>
+        <source>Matching lines: %1 · Files: %2</source>
+        <translation>匹配行：%1 · 文件：%2</translation>
+    </message>
+    <message>
+        <source>Search cancelled. </source>
+        <translation>搜索已取消。</translation>
+    </message>
+    <message>
+        <source>Search limit reached. Narrow the query or workspace.</source>
+        <translation>已达到搜索上限，请缩小关键词或工作区范围。</translation>
+    </message>
+    <message>
+        <source>%1 large, binary or unreadable files skipped.</source>
+        <translation>已跳过 %1 个过大、二进制或无法读取的文件。</translation>
+    </message>
+    <message>
+        <source>Search in workspace…</source>
+        <translation>在工作区中搜索…</translation>
+    </message>
+    <message>
+        <source>Search in workspace</source>
+        <translation>在工作区中搜索</translation>
+    </message>
+    <message>
+        <source>Match case</source>
+        <translation>区分大小写</translation>
+    </message>
+    <message>
+        <source>Search</source>
+        <translation>搜索</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Workspace search results</source>
+        <translation>工作区搜索结果</translation>
+    </message>
+    <message>
+        <source>Enter or double-click a result to open its source line. Searches use saved files.</source>
+        <translation>按 Enter 或双击结果打开源码行。搜索使用已保存的文件。</translation>
     </message>
 </context>
 </TS>

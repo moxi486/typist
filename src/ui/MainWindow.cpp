@@ -28,6 +28,7 @@
 #include "Theme.h"
 #include "Toc.h"
 #include "ViewSwitch.h"
+#include "WorkspaceSearchPanel.h"
 #include "editor_document.h"
 #include "markdown.h"
 
@@ -225,6 +226,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_outlineList = new QListWidget(sidebar);
   m_outlineList->setAccessibleName(tr("Outline"));
   m_sidebarTabs->addTab(m_outlineList, tr("Outline"));
+  m_workspaceSearch = new ui::WorkspaceSearchPanel(sidebar);
+  m_sidebarTabs->addTab(m_workspaceSearch, tr("Search"));
+  connect(m_workspaceSearch, &ui::WorkspaceSearchPanel::hitActivated, this,
+          &MainWindow::openSearchHit);
   sidebarLayout->addWidget(m_sidebarTabs);
   m_sidebarDock->setWidget(sidebar);
   m_sidebarDock->hide();
@@ -232,20 +237,16 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   setAcceptDrops(true);
   connect(m_sidebarTabs, &QTabWidget::currentChanged, this, [this](int index) {
     if (index == 1) rebuildOutline();
+    updateSearchFocusGuard();
   });
+  connect(m_sidebarDock, &QDockWidget::visibilityChanged, this,
+          [this] { updateSearchFocusGuard(); });
   connect(m_outlineList, &QListWidget::itemClicked, this, &MainWindow::openOutlineEntry);
 
   connect(m_tree, &ui::FileTree::entryActivated, this, &MainWindow::openTreeEntry);
   connect(m_tree, &ui::FileTree::fileRenamed, this, &MainWindow::treeFileRenamed);
   connect(m_tree, &ui::FileTree::fileRemoved, this, &MainWindow::treeFileRemoved);
   connect(m_tree, &ui::FileTree::directoryChanged, this, &MainWindow::checkCurrentFileConflict);
-
-  m_results = new QListWidget(this);
-  m_resultsDock = new QDockWidget(tr("Search Results"), this);
-  m_resultsDock->setWidget(m_results);
-  m_resultsDock->hide();
-  addDockWidget(Qt::BottomDockWidgetArea, m_resultsDock);
-  connect(m_results, &QListWidget::itemDoubleClicked, this, &MainWindow::openSearchHit);
 
   connect(m_findBar, &ui::FindBar::patternChanged, this, &MainWindow::refreshMatches);
   connect(m_findBar, &ui::FindBar::findNext, this, &MainWindow::searchNext);
@@ -348,8 +349,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_folderSearchAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+F")));
   editMenu->addAction(m_folderSearchAction);
   connect(m_folderSearchAction, &QAction::triggered, this, &MainWindow::searchInFolder);
-  connect(&m_folderSearch, &platform::FolderSearchRunner::resultsReady, this,
-          &MainWindow::onFolderSearchResults);
 
   m_folderAction = new QAction(tr("Open Folder"), this);
   m_folderAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+O")));
@@ -990,16 +989,16 @@ void MainWindow::openDialog() {
   if (!path.isEmpty()) openFile(path);
 }
 
-void MainWindow::openFile(const QString& path) {
+bool MainWindow::openFile(const QString& path) {
   if (!QFileInfo(path).isFile()) {
     statusBar()->showMessage(tr("Cannot open file"));
-    return;
+    return false;
   }
-  if (!maybeSaveBeforeNavigate()) return;
+  if (!maybeSaveBeforeNavigate()) return false;
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly)) {
     statusBar()->showMessage(tr("Cannot open file"));
-    return;
+    return false;
   }
 
   const QString source = QString::fromUtf8(file.readAll());
@@ -1010,7 +1009,7 @@ void MainWindow::openFile(const QString& path) {
   // A new file is a new baseline for both views, so both undo stacks start empty.
   if (!m_view->loadMarkdownIntoBoth(source, &error)) {
     statusBar()->showMessage(error);
-    return;
+    return false;
   }
 
   m_document = m_view->active();
@@ -1039,6 +1038,9 @@ void MainWindow::openFile(const QString& path) {
   if (m_sidebarDock->isVisible()) {
     m_tree->setWatchEnabled(true);
   }
+  m_workspaceSearch->setRoot(m_tree->rootPath().isEmpty() ? QFileInfo(path).absolutePath()
+                                                          : m_tree->rootPath());
+  return true;
 }
 
 bool MainWindow::adoptHtmlImport(const editor::HtmlImportResult& result) {
@@ -1528,6 +1530,7 @@ void MainWindow::openFolder() {
   const QString dir = QFileDialog::getExistingDirectory(this, tr("Open Folder"));
   if (dir.isEmpty()) return;
   m_tree->setRoot(dir);
+  m_workspaceSearch->setRoot(dir);
   m_sidebarRootLabel->setText(QDir(dir).dirName());
   m_sidebarTabs->setCurrentIndex(0);
   m_sidebarDock->show();
@@ -1552,50 +1555,55 @@ qint64 MainWindow::searchFolderForBench(const QString& rootDir, const QString& p
   return timer.elapsed();
 }
 
+void MainWindow::updateSearchFocusGuard() {
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const bool hold = m_sidebarDock->isVisible() && m_sidebarTabs->currentIndex() == 2;
+  if (hold && !m_searchFocusHeld) {
+    m_searchFocusPrevious = editor->setParagraphSourceFocusCommitEnabled(false);
+    m_searchFocusHeld = true;
+  } else if (!hold && m_searchFocusHeld) {
+    m_searchFocusHeld = false;
+    editor->setParagraphSourceFocusCommitEnabled(m_searchFocusPrevious);
+  }
+}
+
 void MainWindow::searchInFolder() {
-  const QString pattern = m_findBar->pattern();
-  if (pattern.isEmpty()) {
-    statusBar()->showMessage(tr("Enter a pattern in the find bar first."));
-    m_findBar->openFocused();
-    return;
-  }
-
-  const QString root =
-      m_currentPath.isEmpty() ? QDir::homePath() : QFileInfo(m_currentPath).absolutePath();
-  platform::SearchRequest request;
-  request.rootDir = root;
-  request.pattern = pattern;
-  request.caseSensitive = m_findBar->caseSensitive();
-  m_searchRoot = root;
-  statusBar()->showMessage(tr("Searching %1...").arg(root));
-  m_folderSearch.start(request);
+  const QString root = m_tree->rootPath().isEmpty()
+                           ? (m_currentPath.isEmpty() ? QDir::currentPath()
+                                                      : QFileInfo(m_currentPath).absolutePath())
+                           : m_tree->rootPath();
+  if (m_tree->rootPath().isEmpty()) m_tree->setRoot(root);
+  if (!m_sidebarDock->isVisible()) toggleSidebar();
+  m_sidebarTabs->setCurrentIndex(2);
+  resizeDocks({m_sidebarDock}, {320}, Qt::Horizontal);
+  m_workspaceSearch->setRoot(root);
+  m_workspaceSearch->openFocused();
 }
 
-void MainWindow::onFolderSearchResults(const QVector<platform::SearchHit>& hits, bool cancelled,
-                                       const QString& error) {
-  m_results->clear();
-  for (const platform::SearchHit& hit : hits) {
-    QListWidgetItem* item = new QListWidgetItem(QStringLiteral("%1:%2  %3")
-                                                    .arg(QFileInfo(hit.path).fileName())
-                                                    .arg(hit.line)
-                                                    .arg(hit.preview));
-    item->setData(Qt::UserRole, hit.path);
-    m_results->addItem(item);
-  }
-  m_resultsDock->show();
-  if (cancelled) {
-    statusBar()->showMessage(
-        tr("Search cancelled after %1 matches in %2").arg(hits.size()).arg(m_searchRoot));
+void MainWindow::openSearchHit(const platform::SearchHit& hit) {
+  const auto target = hit;
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+  const auto restoreFocus = qScopeGuard(
+      [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
+  if (!openFile(target.path)) return;
+  // Results describe the saved Markdown, so verify the line before moving the caret.
+  const auto block = m_view->source()->findBlockByNumber(target.line - 1);
+  if (!block.isValid() || block.text() != target.sourceLine) {
+    statusBar()->showMessage(tr("Search result changed. Search again."), 5000);
     return;
   }
-  statusBar()->showMessage(
-      error.isEmpty() ? tr("%1 matches in %2").arg(hits.size()).arg(m_searchRoot)
-                      : tr("%1 matches in %2 (%3)").arg(hits.size()).arg(m_searchRoot).arg(error));
-}
-void MainWindow::openSearchHit() {
-  QListWidgetItem* item = m_results->currentItem();
-  if (item == nullptr) return;
-  openFile(item->data(Qt::UserRole).toString());
+  if (!m_sourceMode) toggleSourceView();
+  if (!m_sourceMode) return;
+  QTextCursor cursor(m_document->findBlockByNumber(target.line - 1));
+  cursor.setPosition(cursor.block().position() +
+                     qBound(0, target.column, int(cursor.block().text().size())));
+  cursor.setPosition(qMin(cursor.position() + target.length,
+                          cursor.block().position() + int(cursor.block().text().size())),
+                     QTextCursor::KeepAnchor);
+  editor->setTextCursor(cursor);
+  editor->ensureCursorVisible();
+  editor->setFocus();
 }
 
 void MainWindow::cycleTheme() {
@@ -1617,7 +1625,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     return;
   }
   // A scan still in flight must not outlive the window that owns its results.
-  m_folderSearch.cancel();
+  m_workspaceSearch->stop();
   // Closing is the last chance to persist edits; the debounce window may still be open.
   if (!m_benchMode) m_autoSave->flushNow();
   if (!m_benchMode) {
@@ -1674,11 +1682,11 @@ void MainWindow::retranslateUi() {
   m_sidebarDock->setWindowTitle(tr("Files"));
   m_sidebarTabs->setTabText(0, tr("Files"));
   m_sidebarTabs->setTabText(1, tr("Outline"));
+  m_sidebarTabs->setTabText(2, tr("Search"));
   if (m_currentPath.isEmpty() && m_tree->rootPath().isEmpty())
     m_sidebarRootLabel->setText(tr("Workspace"));
   m_fileOptionsButton->setToolTip(tr("File Options"));
   m_fileOptionsButton->setAccessibleName(tr("File Options"));
-  m_resultsDock->setWindowTitle(tr("Search Results"));
   m_tree->setAccessibleName(tr("Files"));
   m_editor->setAccessibleName(tr("Markdown editor"));
   m_editor->setPlaceholderText(tr("Start writing, or open a Markdown file..."));

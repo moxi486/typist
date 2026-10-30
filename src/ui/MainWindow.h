@@ -39,6 +39,7 @@ class FileTree;
 class FindBar;
 class ViewSwitch;
 class AppTranslator;
+class WorkspaceSearchPanel;
 }  // namespace typist::ui
 
 namespace typist {
@@ -49,7 +50,7 @@ class MainWindow : public QMainWindow {
  public:
   explicit MainWindow(QWidget* parent = nullptr);
 
-  void openFile(const QString& path);
+  bool openFile(const QString& path);
   bool importHtmlFile(const QString& path);
 
  public slots:
@@ -110,8 +111,6 @@ class MainWindow : public QMainWindow {
   void searchPrevious();
   void refreshMatches();
   void searchInFolder();
-  void onFolderSearchResults(const QVector<typist::platform::SearchHit>& hits, bool cancelled,
-                             const QString& error);
   void rebuildRecentMenu();
   void rebuildOutline();
   void toggleOutline();
@@ -129,7 +128,7 @@ class MainWindow : public QMainWindow {
   void handleUpdateReply(class QNetworkReply* reply);
 #endif
   void insertImageLink(const QString& path);
-  void openSearchHit();
+  void openSearchHit(const typist::platform::SearchHit& hit);
   void toggleSidebar();
   void openFolder();
   void openTreeEntry(const QString& path);
@@ -151,6 +150,7 @@ class MainWindow : public QMainWindow {
   void applyThemePalette(const QPalette& palette);
   void setLanguage(const QString& preference);
   void retranslateUi();
+  void updateSearchFocusGuard();
   void createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMenu* settings);
   bool maybeSaveBeforeNavigate();
   bool adoptHtmlImport(const editor::HtmlImportResult& result);
@@ -168,13 +168,12 @@ class MainWindow : public QMainWindow {
   QTextEdit* m_editor = nullptr;
   QTextDocument* m_document = nullptr;
   ui::FindBar* m_findBar = nullptr;
-  QDockWidget* m_resultsDock = nullptr;
   QDockWidget* m_sidebarDock = nullptr;
   ui::FileTree* m_tree = nullptr;
-  QListWidget* m_results = nullptr;
   ui::SearchController m_search;
-  platform::FolderSearchRunner m_folderSearch;
-  QString m_searchRoot;
+  ui::WorkspaceSearchPanel* m_workspaceSearch = nullptr;
+  bool m_searchFocusHeld = false;
+  bool m_searchFocusPrevious = true;
   QAction* m_undoAction = nullptr;
   QAction* m_redoAction = nullptr;
   QAction* m_sourceAction = nullptr;
