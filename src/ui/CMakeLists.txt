@@ -18,6 +18,7 @@ add_library(typist_ui_viewswitch STATIC ViewSwitch.h ViewSwitch.cpp Editor.h Edi
 target_sources(typist_ui_viewswitch PRIVATE PdfExportDialog.h PdfExportDialog.cpp)
 target_sources(typist_ui_viewswitch PRIVATE QuickOpenDialog.h QuickOpenDialog.cpp)
 target_sources(typist_ui_viewswitch PRIVATE WorkspaceSearchPanel.h WorkspaceSearchPanel.cpp)
+target_sources(typist_ui_viewswitch PRIVATE FolderLocationsMenu.h FolderLocationsMenu.cpp)
 add_library(typist::ui_viewswitch ALIAS typist_ui_viewswitch)
 target_include_directories(typist_ui_viewswitch PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(typist_ui_viewswitch PROPERTIES AUTOMOC ON)

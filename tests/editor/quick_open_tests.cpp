@@ -91,7 +91,7 @@ class QuickOpenTests : public QObject {
     auto* status = dialog.findChild<QLabel*>(QStringLiteral("quickOpenStatus"));
     QSignalSpy accepted(&dialog, &QDialog::accepted);
     dialog.show();
-    QTRY_VERIFY(status->text().startsWith(QStringLiteral("2 files")));
+    QTRY_VERIFY(status->text().startsWith(QStringLiteral("2 items")));
     QCOMPARE(dialog.selectedPath(), first);
     QTest::keyClick(query, Qt::Key_Down);
     QCOMPARE(dialog.selectedPath(), second);

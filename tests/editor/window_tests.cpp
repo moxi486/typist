@@ -3,6 +3,8 @@
 #include "EpubDialog.h"
 #include "FileTree.h"
 #include "FindBar.h"
+#include "FolderLocations.h"
+#include "FolderLocationsMenu.h"
 #include "HtmlImportDialog.h"
 #include "HtmlImporter.h"
 #include "LinkDialog.h"
@@ -58,6 +60,26 @@
 #include <QtTest>
 
 namespace {
+struct FolderHistoryGuard {
+  QSettings settings{QStringLiteral("Typist"), QStringLiteral("Typist")};
+  QVariant recent = settings.value(QStringLiteral("folders/recent"));
+  QVariant pinned = settings.value(QStringLiteral("folders/pinned"));
+  FolderHistoryGuard() {
+    settings.remove(QStringLiteral("folders/recent"));
+    settings.remove(QStringLiteral("folders/pinned"));
+    settings.sync();
+  }
+  ~FolderHistoryGuard() {
+    for (const auto& pair : {qMakePair(QStringLiteral("folders/recent"), recent),
+                             qMakePair(QStringLiteral("folders/pinned"), pinned)}) {
+      if (pair.second.isValid())
+        settings.setValue(pair.first, pair.second);
+      else
+        settings.remove(pair.first);
+    }
+    settings.sync();
+  }
+};
 QAction* actionBySource(QWidget& widget, const QString& source) {
   for (auto* action : widget.findChildren<QAction*>())
     if (action->property("translationSource").toString() == source) return action;
@@ -390,6 +412,143 @@ class WindowTests : public QObject {
     window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();
   }
 
+  void folderSwitchAndQuickOpenKeepDocumentAndDraft() {
+    FolderHistoryGuard history;
+    QTemporaryDir directory;
+    const auto a = directory.filePath(QStringLiteral("Original workspace"));
+    const auto b = directory.filePath(QStringLiteral("Other workspace"));
+    const auto c = directory.filePath(QStringLiteral("Pinned workspace"));
+    for (const auto& folder : {a, b, c}) QVERIFY(QDir().mkpath(folder));
+    const auto input = QDir(a).filePath(QStringLiteral("original.md"));
+    QFile file(input);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("Original paragraph.\n");
+    file.close();
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::MainWindow window;
+    window.show();
+    QVERIFY(window.openFile(input));
+    window.findChild<QAction*>(QStringLiteral("autoSave"))->setChecked(false);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    const auto originalBase = editor->document()->baseUrl();
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    draft->setPlainText(QStringLiteral("Persistent **workspace draft**."));
+    const auto before = typist::editor::serializeDocument(editor->document());
+    const auto steps = editor->document()->availableUndoSteps();
+    QVERIFY(window.openFolderPath(b));
+    QCoreApplication::processEvents();
+    auto* tree = window.findChild<typist::ui::FileTree*>();
+    QCOMPARE(tree->rootPath(), QFileInfo(b).canonicalFilePath());
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Persistent **workspace draft**."));
+    QCOMPARE(editor->document()->baseUrl(), originalBase);
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    QCOMPARE(editor->document()->availableUndoSteps(), steps);
+    typist::platform::FolderLocationsStore store;
+    QVERIFY(store.setPinned(c, true));
+    actionBySource(window, QStringLiteral("Search in Folder"))->trigger();
+    bool picked = false;
+    QTimer safety;
+    connect(&safety, &QTimer::timeout, &window, [] {
+      if (auto* modal = qobject_cast<QDialog*>(QApplication::activeModalWidget())) modal->reject();
+    });
+    safety.start(3000);
+    QTimer::singleShot(0, &window, [&] {
+      if (auto* picker =
+              qobject_cast<typist::ui::QuickOpenDialog*>(QApplication::activeModalWidget())) {
+        picked = true;
+        auto* query = picker->findChild<QLineEdit*>(QStringLiteral("quickOpenQuery"));
+        query->setText(QStringLiteral("Pinned workspace"));
+        QTest::keyClick(query, Qt::Key_Return);
+      }
+    });
+    window.findChild<QAction*>(QStringLiteral("openQuickly"))->trigger();
+    QVERIFY(picked);
+    QCoreApplication::processEvents();
+    QCOMPARE(tree->rootPath(), QFileInfo(c).canonicalFilePath());
+    QCOMPARE(window.findChild<typist::ui::WorkspaceSearchPanel*>()->rootPath(), tree->rootPath());
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Persistent **workspace draft**."));
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    QCOMPARE(editor->document()->availableUndoSteps(), steps);
+    QVERIFY(!window.openFolderPath(directory.filePath(QStringLiteral("missing"))));
+    QCOMPARE(tree->rootPath(), QFileInfo(c).canonicalFilePath());
+    QVERIFY(editor->paragraphSourceActive());
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), QByteArray("Original paragraph.\n"));
+    file.close();
+    // Normal focus-out editing must be restored after leaving the search page via Ctrl+P.
+    QVERIFY(editor->setParagraphSourceFocusCommitEnabled(true));
+    window.activateWindow();
+    draft->setFocus();
+    QTRY_VERIFY(draft->hasFocus());
+    tree->setFocus(Qt::TabFocusReason);
+    QTRY_VERIFY(tree->hasFocus());
+    QTRY_VERIFY(!editor->paragraphSourceActive());
+    QVERIFY(editor->toPlainText().contains(QStringLiteral("workspace draft")));
+    window.setBenchMode(true);
+    QSettings().setValue(QStringLiteral("editor/autoSave"), true);
+  }
+
+  void folderLocationsBilingualThemeMenus() {
+    FolderHistoryGuard history;
+    QTemporaryDir directory;
+    const auto a = directory.filePath(QStringLiteral("Writing workspace"));
+    const auto b = directory.filePath(QStringLiteral("中文资料"));
+    QVERIFY(QDir().mkpath(a));
+    QVERIFY(QDir().mkpath(b));
+    typist::platform::FolderLocationsStore store;
+    store.record(a);
+    store.record(b);
+    QVERIFY(store.setPinned(a, true));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.show();
+    QVERIFY(window.openFolderPath(a));
+    auto* button = window.findChild<QToolButton*>(QStringLiteral("folderLocations"));
+    auto* menu = window.findChild<typist::ui::FolderLocationsMenu*>();
+    QVERIFY(button && menu);
+    const auto output = qEnvironmentVariable("TYPIST_FOLDER_LOCATIONS_OUTPUT");
+    for (const auto& language : {QStringLiteral("en"), QStringLiteral("zh")}) {
+      window.findChild<QAction*>(QStringLiteral("language_") + language)->trigger();
+      window
+          .findChild<QAction*>(language == QLatin1String("en") ? QStringLiteral("appearance_light")
+                                                               : QStringLiteral("appearance_dark"))
+          ->trigger();
+      QCoreApplication::processEvents();
+      menu->refresh();
+      QCOMPARE(button->toolTip(), language == QLatin1String("en")
+                                      ? QStringLiteral("Recent and Pinned Folders")
+                                      : QStringLiteral("最近与固定文件夹"));
+      QCOMPARE(menu->findChild<QAction*>(QStringLiteral("pinCurrentFolder"))->text(),
+               language == QLatin1String("en") ? QStringLiteral("Unpin Current Folder")
+                                               : QStringLiteral("取消固定当前文件夹"));
+      if (!output.isEmpty()) {
+        window.resize(1120, 760);
+        QTest::qWait(50);
+        QVERIFY(window.grab().save(output + QStringLiteral("/workspace-") + language +
+                                   QStringLiteral(".png")));
+        menu->popup(button->mapToGlobal(QPoint(0, button->height())));
+        QTest::qWait(50);
+        QVERIFY(menu->grab().save(output + QStringLiteral("/locations-") + language +
+                                  QStringLiteral(".png")));
+        menu->close();
+        typist::ui::QuickOpenDialog picker(a, {}, &window, store.read());
+        picker.show();
+        QTest::qWait(60);
+        QVERIFY(picker.grab().save(output + QStringLiteral("/picker-") + language +
+                                   QStringLiteral(".png")));
+      }
+    }
+    menu->refresh();
+    menu->findChild<QAction*>(QStringLiteral("folderLocation_1"))->trigger();
+    QCOMPARE(window.findChild<typist::ui::FileTree*>()->rootPath(),
+             QFileInfo(b).canonicalFilePath());
+    window.findChild<QAction*>(QStringLiteral("language_en"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();
+  }
+
   void quickOpenBilingualThemes() {
     QTemporaryDir directory;
     for (const auto& name : {QStringLiteral("Writing guide.md"), QStringLiteral("写作计划.md"),
@@ -420,8 +579,8 @@ class WindowTests : public QObject {
                language == QLatin1String("zh"));
       auto* query = dialog.findChild<QLineEdit*>(QStringLiteral("quickOpenQuery"));
       QCOMPARE(query->placeholderText(), language == QLatin1String("en")
-                                             ? QStringLiteral("Search file name or path…")
-                                             : QStringLiteral("搜索文件名或路径…"));
+                                             ? QStringLiteral("Search files or folders…")
+                                             : QStringLiteral("搜索文件或文件夹…"));
       if (!output.isEmpty())
         QVERIFY(dialog.grab().save(output + QStringLiteral("/quick-open-") + language +
                                    QStringLiteral(".png")));

@@ -9,11 +9,13 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
+#include <QStyle>
 #include <QTimer>
 #include <QVBoxLayout>
 
 namespace typist::ui {
-QuickOpenDialog::QuickOpenDialog(const QString& root, const QStringList& recent, QWidget* parent)
+QuickOpenDialog::QuickOpenDialog(const QString& root, const QStringList& recent, QWidget* parent,
+                                 const platform::FolderLocations& locations)
     : QDialog(parent), m_root(QFileInfo(root).absoluteFilePath()) {
   if (parent) setPalette(parent->palette());
   setObjectName(QStringLiteral("quickOpenDialog"));
@@ -21,6 +23,10 @@ QuickOpenDialog::QuickOpenDialog(const QString& root, const QStringList& recent,
   setMinimumSize(420, 340);
   for (const auto& path : recent)
     if (QFileInfo(path).isFile()) m_recent.append(path);
+  for (const auto& path : locations.pinned)
+    if (QFileInfo(path).isDir()) m_locations.pinned.append(path);
+  for (const auto& path : locations.recent)
+    if (QFileInfo(path).isDir()) m_locations.recent.append(path);
   auto* layout = new QVBoxLayout(this);
   layout->setContentsMargins(24, 22, 24, 22);
   layout->setSpacing(12);
@@ -47,6 +53,7 @@ QuickOpenDialog::QuickOpenDialog(const QString& root, const QStringList& recent,
   m_status->setWordWrap(true);
   layout->addWidget(m_status);
   m_hint = new QLabel(this);
+  m_hint->setWordWrap(true);
   layout->addWidget(m_hint);
   auto* buttons = new QDialogButtonBox(this);
   m_open = buttons->addButton(QString(), QDialogButtonBox::AcceptRole);
@@ -92,6 +99,10 @@ QString QuickOpenDialog::selectedPath() const {
   const auto* item = m_list->currentItem();
   return item ? item->data(Qt::UserRole).toString() : QString();
 }
+bool QuickOpenDialog::selectedIsFolder() const {
+  const auto* item = m_list->currentItem();
+  return item && item->data(Qt::UserRole + 1).toBool();
+}
 
 void QuickOpenDialog::openSelected() {
   // Resolve the latest text even when Enter precedes the debounce timeout.
@@ -102,16 +113,30 @@ void QuickOpenDialog::openSelected() {
 void QuickOpenDialog::updateResults() {
   const auto selected = selectedPath();
   m_list->clear();
-  const auto matches = platform::quickOpenMatches(m_paths, m_recent, m_root, m_query->text());
+  auto recent = m_locations.pinned;
+  recent.append(m_recent);
+  recent.append(m_locations.recent);
+  const auto matches = platform::quickOpenMatches(m_paths, recent, m_root, m_query->text());
+  const auto folderIcon = style()->standardIcon(QStyle::SP_DirIcon);
+  const auto fileIcon = style()->standardIcon(QStyle::SP_FileIcon);
   int row = 0;
   for (const auto& path : matches) {
+    const bool directory = m_locations.pinned.contains(path) || m_locations.recent.contains(path);
     const auto folder = QFileInfo(QDir(m_root).relativeFilePath(path)).path();
     QString detail =
         QDir::toNativeSeparators(folder == QLatin1String(".") ? QDir(m_root).dirName() : folder);
-    if (m_recent.contains(path)) detail = tr("Recent") + QStringLiteral(" · ") + detail;
+    if (directory) {
+      detail = (m_locations.pinned.contains(path) ? tr("Pinned Folder") : tr("Recent Folder")) +
+               QStringLiteral(" · ") + QDir::toNativeSeparators(path);
+    } else if (m_recent.contains(path))
+      detail = tr("Recent") + QStringLiteral(" · ") + detail;
     // Paths are plain item text, including filenames containing HTML-like characters.
-    auto* item = new QListWidgetItem(QFileInfo(path).fileName() + '\n' + detail, m_list);
+    const auto name = QFileInfo(path).fileName().isEmpty() ? QDir::toNativeSeparators(path)
+                                                           : QFileInfo(path).fileName();
+    auto* item = new QListWidgetItem(name + '\n' + detail, m_list);
     item->setData(Qt::UserRole, path);
+    item->setData(Qt::UserRole + 1, directory);
+    item->setIcon(directory ? folderIcon : fileIcon);
     item->setToolTip(QDir::toNativeSeparators(path));
     if (path == selected) row = m_list->count() - 1;
   }
@@ -125,8 +150,8 @@ void QuickOpenDialog::updateResults() {
   else if (m_index.result.limited)
     status = tr("Folder limit reached. Open a smaller folder to find more files.");
   else
-    status = matches.isEmpty() ? tr("No matching files")
-                               : tr("%1 files shown (up to 100)").arg(matches.size());
+    status = matches.isEmpty() ? tr("No matching files or folders")
+                               : tr("%1 items shown (up to 100)").arg(matches.size());
   m_status->setText(status);
 }
 
@@ -157,10 +182,11 @@ bool QuickOpenDialog::eventFilter(QObject* watched, QEvent* event) {
 
 void QuickOpenDialog::retranslate() {
   setWindowTitle(tr("Open Quickly"));
-  m_query->setPlaceholderText(tr("Search file name or path…"));
-  m_query->setAccessibleName(tr("Search file name or path"));
-  m_list->setAccessibleName(tr("Matching files"));
-  m_hint->setText(tr("↑ ↓  Select     Enter  Open     Esc  Cancel"));
+  m_query->setPlaceholderText(tr("Search files or folders…"));
+  m_query->setAccessibleName(tr("Search files or folders"));
+  m_list->setAccessibleName(tr("Matching files and folders"));
+  m_hint->setText(tr("↑ ↓  Select     Enter  Open     Esc  Cancel") + '\n' +
+                  tr("Opening a folder keeps the current document."));
   m_open->setText(tr("Open"));
   m_cancel->setText(tr("Cancel"));
   updateResults();

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "FolderLocations.h"
 #include "QuickOpen.h"
 
 #include <QDialog>
@@ -25,9 +26,11 @@ class FileIndexThread : public QThread {
 class QuickOpenDialog : public QDialog {
   Q_OBJECT
  public:
-  QuickOpenDialog(const QString& root, const QStringList& recent, QWidget* parent = nullptr);
+  QuickOpenDialog(const QString& root, const QStringList& recent, QWidget* parent = nullptr,
+                  const platform::FolderLocations& locations = {});
   ~QuickOpenDialog() override;
   QString selectedPath() const;
+  bool selectedIsFolder() const;
 
  protected:
   bool eventFilter(QObject* watched, QEvent* event) override;
@@ -40,6 +43,7 @@ class QuickOpenDialog : public QDialog {
   QString m_root;
   QStringList m_recent;
   QStringList m_paths;
+  platform::FolderLocations m_locations;
   FileIndexThread m_index;
   bool m_scanning = true;
   QLineEdit* m_query = nullptr;
