@@ -40,6 +40,7 @@ class FindBar;
 class ViewSwitch;
 class AppTranslator;
 class WorkspaceSearchPanel;
+class FolderLocationsMenu;
 }  // namespace typist::ui
 
 namespace typist {
@@ -51,6 +52,7 @@ class MainWindow : public QMainWindow {
   explicit MainWindow(QWidget* parent = nullptr);
 
   bool openFile(const QString& path);
+  bool openFolderPath(const QString& path);
   bool importHtmlFile(const QString& path);
 
  public slots:
@@ -188,6 +190,8 @@ class MainWindow : public QMainWindow {
   QTabWidget* m_sidebarTabs = nullptr;
   QLabel* m_sidebarRootLabel = nullptr;
   QToolButton* m_fileOptionsButton = nullptr;
+  QToolButton* m_folderLocationsButton = nullptr;
+  ui::FolderLocationsMenu* m_folderLocationsMenu = nullptr;
   QAction* m_outlineAction = nullptr;
   QAction* m_pasteMarkdownAction = nullptr;
   QAction* m_updateAction = nullptr;

@@ -10,6 +10,7 @@
 #include "FileTree.h"
 #include "FileWriter.h"
 #include "FindBar.h"
+#include "FolderLocationsMenu.h"
 #include "FolderSearchRunner.h"
 #include "HtmlImportDialog.h"
 #include "HtmlImporter.h"
@@ -80,6 +81,7 @@
 #include <QSpinBox>
 #include <QStatusBar>
 #include <QString>
+#include <QStyle>
 #include <QTabWidget>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -210,6 +212,23 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   auto* sidebarHeader = new QHBoxLayout;
   sidebarHeader->setContentsMargins(0, 0, 8, 0);
   sidebarHeader->addWidget(m_sidebarRootLabel, 1);
+  m_folderLocationsButton = new QToolButton(sidebar);
+  m_folderLocationsButton->setObjectName(QStringLiteral("folderLocations"));
+  m_folderLocationsButton->setIcon(style()->standardIcon(QStyle::SP_DirOpenIcon));
+  m_folderLocationsButton->setPopupMode(QToolButton::InstantPopup);
+  m_folderLocationsButton->setToolTip(tr("Recent and Pinned Folders"));
+  m_folderLocationsButton->setAccessibleName(tr("Recent and Pinned Folders"));
+  m_folderLocationsMenu = new ui::FolderLocationsMenu(m_folderLocationsButton);
+  m_folderLocationsButton->setMenu(m_folderLocationsMenu);
+  connect(m_folderLocationsMenu, &ui::FolderLocationsMenu::folderActivated, this,
+          &MainWindow::openFolderPath);
+  connect(m_folderLocationsMenu, &ui::FolderLocationsMenu::browseRequested, this,
+          &MainWindow::openFolder);
+  connect(m_folderLocationsMenu, &ui::FolderLocationsMenu::pinLimitReached, this, [this] {
+    statusBar()->showMessage(tr("Cannot pin folder. Check the folder and settings (limit: 16)."),
+                             5000);
+  });
+  sidebarHeader->addWidget(m_folderLocationsButton);
   m_fileOptionsButton = new QToolButton(sidebar);
   m_fileOptionsButton->setObjectName(QStringLiteral("fileOptions"));
   m_fileOptionsButton->setText(QStringLiteral("⋯"));
@@ -304,6 +323,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   connect(recoverAction, &QAction::triggered, this, &MainWindow::recoverLatestDraft);
 
   m_recentMenu = fileMenu->addMenu(tr("Recent Files"));
+  fileMenu->addMenu(m_folderLocationsMenu);
   connect(m_recentMenu, &QMenu::triggered, this, &MainWindow::openRecentEntry);
   rebuildRecentMenu();
 
@@ -455,7 +475,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   // Keep original labels so live language changes preserve the document and undo history.
   for (QAction* action : findChildren<QAction*>())
-    if (!action->property("fileBrowserSource").isValid())
+    if (!action->property("fileBrowserSource").isValid() &&
+        !action->property("folderLocationAction").isValid())
       action->setProperty("translationSource", action->text());
   m_translator = new ui::AppTranslator(this);
   setLanguage(platform::languagePreference());
@@ -858,14 +879,23 @@ void MainWindow::newDocument() {
 
 void MainWindow::openQuickly() {
   auto* editor = static_cast<ui::Editor*>(m_editor);
-  const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
-  const auto restoreFocus = qScopeGuard(
-      [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
+  const bool focusCommit = m_searchFocusHeld ? m_searchFocusPrevious
+                                             : editor->setParagraphSourceFocusCommitEnabled(false);
+  editor->setParagraphSourceFocusCommitEnabled(false);
+  const auto restoreFocus = qScopeGuard([this, editor, focusCommit] {
+    editor->setParagraphSourceFocusCommitEnabled(m_searchFocusHeld ? false : focusCommit);
+  });
   QString root = m_tree->rootPath();
   if (root.isEmpty())
     root = m_currentPath.isEmpty() ? QDir::currentPath() : QFileInfo(m_currentPath).absolutePath();
-  ui::QuickOpenDialog dialog(root, platform::recentFiles(), this);
-  if (dialog.exec() == QDialog::Accepted) openFile(dialog.selectedPath());
+  ui::QuickOpenDialog dialog(root, platform::recentFiles(), this,
+                             m_folderLocationsMenu->locations());
+  if (dialog.exec() == QDialog::Accepted) {
+    if (dialog.selectedIsFolder())
+      openFolderPath(dialog.selectedPath());
+    else
+      openFile(dialog.selectedPath());
+  }
 }
 
 void MainWindow::insertTableDialog() {
@@ -1040,6 +1070,10 @@ bool MainWindow::openFile(const QString& path) {
   }
   m_workspaceSearch->setRoot(m_tree->rootPath().isEmpty() ? QFileInfo(path).absolutePath()
                                                           : m_tree->rootPath());
+  const auto folder =
+      m_tree->rootPath().isEmpty() ? QFileInfo(path).absolutePath() : m_tree->rootPath();
+  m_folderLocationsMenu->setRoot(folder);
+  if (!m_benchMode) m_folderLocationsMenu->recordFolder(folder);
   return true;
 }
 
@@ -1520,6 +1554,7 @@ void MainWindow::toggleSidebar() {
     m_tree->setRoot(QFileInfo(m_currentPath).absolutePath());
   if (!m_tree->rootPath().isEmpty())
     m_sidebarRootLabel->setText(QDir(m_tree->rootPath()).dirName());
+  m_folderLocationsMenu->setRoot(m_tree->rootPath());
   m_sidebarDock->show();
   resizeDocks({m_sidebarDock}, {240}, Qt::Horizontal);
   m_tree->setWatchEnabled(true);
@@ -1528,15 +1563,30 @@ void MainWindow::toggleSidebar() {
 
 void MainWindow::openFolder() {
   const QString dir = QFileDialog::getExistingDirectory(this, tr("Open Folder"));
-  if (dir.isEmpty()) return;
+  if (!dir.isEmpty()) openFolderPath(dir);
+}
+
+bool MainWindow::openFolderPath(const QString& path) {
+  const auto dir = QFileInfo(path).canonicalFilePath();
+  if (path.isEmpty() || dir.isEmpty() || !QFileInfo(dir).isDir()) {
+    statusBar()->showMessage(tr("Cannot open folder"), 4000);
+    return false;
+  }
+  // Leaving the search page releases its persistent focus guard first.
+  m_sidebarTabs->setCurrentIndex(0);
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+  const auto restoreFocus = qScopeGuard(
+      [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
   m_tree->setRoot(dir);
   m_workspaceSearch->setRoot(dir);
   m_sidebarRootLabel->setText(QDir(dir).dirName());
-  m_sidebarTabs->setCurrentIndex(0);
+  m_folderLocationsMenu->setRoot(dir);
+  if (!m_benchMode) m_folderLocationsMenu->recordFolder(dir);
   m_sidebarDock->show();
   m_tree->setWatchEnabled(true);
-  statusBar()->showMessage(
-      QStringLiteral("%1 markdown files in %2").arg(m_tree->entryCount()).arg(dir));
+  statusBar()->showMessage(tr("Workspace: %1").arg(dir), 4000);
+  return true;
 }
 
 void MainWindow::openTreeEntry(const QString& path) { openFile(path); }
@@ -1573,6 +1623,8 @@ void MainWindow::searchInFolder() {
                                                       : QFileInfo(m_currentPath).absolutePath())
                            : m_tree->rootPath();
   if (m_tree->rootPath().isEmpty()) m_tree->setRoot(root);
+  m_folderLocationsMenu->setRoot(root);
+  if (!m_benchMode) m_folderLocationsMenu->recordFolder(root);
   if (!m_sidebarDock->isVisible()) toggleSidebar();
   m_sidebarTabs->setCurrentIndex(2);
   resizeDocks({m_sidebarDock}, {320}, Qt::Horizontal);
@@ -1687,6 +1739,8 @@ void MainWindow::retranslateUi() {
     m_sidebarRootLabel->setText(tr("Workspace"));
   m_fileOptionsButton->setToolTip(tr("File Options"));
   m_fileOptionsButton->setAccessibleName(tr("File Options"));
+  m_folderLocationsButton->setToolTip(tr("Recent and Pinned Folders"));
+  m_folderLocationsButton->setAccessibleName(tr("Recent and Pinned Folders"));
   m_tree->setAccessibleName(tr("Files"));
   m_editor->setAccessibleName(tr("Markdown editor"));
   m_editor->setPlaceholderText(tr("Start writing, or open a Markdown file..."));

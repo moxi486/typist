@@ -20,6 +20,6 @@
 
 侧栏可显示任意深度的 `.md` / `.MD` 文件及空目录。隐藏条目、`build`、`node_modules` 和符号链接会跳过。可见侧栏监听实际工作区目录，列表视图也能发现深层新增文件；按修改时间排序时还监听文件变化，自动重新排序。刷新会保留仍存在的当前选择，删除的文件会移出侧栏；切换工作区时移除旧监听。
 
-本批侧栏使用原生 Qt 控件同步读取目录；大型目录的后台文件名查找可使用 [快速打开](Quick-Open.md)。创建时间排序、列表按目录分组、文件拖动移动、文件夹固定尚未实现。功能参考 [Typora 文件管理](https://support.typora.io/File-Management/#files-sidebar)。
+本批侧栏使用原生 Qt 控件同步读取目录；大型目录的后台文件名查找可使用 [快速打开](Quick-Open.md)。目录切换与固定见 [最近文件夹与固定工作区](Folder-Locations.md)。创建时间排序、列表按目录分组、文件拖动移动尚未实现。功能参考 [Typora 文件管理](https://support.typora.io/File-Management/#files-sidebar)。
 
 `file_browser` 测试覆盖递归过滤、同名路径、空目录、排序、展开状态、刷新、文件监听、键盘和菜单；`window_regressions` 另覆盖偏好保存、中英文、浅深主题、工作区保留及文档 / 撤销记录不变。

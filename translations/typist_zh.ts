@@ -699,6 +699,22 @@
         <source>The file changed on disk while you have unsaved edits. Reload the disk version and discard your edits?</source>
         <translation>文件已在磁盘上更改，而你还有未保存的编辑。是否重新载入磁盘版本并放弃当前编辑？</translation>
     </message>
+    <message>
+        <source>Recent and Pinned Folders</source>
+        <translation>最近与固定文件夹</translation>
+    </message>
+    <message>
+        <source>Cannot pin folder. Check the folder and settings (limit: 16).</source>
+        <translation>无法固定文件夹，请检查目录和设置（上限为 16 个）。</translation>
+    </message>
+    <message>
+        <source>Cannot open folder</source>
+        <translation>无法打开文件夹</translation>
+    </message>
+    <message>
+        <source>Workspace: %1</source>
+        <translation>工作区：%1</translation>
+    </message>
 </context>
 <context>
     <name>FindBar</name>
@@ -1413,16 +1429,16 @@
         <translation>最近打开</translation>
     </message>
     <message>
-        <source>Search file name or path…</source>
-        <translation>搜索文件名或路径…</translation>
+        <source>Search files or folders…</source>
+        <translation>搜索文件或文件夹…</translation>
     </message>
     <message>
-        <source>Search file name or path</source>
-        <translation>搜索文件名或路径</translation>
+        <source>Search files or folders</source>
+        <translation>搜索文件或文件夹</translation>
     </message>
     <message>
-        <source>Matching files</source>
-        <translation>匹配的文件</translation>
+        <source>Matching files and folders</source>
+        <translation>匹配的文件和文件夹</translation>
     </message>
     <message>
         <source>Scanning folder… Recent files are available now.</source>
@@ -1437,12 +1453,12 @@
         <translation>已达到目录扫描上限，请打开更小的文件夹以查找其他文件。</translation>
     </message>
     <message>
-        <source>No matching files</source>
-        <translation>没有匹配的文件</translation>
+        <source>No matching files or folders</source>
+        <translation>没有匹配的文件或文件夹</translation>
     </message>
     <message>
-        <source>%1 files shown (up to 100)</source>
-        <translation>显示 %1 个文件（最多 100 个）</translation>
+        <source>%1 items shown (up to 100)</source>
+        <translation>显示 %1 个项目（最多 100 个）</translation>
     </message>
     <message>
         <source>↑ ↓  Select     Enter  Open     Esc  Cancel</source>
@@ -1455,6 +1471,18 @@
     <message>
         <source>Cancel</source>
         <translation>取消</translation>
+    </message>
+    <message>
+        <source>Pinned Folder</source>
+        <translation>固定文件夹</translation>
+    </message>
+    <message>
+        <source>Recent Folder</source>
+        <translation>最近文件夹</translation>
+    </message>
+    <message>
+        <source>Opening a folder keeps the current document.</source>
+        <translation>打开文件夹会保留当前文档。</translation>
     </message>
 </context>
 <context>
@@ -1522,6 +1550,45 @@
     <message>
         <source>Enter or double-click a result to open its source line. Searches use saved files.</source>
         <translation>按 Enter 或双击结果打开源码行。搜索使用已保存的文件。</translation>
+    </message>
+</context>
+<context>
+    <name>FolderLocationsMenu</name>
+    <message>
+        <source>Recent and Pinned Folders</source>
+        <translation>最近与固定文件夹</translation>
+    </message>
+    <message>
+        <source>Open Folder…</source>
+        <translation>打开文件夹…</translation>
+    </message>
+    <message>
+        <source>Unpin Current Folder</source>
+        <translation>取消固定当前文件夹</translation>
+    </message>
+    <message>
+        <source>Pin Current Folder</source>
+        <translation>固定当前文件夹</translation>
+    </message>
+    <message>
+        <source>Pinned Folders</source>
+        <translation>固定文件夹</translation>
+    </message>
+    <message>
+        <source>Recent Folders</source>
+        <translation>最近文件夹</translation>
+    </message>
+    <message>
+        <source>No recent folders</source>
+        <translation>没有最近文件夹</translation>
+    </message>
+    <message>
+        <source>Remove Current Folder from Recent</source>
+        <translation>从最近记录中移除当前文件夹</translation>
+    </message>
+    <message>
+        <source>Clear Recent Folders (Keep Pinned)</source>
+        <translation>清空最近文件夹（保留固定）</translation>
     </message>
 </context>
 </TS>
