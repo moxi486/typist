@@ -63,6 +63,30 @@ class FolderReceiver : public QObject {
 class FileBrowserTests : public QObject {
   Q_OBJECT
  private slots:
+#ifdef Q_OS_UNIX
+  void selectedFileResolvesDirectoryAliases() {
+    QTemporaryDir directory;
+    const auto root = directory.filePath("notes");
+    const auto path = QDir(root).filePath("note.md");
+    const auto alias = directory.filePath("alias");
+    QVERIFY(writeFile(path));
+    QVERIFY(QFile::link(root, alias));
+    FileTree tree;
+    tree.setRoot(QFileInfo(root).canonicalFilePath());
+    tree.selectPath(QDir(alias).filePath("note.md"));
+    QCOMPARE(QFileInfo(tree.selectedPath()).canonicalFilePath(),
+             QFileInfo(path).canonicalFilePath());
+    QScopedPointer<QMenu> menu(tree.createContextMenu());
+    QVERIFY(menu->findChild<QAction*>("fileDuplicate"));
+    tree.setRoot(alias);
+    tree.selectPath(QFileInfo(path).canonicalFilePath());
+    QCOMPARE(tree.selectedPath(), QDir(alias).filePath("note.md"));
+    QCOMPARE(tree.rootPath(), alias);
+    menu.reset(tree.createContextMenu());
+    QVERIFY(menu->findChild<QAction*>("fileDuplicate"));
+  }
+#endif
+
   void fileOperationsPreserveBytesAndNeverOverwrite() {
     using namespace typist::platform;
     QTemporaryDir directory;

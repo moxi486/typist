@@ -375,7 +375,8 @@ class WindowTests : public QObject {
       QVERIFY(prompted);
       QVERIFY(QFileInfo(directory.filePath(language + QStringLiteral("-notes"))).isDir());
       menu->findChild<QAction*>("fileCopyPath")->trigger();
-      QCOMPARE(QApplication::clipboard()->text(), QDir::toNativeSeparators(path));
+      QCOMPARE(QFileInfo(QApplication::clipboard()->text()).canonicalFilePath(),
+               QFileInfo(path).canonicalFilePath());
       qInfo("File actions: %s duplicate", qPrintable(language));
       menu->findChild<QAction*>("fileDuplicate")->trigger();
       QFile copy(tree->selectedPath());

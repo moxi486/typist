@@ -208,6 +208,16 @@ QString FileTree::entryPath(int index) const {
 }
 QTreeWidgetItem* FileTree::findLeaf(const QString& path) const {
   auto* item = m_items.value(QDir::cleanPath(QFileInfo(path).absoluteFilePath()));
+  if (!item) {
+    // A workspace can use a canonical directory while an opened file uses an alias
+    // (notably /var vs /private/var on macOS). Keep the displayed root unchanged.
+    const auto canonical = QFileInfo(path).canonicalFilePath();
+    const auto root = QFileInfo(m_root).canonicalFilePath();
+    if (!canonical.isEmpty() && !root.isEmpty()) {
+      const auto relative = QDir(root).relativeFilePath(canonical);
+      item = m_items.value(QDir::cleanPath(QDir(m_root).filePath(relative)));
+    }
+  }
   return item && !item->data(0, kDirRole).toBool() ? item : nullptr;
 }
 void FileTree::selectPath(const QString& path) {
