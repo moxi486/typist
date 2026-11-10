@@ -150,7 +150,8 @@ jobs:
             dist/checksums.txt
 
   macos:
-    runs-on: macos-14
+    # Keep packaging on the same supported macOS image as core-macos.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: jurplel/install-qt-action@v4

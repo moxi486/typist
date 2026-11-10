@@ -43,7 +43,8 @@ jobs:
       - run: ctest --test-dir build/core --output-on-failure
 
   core-macos:
-    runs-on: macos-14
+    # macOS 14 retired on 2026-11-02: actions/runner-images#13518.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - run: brew install cmark-gfm qt@6
