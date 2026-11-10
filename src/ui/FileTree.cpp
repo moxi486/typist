@@ -8,6 +8,7 @@
 #include <QCollator>
 #include <QContextMenuEvent>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -35,6 +36,14 @@ namespace {
 constexpr int kPathRole = Qt::UserRole;
 constexpr int kDirRole = Qt::UserRole + 1;
 constexpr int kOrderRole = Qt::UserRole + 2;
+
+bool dateSort(platform::FileBrowserSort sort) {
+  return sort == platform::FileBrowserSort::Modified || sort == platform::FileBrowserSort::Created;
+}
+QDateTime createdDate(const QFileInfo& info) {
+  const auto birth = info.birthTime();
+  return birth.isValid() ? birth : info.lastModified();
+}
 
 bool skippedDirectory(const QString& name) {
   return name.startsWith('.') || name == QLatin1String("build") ||
@@ -89,6 +98,14 @@ QList<QFileInfo> FileTree::scan() const {
 }
 
 void FileTree::rememberExpansion() {
+  if (m_options.view == platform::FileBrowserView::List && m_options.groupByFolder) {
+    m_collapsedGroups.clear();
+    for (int i = 0; i < topLevelItemCount(); ++i) {
+      const auto* group = topLevelItem(i);
+      if (!group->isExpanded()) m_collapsedGroups.insert(group->data(0, kPathRole).toString());
+    }
+    return;
+  }
   if (m_options.view != platform::FileBrowserView::Tree) return;
   m_expanded.clear();
   QTreeWidgetItemIterator iterator(this);
@@ -108,6 +125,7 @@ void FileTree::setRoot(const QString& rootDir) {
     rememberExpansion();
   else {
     m_expanded.clear();
+    m_collapsedGroups.clear();
     m_hasExpansionState = false;
   }
   const auto selected =
@@ -125,8 +143,10 @@ void FileTree::renderEntries() {
   clear();
   m_items.clear();
   const bool list = m_options.view == platform::FileBrowserView::List;
-  setRootIsDecorated(!list);
-  setIndentation(list ? 0 : 16);
+  const bool grouped = list && m_options.groupByFolder;
+  setUniformRowHeights(!grouped);
+  setRootIsDecorated(!list || grouped);
+  setIndentation(grouped ? 12 : list ? 0 : 16);
   const QDir root(m_root);
   QList<QFileInfo> sorted = m_entries;
   // A fixed collation locale makes numeric order work even on C-locale CI hosts.
@@ -136,9 +156,10 @@ void FileTree::renderEntries() {
   std::sort(sorted.begin(), sorted.end(), [&](const QFileInfo& a, const QFileInfo& b) {
     if (!list && a.isDir() != b.isDir()) return m_options.foldersFirst ? a.isDir() : !a.isDir();
     int comparison = 0;
-    if (m_options.sort == platform::FileBrowserSort::Modified) {
-      const auto left = a.lastModified().toMSecsSinceEpoch();
-      const auto right = b.lastModified().toMSecsSinceEpoch();
+    if (dateSort(m_options.sort)) {
+      const bool created = m_options.sort == platform::FileBrowserSort::Created;
+      const auto left = (created ? createdDate(a) : a.lastModified()).toMSecsSinceEpoch();
+      const auto right = (created ? createdDate(b) : b.lastModified()).toMSecsSinceEpoch();
       comparison = left < right ? -1 : left > right ? 1 : 0;
     } else if (m_options.sort == platform::FileBrowserSort::Natural) {
       comparison = collator.compare(a.fileName(), b.fileName());
@@ -154,10 +175,38 @@ void FileTree::renderEntries() {
   for (int i = 0; i < sorted.size(); ++i) ranks.insert(sorted.at(i).absoluteFilePath(), i);
   const auto directoryIcon = style()->standardIcon(QStyle::SP_DirClosedIcon);
   const auto fileIcon = style()->standardIcon(QStyle::SP_FileIcon);
+  if (grouped) {
+    QSet<QString> uniqueFolders;
+    for (const auto& info : m_entries)
+      if (!info.isDir()) uniqueFolders.insert(info.absolutePath());
+    QStringList folders = uniqueFolders.values();
+    std::sort(folders.begin(), folders.end(), [&](const QString& a, const QString& b) {
+      if (a == m_root || b == m_root) return a == m_root && b != m_root;
+      const auto left = root.relativeFilePath(a), right = root.relativeFilePath(b);
+      const int order = collator.compare(left, right);
+      return order ? order < 0 : left < right;
+    });
+    for (int i = 0; i < folders.size(); ++i) {
+      const auto& path = folders.at(i);
+      auto* group = new FileItem(this);
+      group->setText(0, path == m_root ? tr("Workspace Root")
+                                       : QDir::toNativeSeparators(root.relativeFilePath(path)));
+      group->setData(0, kPathRole, path);
+      group->setData(0, kDirRole, true);
+      group->setData(0, kOrderRole, i);
+      group->setToolTip(0, QDir::toNativeSeparators(path));
+      group->setIcon(0, directoryIcon);
+      auto font = group->font(0);
+      font.setBold(true);
+      group->setFont(0, font);
+      group->setExpanded(!m_collapsedGroups.contains(path));
+      m_items.insert(path, group);
+    }
+  }
   for (const auto& info : m_entries) {
     if (list && info.isDir()) continue;
     const auto path = info.absoluteFilePath();
-    auto* parent = list ? nullptr : m_items.value(info.absolutePath());
+    auto* parent = list && !grouped ? nullptr : m_items.value(info.absolutePath());
     auto* item = parent ? new FileItem(parent) : new FileItem(this);
     QString text = info.fileName();
     if (list) {
@@ -167,6 +216,13 @@ void FileTree::renderEntries() {
     }
     item->setText(0, text);
     item->setToolTip(0, QDir::toNativeSeparators(path));
+    if (m_options.sort == platform::FileBrowserSort::Created) {
+      const auto label = info.birthTime().isValid() ? tr("Created: %1")
+                                                    : tr("Creation time unavailable. Modified: %1");
+      item->setToolTip(0,
+                       item->toolTip(0) + '\n' +
+                           label.arg(QLocale().toString(createdDate(info), QLocale::ShortFormat)));
+    }
     item->setData(0, kPathRole, path);
     item->setData(0, kDirRole, info.isDir());
     item->setData(0, kOrderRole, ranks.value(path));
@@ -180,11 +236,18 @@ void FileTree::renderEntries() {
 
 void FileTree::setOptions(const platform::FileBrowserOptions& options) {
   if (options.view == m_options.view && options.sort == m_options.sort &&
-      options.descending == m_options.descending && options.foldersFirst == m_options.foldersFirst)
+      options.descending == m_options.descending &&
+      options.foldersFirst == m_options.foldersFirst &&
+      options.groupByFolder == m_options.groupByFolder)
     return;
   const auto selected = currentItem() ? currentItem()->data(0, kPathRole).toString() : QString();
   rememberExpansion();
+  const bool refreshDates = options.sort != m_options.sort && dateSort(options.sort);
   m_options = options;
+  if (refreshDates) {
+    m_entries = scan();
+    m_signature = signature(m_entries);
+  }
   renderEntries();
   if (auto* item = m_items.value(selected)) setCurrentItem(item);
   if (m_watchEnabled) watchCurrentDirectories();
@@ -221,7 +284,12 @@ QTreeWidgetItem* FileTree::findLeaf(const QString& path) const {
   return item && !item->data(0, kDirRole).toBool() ? item : nullptr;
 }
 void FileTree::selectPath(const QString& path) {
-  if (auto* item = findLeaf(path)) setCurrentItem(item);
+  if (auto* item = findLeaf(path)) {
+    if (m_options.view == platform::FileBrowserView::List && m_options.groupByFolder &&
+        item->parent())
+      item->parent()->setExpanded(true);
+    setCurrentItem(item);
+  }
 }
 QString FileTree::selectedPath() const {
   const auto* item = currentItem();
@@ -234,6 +302,13 @@ QString FileTree::signature(const QList<QFileInfo>& entries) const {
   for (const auto& info : entries) {
     hash.addData(info.absoluteFilePath().toUtf8());
     hash.addData(QByteArray(1, '\0'));
+    if (dateSort(m_options.sort)) {
+      hash.addData(QByteArray::number((m_options.sort == platform::FileBrowserSort::Created
+                                           ? createdDate(info)
+                                           : info.lastModified())
+                                          .toMSecsSinceEpoch()));
+      hash.addData(QByteArray(1, '\0'));
+    }
     hash.addData(info.isDir() ? QByteArray("dir")
                               : QByteArray::number(info.size()) + ':' +
                                     QByteArray::number(info.lastModified().toMSecsSinceEpoch()));
@@ -269,7 +344,7 @@ void FileTree::watchCurrentDirectories() {
   if (!m_watcher || !m_watchEnabled) return;
   QStringList dirs;
   collectDirectories(dirs);
-  if (m_options.sort == platform::FileBrowserSort::Modified)
+  if (dateSort(m_options.sort))
     for (const auto& info : m_entries)
       if (!info.isDir()) dirs.append(info.absoluteFilePath());
   const QSet<QString> wanted(dirs.begin(), dirs.end());
@@ -342,7 +417,8 @@ QMenu* FileTree::createOptionsMenu(QWidget* parent) {
   auto* sorting = new QActionGroup(m_optionsMenu);
   for (const auto& pair : {qMakePair("browserName", QT_TR_NOOP("Name")),
                            qMakePair("browserNatural", QT_TR_NOOP("Natural Order")),
-                           qMakePair("browserModified", QT_TR_NOOP("Modified Date"))}) {
+                           qMakePair("browserModified", QT_TR_NOOP("Modified Date")),
+                           qMakePair("browserCreated", QT_TR_NOOP("Created Date"))}) {
     auto* action = add(pair.first, pair.second, true);
     sorting->addAction(action);
     connect(action, &QAction::triggered, this, [this, action] {
@@ -351,6 +427,8 @@ QMenu* FileTree::createOptionsMenu(QWidget* parent) {
                          ? platform::FileBrowserSort::Natural
                      : action->objectName() == QLatin1String("browserModified")
                          ? platform::FileBrowserSort::Modified
+                     : action->objectName() == QLatin1String("browserCreated")
+                         ? platform::FileBrowserSort::Created
                          : platform::FileBrowserSort::Name;
       setOptions(options);
     });
@@ -366,6 +444,12 @@ QMenu* FileTree::createOptionsMenu(QWidget* parent) {
   connect(folders, &QAction::triggered, this, [this](bool checked) {
     auto options = m_options;
     options.foldersFirst = checked;
+    setOptions(options);
+  });
+  auto* grouping = add("browserGroupByFolder", QT_TR_NOOP("Group by Folder"), true);
+  connect(grouping, &QAction::triggered, this, [this](bool checked) {
+    auto options = m_options;
+    options.groupByFolder = checked;
     setOptions(options);
   });
   m_optionsMenu->addSeparator();
@@ -390,6 +474,12 @@ void FileTree::updateOptionsMenu() {
       action->setChecked(m_options.sort == platform::FileBrowserSort::Natural);
     if (id == QLatin1String("browserModified"))
       action->setChecked(m_options.sort == platform::FileBrowserSort::Modified);
+    if (id == QLatin1String("browserCreated"))
+      action->setChecked(m_options.sort == platform::FileBrowserSort::Created);
+    if (id == QLatin1String("browserGroupByFolder")) {
+      action->setChecked(m_options.groupByFolder);
+      action->setEnabled(m_options.view == platform::FileBrowserView::List);
+    }
     if (id == QLatin1String("browserDescending")) action->setChecked(m_options.descending);
     if (id == QLatin1String("browserFoldersFirst")) {
       action->setChecked(m_options.foldersFirst);
@@ -398,7 +488,13 @@ void FileTree::updateOptionsMenu() {
   }
 }
 void FileTree::changeEvent(QEvent* event) {
-  if (event->type() == QEvent::LanguageChange) updateOptionsMenu();
+  if (event->type() == QEvent::LanguageChange) {
+    const auto selected = currentItem() ? currentItem()->data(0, kPathRole).toString() : QString();
+    rememberExpansion();
+    renderEntries();
+    if (auto* item = m_items.value(selected)) setCurrentItem(item);
+    updateOptionsMenu();
+  }
   QTreeWidget::changeEvent(event);
 }
 void FileTree::keyPressEvent(QKeyEvent* event) {

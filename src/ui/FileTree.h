@@ -79,6 +79,7 @@ class FileTree : public QTreeWidget {
   bool m_watchEnabled = false;
   bool m_hasExpansionState = false;
   QSet<QString> m_expanded;
+  QSet<QString> m_collapsedGroups;
   QList<QFileInfo> m_entries;
   QHash<QString, QTreeWidgetItem*> m_items;
   platform::FileBrowserOptions m_options;

@@ -12,6 +12,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QSaveFile>
+#include <QScopeGuard>
 #include <QScopedPointer>
 #include <QSettings>
 #include <QSignalSpy>
@@ -63,6 +64,189 @@ class FolderReceiver : public QObject {
 class FileBrowserTests : public QObject {
   Q_OBJECT
  private slots:
+  void groupedListSortsWithinParentsAndNavigates() {
+    QTemporaryDir directory;
+    for (const auto& name : {"root.md", "folder2/10-note.md", "folder2/2-note.md",
+                             "folder2/nested/same.md", "folder10/same.md"})
+      QVERIFY(writeFile(directory.filePath(QString::fromLatin1(name))));
+    QVERIFY(QDir().mkpath(directory.filePath("empty")));
+    FileTree tree;
+    FileBrowserOptions options;
+    options.view = FileBrowserView::List;
+    options.sort = FileBrowserSort::Natural;
+    options.groupByFolder = true;
+    tree.setOptions(options);
+    tree.setRoot(directory.path());
+    QCOMPARE(tree.entryCount(), 5);
+    QCOMPARE(tree.directoryCount(), 4);
+    QCOMPARE(tree.topLevelItemCount(), 4);
+    QCOMPARE(tree.topLevelItem(0)->text(0), QStringLiteral("Workspace Root"));
+    QCOMPARE(tree.topLevelItem(1)->text(0), QStringLiteral("folder2"));
+    QCOMPARE(tree.topLevelItem(2)->text(0),
+             QDir::toNativeSeparators(QStringLiteral("folder2/nested")));
+    QCOMPARE(tree.topLevelItem(3)->text(0), QStringLiteral("folder10"));
+    QCOMPARE(tree.topLevelItem(1)->child(0)->data(0, Qt::UserRole).toString(),
+             directory.filePath("folder2/2-note.md"));
+    QVERIFY(!itemForPath(tree, directory.filePath("empty")));
+    tree.setCurrentItem(tree.topLevelItem(1));
+    QSignalSpy open(&tree, &FileTree::entryActivated);
+    tree.show();
+    QTest::keyClick(&tree, Qt::Key_Return);
+    QVERIFY(!tree.currentItem()->isExpanded());
+    QCOMPARE(open.count(), 0);
+    QScopedPointer<QMenu> context(tree.createContextMenu());
+    QVERIFY(!context->findChild<QAction*>("fileDuplicate"));
+    context->findChild<QAction*>("fileCopyRelativePath")->trigger();
+    QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("folder2"));
+    const auto target = directory.filePath("folder2/2-note.md");
+    tree.selectPath(target);
+    QVERIFY(tree.currentItem()->parent()->isExpanded());
+    QTest::keyClick(&tree, Qt::Key_Return);
+    QCOMPARE(open.count(), 1);
+    QCOMPARE(open.first().first().toString(), target);
+    options.descending = true;
+    tree.setOptions(options);
+    QCOMPARE(tree.selectedPath(), target);
+    QCOMPARE(tree.topLevelItem(1)->child(0)->data(0, Qt::UserRole).toString(),
+             directory.filePath("folder2/10-note.md"));
+    QCOMPARE(tree.topLevelItem(0)->text(0), QStringLiteral("Workspace Root"));
+    QCOMPARE(tree.topLevelItem(3)->text(0), QStringLiteral("folder10"));
+    auto* menu = tree.createOptionsMenu(&tree);
+    QVERIFY(menu->findChild<QAction*>("browserGroupByFolder")->isChecked());
+    menu->findChild<QAction*>("browserTree")->trigger();
+    QVERIFY(!menu->findChild<QAction*>("browserGroupByFolder")->isEnabled());
+    QVERIFY(menu->findChild<QAction*>("browserGroupByFolder")->isChecked());
+    menu->findChild<QAction*>("browserList")->trigger();
+    QVERIFY(menu->findChild<QAction*>("browserGroupByFolder")->isEnabled());
+    QCOMPARE(tree.selectedPath(), target);
+  }
+
+  void groupAndTreeExpansionAreIndependentAcrossRefresh() {
+    QTemporaryDir directory, other;
+    const auto path = directory.filePath("a/b/note.md");
+    QVERIFY(writeFile(path));
+    QVERIFY(writeFile(directory.filePath("root.md")));
+    FileTree tree;
+    tree.setRoot(directory.path());
+    itemForPath(tree, directory.filePath("a"))->setExpanded(false);
+    auto options = tree.options();
+    options.view = FileBrowserView::List;
+    options.groupByFolder = true;
+    tree.setOptions(options);
+    auto* group = itemForPath(tree, directory.filePath("a/b"));
+    QVERIFY(group && group->isExpanded());
+    group->setExpanded(false);
+    options.descending = true;
+    tree.setOptions(options);
+    QVERIFY(!itemForPath(tree, directory.filePath("a/b"))->isExpanded());
+    options.groupByFolder = false;
+    tree.setOptions(options);
+    QCOMPARE(tree.topLevelItemCount(), 2);
+    options.groupByFolder = true;
+    tree.setOptions(options);
+    QVERIFY(!itemForPath(tree, directory.filePath("a/b"))->isExpanded());
+    QVERIFY(writeFile(directory.filePath("a/b/added.md")));
+    QVERIFY(writeFile(directory.filePath("new/note.md")));
+    QVERIFY(tree.refreshIfChanged());
+    QVERIFY(!itemForPath(tree, directory.filePath("a/b"))->isExpanded());
+    QVERIFY(itemForPath(tree, directory.filePath("new"))->isExpanded());
+    options.view = FileBrowserView::Tree;
+    tree.setOptions(options);
+    QVERIFY(!itemForPath(tree, directory.filePath("a"))->isExpanded());
+    options.view = FileBrowserView::List;
+    tree.setOptions(options);
+    QVERIFY(!itemForPath(tree, directory.filePath("a/b"))->isExpanded());
+    QVERIFY(QFile::remove(path));
+    QVERIFY(QFile::remove(directory.filePath("a/b/added.md")));
+    QVERIFY(tree.refreshIfChanged());
+    QVERIFY(!itemForPath(tree, directory.filePath("a/b")));
+    QVERIFY(writeFile(directory.filePath("a/b/recreated.md")));
+    QVERIFY(tree.refreshIfChanged());
+    QVERIFY(itemForPath(tree, directory.filePath("a/b"))->isExpanded());
+    itemForPath(tree, directory.filePath("a/b"))->setExpanded(false);
+    QVERIFY(writeFile(other.filePath("a/b/note.md")));
+    tree.setRoot(other.path());
+    QVERIFY(itemForPath(tree, other.filePath("a/b"))->isExpanded());
+  }
+
+  void groupingAndCreatedPreferencesKeepLegacyDefaults() {
+    QSettings settings(QStringLiteral("Typist"), QStringLiteral("Typist"));
+    const QStringList keys = {QStringLiteral("files/view"), QStringLiteral("files/sort"),
+                              QStringLiteral("files/descending"),
+                              QStringLiteral("files/foldersFirst"),
+                              QStringLiteral("files/groupByFolder")};
+    QMap<QString, QVariant> previous;
+    for (const auto& key : keys) previous.insert(key, settings.value(key));
+    const auto restore = qScopeGuard([&] {
+      for (const auto& key : keys) {
+        if (previous.value(key).isValid())
+          settings.setValue(key, previous.value(key));
+        else
+          settings.remove(key);
+      }
+      settings.sync();
+    });
+    for (const auto& key : keys) settings.remove(key);
+    settings.sync();
+    const auto defaults = typist::platform::fileBrowserOptions();
+    QCOMPARE(defaults.sort, FileBrowserSort::Name);
+    QCOMPARE(defaults.view, FileBrowserView::Tree);
+    QVERIFY(!defaults.groupByFolder);
+    settings.setValue(QStringLiteral("files/sort"), QStringLiteral("unknown"));
+    settings.sync();
+    QCOMPARE(typist::platform::fileBrowserOptions().sort, FileBrowserSort::Name);
+    FileBrowserOptions options;
+    options.view = FileBrowserView::List;
+    options.sort = FileBrowserSort::Created;
+    options.descending = options.groupByFolder = options.foldersFirst = true;
+    typist::platform::setFileBrowserOptions(options);
+    const auto restored = typist::platform::fileBrowserOptions();
+    QCOMPARE(restored.view, options.view);
+    QCOMPARE(restored.sort, options.sort);
+    QVERIFY(restored.groupByFolder && restored.descending && restored.foldersFirst);
+  }
+
+  void createdSortUsesBirthTimeAndRefreshesMetadataOnEntry() {
+    QTemporaryDir directory;
+    const auto oldPath = directory.filePath("z-old.md"), newPath = directory.filePath("a-new.md");
+    QVERIFY(writeFile(oldPath, "old", 1800000000));
+    QTest::qWait(30);
+    QVERIFY(writeFile(newPath, "new", 1600000000));
+    // Where the OS permits it, use deterministic birth dates; other systems retain real dates.
+    for (const auto& path : {oldPath, newPath}) {
+      QFile file(path);
+      QVERIFY(file.open(QIODevice::ReadWrite));
+      file.setFileTime(QDateTime::fromSecsSinceEpoch(path == oldPath ? 1600000000 : 1700000000),
+                       QFileDevice::FileBirthTime);
+    }
+    FileTree tree;
+    tree.setRoot(directory.path());
+    auto options = tree.options();
+    options.sort = FileBrowserSort::Created;
+    tree.setOptions(options);
+    const QFileInfo oldInfo(oldPath), newInfo(newPath);
+    const auto oldDate =
+        oldInfo.birthTime().isValid() ? oldInfo.birthTime() : oldInfo.lastModified();
+    const auto newDate =
+        newInfo.birthTime().isValid() ? newInfo.birthTime() : newInfo.lastModified();
+    const bool oldFirst = oldDate < newDate || (oldDate == newDate && oldPath < newPath);
+    QCOMPARE(tree.entryPath(0), oldFirst ? oldPath : newPath);
+    const auto tip = itemForPath(tree, oldPath)->toolTip(0);
+    QVERIFY(tip.contains(oldInfo.birthTime().isValid()
+                             ? QStringLiteral("Created:")
+                             : QStringLiteral("Creation time unavailable.")));
+    options.descending = true;
+    tree.setOptions(options);
+    QCOMPARE(tree.entryPath(1), oldFirst ? oldPath : newPath);
+    options.sort = FileBrowserSort::Name;
+    options.descending = false;
+    tree.setOptions(options);
+    QVERIFY(writeFile(newPath, "NEW", 1900000000));
+    options.sort = FileBrowserSort::Modified;
+    tree.setOptions(options);
+    QCOMPARE(tree.entryPath(0), oldPath);  // Must see the edit made while sorting by name.
+  }
+
 #ifdef Q_OS_UNIX
   void selectedFileResolvesDirectoryAliases() {
     QTemporaryDir directory;
@@ -396,13 +580,20 @@ class FileBrowserTests : public QObject {
     QCOMPARE(tree.entryCount(), 2);
   }
 
+  void watcherUsesActualFoldersInListAndDropsOldRoot_data() {
+    QTest::addColumn<bool>("grouped");
+    QTest::newRow("flat") << false;
+    QTest::newRow("grouped") << true;
+  }
   void watcherUsesActualFoldersInListAndDropsOldRoot() {
+    QFETCH(bool, grouped);
     QTemporaryDir directory, other;
     QVERIFY(writeFile(directory.filePath("a/b/note.md"), "old", 1600000000));
     FileTree tree;
     FileBrowserOptions options;
     options.view = FileBrowserView::List;
     options.sort = FileBrowserSort::Modified;
+    options.groupByFolder = grouped;
     tree.setOptions(options);
     tree.setRoot(directory.path());
     tree.setWatchEnabled(true);
@@ -426,13 +617,21 @@ class FileBrowserTests : public QObject {
     QCOMPARE(tree.entryPath(0), other.filePath("while-hidden.md"));
   }
 
+  void atomicSaveRestoresWatchWhenMetadataUnchanged_data() {
+    QTest::addColumn<bool>("created");
+    QTest::newRow("modified") << false;
+    QTest::newRow("created") << true;
+  }
   void atomicSaveRestoresWatchWhenMetadataUnchanged() {
+    QFETCH(bool, created);
     QTemporaryDir directory;
     const auto path = directory.filePath("note.md");
     QVERIFY(writeFile(path, "old", 1600000000));
     FileTree tree;
     FileBrowserOptions options;
-    options.sort = FileBrowserSort::Modified;
+    options.sort = created ? FileBrowserSort::Created : FileBrowserSort::Modified;
+    options.view = FileBrowserView::List;
+    options.groupByFolder = true;
     tree.setOptions(options);
     tree.setRoot(directory.path());
     tree.setWatchEnabled(true);

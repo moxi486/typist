@@ -16,8 +16,10 @@ FileBrowserOptions fileBrowserOptions() {
   const auto sort = settings.value(QStringLiteral("files/sort")).toString();
   if (sort == QLatin1String("natural")) options.sort = FileBrowserSort::Natural;
   if (sort == QLatin1String("modified")) options.sort = FileBrowserSort::Modified;
+  if (sort == QLatin1String("created")) options.sort = FileBrowserSort::Created;
   options.descending = settings.value(QStringLiteral("files/descending"), false).toBool();
   options.foldersFirst = settings.value(QStringLiteral("files/foldersFirst"), false).toBool();
+  options.groupByFolder = settings.value(QStringLiteral("files/groupByFolder"), false).toBool();
   return options;
 }
 
@@ -29,9 +31,11 @@ void setFileBrowserOptions(const FileBrowserOptions& options) {
   settings.setValue(QStringLiteral("files/sort"),
                     options.sort == FileBrowserSort::Natural    ? QStringLiteral("natural")
                     : options.sort == FileBrowserSort::Modified ? QStringLiteral("modified")
+                    : options.sort == FileBrowserSort::Created  ? QStringLiteral("created")
                                                                 : QStringLiteral("name"));
   settings.setValue(QStringLiteral("files/descending"), options.descending);
   settings.setValue(QStringLiteral("files/foldersFirst"), options.foldersFirst);
+  settings.setValue(QStringLiteral("files/groupByFolder"), options.groupByFolder);
   settings.sync();
 }
 

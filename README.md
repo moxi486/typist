@@ -10,6 +10,7 @@
 
 - 工作区全文搜索（Ctrl+Shift+F）：独立侧栏输入、大小写 / Unicode 全字 / 正则选项、分组结果、后台取消与重搜，打开结果精确选择源码匹配；见 [docs/Workspace-Search.md](docs/Workspace-Search.md)
 - 文件侧栏右键：新建文件夹、同目录创建 Markdown 副本、复制绝对 / 相对路径、打开所在文件夹；副本自动避开重名，保留当前编辑，见 [docs/File-Browser.md](docs/File-Browser.md)
+- 文件列表支持按父目录分组、独立折叠和组内排序；支持创建时间排序，系统未提供创建时间时回退到修改时间，分组与排序偏好可保存。
 
 - 文件侧栏：文件树 / 文件列表切换，按文件名、自然顺序或修改时间排序，记住显示偏好；深层目录刷新、选择与折叠状态保留，见 [docs/File-Browser.md](docs/File-Browser.md)
 
