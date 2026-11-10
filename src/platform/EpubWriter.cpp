@@ -292,21 +292,23 @@ QList<Chapter> chapters(const QString& body, const Context& context) {
   QList<Chapter> result;
   qsizetype start = 0;
   QString title = context.options.title;
+  const auto appendChapter = [&](const QString& chapterTitle, const QString& chapterBody) {
+    QString filename = QStringLiteral("content.xhtml");
+    if (!result.isEmpty()) filename = QStringLiteral("chapter-%1.xhtml").arg(result.size() + 1);
+    result.append(Chapter{filename, chapterTitle, chapterBody});
+  };
   if (context.options.splitChapters) {
     for (const auto& heading : context.headings) {
       if (heading.level != 1) continue;
       const auto marker = QStringLiteral("<h1 id=\"%1\">").arg(xml(heading.id));
       const auto position = body.indexOf(marker, start);
       if (position < 0) continue;
-      if (position > start) result.append({{}, title, body.mid(start, position - start)});
+      if (position > start) appendChapter(title, body.mid(start, position - start));
       title = heading.title.trimmed().isEmpty() ? context.options.title : heading.title;
       start = position;
     }
   }
-  result.append({{}, title, body.mid(start)});
-  for (int index = 0; index < result.size(); ++index)
-    result[index].filename = index == 0 ? QStringLiteral("content.xhtml")
-                                        : QStringLiteral("chapter-%1.xhtml").arg(index + 1);
+  appendChapter(title, body.mid(start));
   return result;
 }
 QMap<QString, QString> locations(const QList<Chapter>& chapters) {
