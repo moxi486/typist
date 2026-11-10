@@ -30,6 +30,8 @@ class FileTree : public QTreeWidget {
   const platform::FileBrowserOptions& options() const { return m_options; }
   void setOptions(const platform::FileBrowserOptions& options);
   QMenu* createOptionsMenu(QWidget* parent);
+  // Snapshot of the current entry (or workspace on empty space); caller owns the menu.
+  QMenu* createContextMenu(QWidget* parent = nullptr);
 
   // Rebuilds only when the directory listing differs from what the tree shows.
   bool refreshIfChanged();
@@ -65,8 +67,12 @@ class FileTree : public QTreeWidget {
   void scheduleRefresh();
   void stopDebounce();
   void newFileIn(const QString& dir);
-  void renameSelected();
-  void deleteSelected();
+  void newFolderIn(const QString& dir);
+  void duplicateFile(const QString& path);
+  void renameFile(const QString& path);
+  void deleteFile(const QString& path);
+  QString askName(const QString& title, const QString& label, const QString& value);
+  QString operationError(const QString& error) const;
 
   QString m_root;
   QString m_signature;
