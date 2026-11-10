@@ -56,7 +56,7 @@ jobs:
         if: failure() && steps.test.outcome == 'failure'
         run: |
           env QT_QPA_PLATFORM=offscreen TYPIST_CORPUS_DIR="$PWD/tests/corpus" \
-            lldb --batch -o 'settings set target.disable-aslr false' -o run -o 'thread backtrace all' \
+            lldb --batch -o 'settings set target.disable-aslr false' -o run -k 'thread backtrace all' \
             -- build/macos-clang/tests/editor/epub_export_tests coverAndCrossChapterNavigation -nocrashhandler
 
   windows:
