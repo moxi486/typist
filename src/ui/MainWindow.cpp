@@ -558,15 +558,14 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   command(edit, QStringLiteral("selectAll"), tr("Select All"), QStringLiteral("Ctrl+A"),
           [editor] { editor->selectAll(); });
   command(edit, QStringLiteral("copyMarkdown"), tr("Copy as Markdown"),
-          QStringLiteral("Ctrl+Shift+C"), [this] {
-            const QString text =
-                static_cast<ui::Editor*>(m_editor)->paragraphSourceActive()
-                    ? static_cast<ui::Editor*>(m_editor)->paragraphSourceSelection()
-                : m_sourceMode ? m_editor->textCursor().selectedText().replace(
-                                     QChar::ParagraphSeparator, QLatin1Char('\n'))
-                               : editor::selectedMarkdown(m_editor->textCursor());
-            if (!text.isEmpty()) QApplication::clipboard()->setText(text);
-          });
+          QStringLiteral("Ctrl+Shift+C"),
+          [editor] { editor->copySelection(ui::Editor::CopyFormat::Markdown); });
+  command(edit, QStringLiteral("copyPlainText"), tr("Copy as Plain Text"), QString(),
+          [editor] { editor->copySelection(ui::Editor::CopyFormat::PlainText); });
+  command(edit, QStringLiteral("copyHtmlCode"), tr("Copy as HTML Code"), QString(),
+          [editor] { editor->copySelection(ui::Editor::CopyFormat::HtmlCode); });
+  command(edit, QStringLiteral("copyWithoutTheme"), tr("Copy without Theme Styling"), QString(),
+          [editor] { editor->copySelection(ui::Editor::CopyFormat::WithoutTheme); });
   command(edit, QStringLiteral("pastePlain"), tr("Paste as Plain Text"),
           QStringLiteral("Ctrl+Alt+Shift+V"),
           [editor] { editor->insertPlainText(QApplication::clipboard()->text()); });

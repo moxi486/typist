@@ -14,6 +14,7 @@
 | 源码与渲染视图切换 | Ctrl+/ |
 | 粘贴为 Markdown | Ctrl+Shift+V |
 | 复制为 Markdown / 粘贴为纯文本 | Ctrl+Shift+C / Ctrl+Alt+Shift+V |
+| 复制为纯文本、HTML 源码或无主题样式 | 编辑菜单，或在编辑器选区右键选择「复制为」 |
 | 替换（支持正则捕获组 `$1`、`\1`） | Ctrl+H |
 | 标题 1–6 / 正文 | Ctrl+1…6 / Ctrl+0 |
 | 加粗 / 斜体 / 删除线 | Ctrl+B / Ctrl+I / Alt+Shift+5 |

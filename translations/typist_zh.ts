@@ -328,6 +328,18 @@
         <translation>复制为 Markdown</translation>
     </message>
     <message>
+        <source>Copy as Plain Text</source>
+        <translation>复制为纯文本</translation>
+    </message>
+    <message>
+        <source>Copy as HTML Code</source>
+        <translation>复制为 HTML 源码</translation>
+    </message>
+    <message>
+        <source>Copy without Theme Styling</source>
+        <translation>复制无主题样式</translation>
+    </message>
+    <message>
         <source>Cut</source>
         <translation>剪切</translation>
     </message>
@@ -924,6 +936,26 @@
 </context>
 <context>
     <name>Editor</name>
+    <message>
+        <source>Copy As</source>
+        <translation>复制为</translation>
+    </message>
+    <message>
+        <source>Copy as Markdown</source>
+        <translation>复制为 Markdown</translation>
+    </message>
+    <message>
+        <source>Copy as Plain Text</source>
+        <translation>复制为纯文本</translation>
+    </message>
+    <message>
+        <source>Copy as HTML Code</source>
+        <translation>复制为 HTML 源码</translation>
+    </message>
+    <message>
+        <source>Copy without Theme Styling</source>
+        <translation>复制无主题样式</translation>
+    </message>
     <message>
         <source>Footnote</source>
         <translation>脚注</translation>

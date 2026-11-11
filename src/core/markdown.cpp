@@ -7,9 +7,11 @@
 #include <cmark-gfm.h>
 
 #include <algorithm>
+#include <cctype>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace typist::core {
@@ -672,14 +674,66 @@ std::string serializeMarkdown(const std::vector<Block>& blocks) {
   return out;
 }
 
-std::string toHtml(std::string_view source, const ParseOptions& options) {
-  const std::string prepared = prepareAdvancedMarkdown(source);
-  source = prepared;
+namespace {
+void makeHtmlLiteral(cmark_node* root) {
+  // Collect first so replacing a node never invalidates the active iterator.
+  std::vector<cmark_node*> rawNodes;
+  auto* iterator = cmark_iter_new(root);
+  while (cmark_iter_next(iterator) != CMARK_EVENT_DONE) {
+    if (cmark_iter_get_event_type(iterator) != CMARK_EVENT_ENTER) continue;
+    auto* node = cmark_iter_get_node(iterator);
+    const auto type = cmark_node_get_type(node);
+    if (type == CMARK_NODE_HTML_INLINE || type == CMARK_NODE_HTML_BLOCK) rawNodes.push_back(node);
+  }
+  cmark_iter_free(iterator);
+  for (auto* node : rawNodes) {
+    const char* literal = cmark_node_get_literal(node);
+    if (!literal) {
+      cmark_node_free(node);
+      continue;
+    }
+    const bool inlineHtml = cmark_node_get_type(node) == CMARK_NODE_HTML_INLINE;
+    if (inlineHtml) {
+      std::string tag(literal);
+      std::transform(tag.begin(), tag.end(), tag.begin(),
+                     [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+      if (tag == "<br>" || tag == "<br/>" || tag == "<br />") continue;
+    }
+    std::unique_ptr<cmark_node, decltype(&cmark_node_free)> replacement(
+        cmark_node_new(inlineHtml ? CMARK_NODE_TEXT : CMARK_NODE_CODE_BLOCK), &cmark_node_free);
+    if (cmark_node_set_literal(replacement.get(), literal) &&
+        cmark_node_replace(node, replacement.get()))
+      replacement.release();
+    cmark_node_free(node);
+  }
+}
+
+std::string restoreHtmlBreaks(std::string html) {
+  // GFM table cells reject native line-break nodes. Only approved <br> nodes
+  // remain raw, so each omission marker from cmark's safe renderer is a break.
+  constexpr std::string_view omitted = "<!-- raw HTML omitted -->";
+  auto next = html.find(omitted);
+  if (next == std::string::npos) return html;
+  std::string result;
+  result.reserve(html.size());
+  std::size_t start = 0;
+  while (next != std::string::npos) {
+    result.append(html, start, next - start);
+    result += "<br />";
+    start = next + omitted.size();
+    next = html.find(omitted, start);
+  }
+  result.append(html, start, std::string::npos);
+  return result;
+}
+
+std::string renderHtml(std::string_view source, const ParseOptions& options, bool preserveRawHtml) {
+  const int flags = preserveRawHtml ? CMARK_OPT_UNSAFE : CMARK_OPT_DEFAULT;
   cmark_gfm_core_extensions_ensure_registered();
   cmark_mem* mem = cmark_get_default_mem_allocator();
 
-  std::unique_ptr<cmark_parser, decltype(&cmark_parser_free)> parser(
-      cmark_parser_new(CMARK_OPT_UNSAFE), &cmark_parser_free);
+  std::unique_ptr<cmark_parser, decltype(&cmark_parser_free)> parser(cmark_parser_new(flags),
+                                                                     &cmark_parser_free);
   if (!parser) return "";
 
   cmark_llist* extensions = nullptr;
@@ -698,11 +752,22 @@ std::string toHtml(std::string_view source, const ParseOptions& options) {
     return "";
   }
 
-  char* html = cmark_render_html(root.get(), CMARK_OPT_UNSAFE, extensions);
+  if (!preserveRawHtml) makeHtmlLiteral(root.get());
+  char* html = cmark_render_html(root.get(), flags, extensions);
   std::string out = html != nullptr ? std::string(html) : std::string();
   if (html != nullptr) mem->free(html);
   cmark_llist_free(mem, extensions);
-  return decorateAdvancedHtml(out);
+  if (!preserveRawHtml) return restoreHtmlBreaks(std::move(out));
+  return out;
+}
+}  // namespace
+
+std::string toHtml(std::string_view source, const ParseOptions& options) {
+  return decorateAdvancedHtml(renderHtml(prepareAdvancedMarkdown(source), options, true));
+}
+
+std::string toSemanticHtml(std::string_view source, const ParseOptions& options) {
+  return renderHtml(source, options, false);
 }
 
 std::string wrapHtmlDocument(std::string_view body, std::string_view title, std::string_view css) {

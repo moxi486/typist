@@ -88,6 +88,10 @@ std::vector<ImageSource> imageSources(std::string_view source);
 // <br> used inside table cells) survives; callers decide where the fragment goes.
 std::string toHtml(std::string_view source, const ParseOptions& options = {});
 
+// Renders a stylesheet-free fragment. Raw HTML is shown as text, except for
+// simple line breaks used in table cells. cmark also filters unsafe destinations.
+std::string toSemanticHtml(std::string_view source, const ParseOptions& options = {});
+
 // Wraps an HTML fragment in a standalone document with a UTF-8 charset and a
 // neutral default stylesheet.
 std::string wrapHtmlDocument(std::string_view body, std::string_view title);

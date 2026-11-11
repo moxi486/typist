@@ -30,6 +30,7 @@
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QSplitter>
+#include <QTextDocumentFragment>
 #include <QTextList>
 #include <QTextTable>
 #include <QToolTip>
@@ -237,6 +238,39 @@ void Editor::copy() {
     m_paragraphPanel->input()->copy();
   else
     QTextEdit::copy();
+}
+QString Editor::selectedPlainText() const {
+  if (m_paragraphSourceActive) return paragraphSourceSelection();
+  const auto cursor = textCursor();
+  if (!m_rendered)
+    return cursor.selectedText().replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+  if (cursor.hasComplexSelection()) return editor::tableTsv(cursor, true);
+  return QTextDocumentFragment(cursor).toPlainText().remove(QChar::ObjectReplacementCharacter);
+}
+void Editor::copySelection(CopyFormat format) const {
+  if (format == CopyFormat::PlainText) {
+    const QString text = selectedPlainText();
+    if (!text.isEmpty()) QApplication::clipboard()->setText(text);
+    return;
+  }
+  const QString markdown = m_rendered && !m_paragraphSourceActive
+                               ? editor::selectedMarkdown(textCursor())
+                               : selectedPlainText();
+  if (markdown.isEmpty()) return;
+  if (format == CopyFormat::Markdown) {
+    QApplication::clipboard()->setText(markdown);
+    return;
+  }
+  const QString html = QString::fromStdString(core::toSemanticHtml(markdown.toStdString()));
+  if (html.isEmpty()) return;
+  if (format == CopyFormat::HtmlCode) {
+    QApplication::clipboard()->setText(html);
+    return;
+  }
+  auto* data = new QMimeData;
+  data->setHtml(html);
+  data->setText(selectedPlainText());
+  QApplication::clipboard()->setMimeData(data);
 }
 void Editor::paste() {
   const auto* source = QApplication::clipboard()->mimeData();
@@ -648,6 +682,18 @@ bool Editor::viewportEvent(QEvent* event) {
 }
 void Editor::contextMenuEvent(QContextMenuEvent* event) {
   auto* menu = createStandardContextMenu();
+  if (textCursor().hasSelection()) {
+    auto* copyAs = menu->addMenu(tr("Copy As"));
+    copyAs->setObjectName(QStringLiteral("copyAsContextMenu"));
+    const auto addFormat = [this, copyAs](const QString& label, CopyFormat format) {
+      auto* action = copyAs->addAction(label);
+      connect(action, &QAction::triggered, this, [this, format] { copySelection(format); });
+    };
+    addFormat(tr("Copy as Markdown"), CopyFormat::Markdown);
+    addFormat(tr("Copy as Plain Text"), CopyFormat::PlainText);
+    addFormat(tr("Copy as HTML Code"), CopyFormat::HtmlCode);
+    addFormat(tr("Copy without Theme Styling"), CopyFormat::WithoutTheme);
+  }
   const auto cursor = cursorForPosition(event->pos());
   const auto link = m_rendered ? editor::linkSelection(cursor) : QTextCursor();
   if (!link.isNull() && !anchorAt(event->pos()).isEmpty()) {
