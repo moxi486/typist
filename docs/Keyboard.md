@@ -23,6 +23,7 @@
 | 跳到行首 / 行尾 | 视图 → 跳转 → 跳到行首 / 跳到行尾 |
 | 替换（支持正则捕获组 `$1`、`\1`） | Ctrl+H |
 | 标题 1–6 / 正文 | Ctrl+1…6 / Ctrl+0 |
+| 提升 / 降低标题级别 | Ctrl+= / Ctrl+-（macOS Cmd+= / Cmd+-）；渲染视图中可批量调整选区标题 |
 | 加粗 / 斜体 / 删除线 | Ctrl+B / Ctrl+I / Alt+Shift+5 |
 | 行内代码 / 清除格式 | Ctrl+Shift+反引号 / Ctrl+反斜杠 |
 | 超链接 / 图片 | Ctrl+K / Ctrl+Shift+I |

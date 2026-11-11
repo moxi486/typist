@@ -44,6 +44,7 @@ class Editor : public QTextEdit {
 
   void configurePresentation(bool rendered) {
     finishParagraphSourceEdit(false);
+    const bool viewChanged = m_rendered != rendered;
     m_rendered = rendered;
     m_lastInlineBlock = -1;
     m_searchHighlights.clear();
@@ -67,6 +68,7 @@ class Editor : public QTextEdit {
     if (m_rendered && textCursor().block().text().isEmpty() &&
         textCursor().blockFormat().hasProperty(editor::kCodeBlockProperty))
       setCurrentCharFormat(textCursor().block().charFormat());
+    if (viewChanged) emit renderedEditingAvailableChanged(renderedEditingAvailable());
   }
 
   void setDarkTheme(bool dark) {
@@ -87,6 +89,8 @@ class Editor : public QTextEdit {
 
   void formatInline(editor::InlineStyle style);
   void formatParagraph(editor::ParagraphStyle style, int heading = 0);
+  bool renderedEditingAvailable() const { return m_rendered && !m_paragraphSourceActive; }
+  bool shiftHeadingLevels(int delta);
   void insertLink(const QString& target, const QString& label = QString());
   void createTable(int rows, int columns);
   bool changeTable(editor::TableCommand command);
@@ -148,6 +152,7 @@ class Editor : public QTextEdit {
     m_imagePasteHandler = std::move(handler);
   }
  signals:
+  void renderedEditingAvailableChanged(bool available);
   void paragraphSourceChanged();
   void paragraphSourceClosed();
   void markdownFileDropped(const QString& path);

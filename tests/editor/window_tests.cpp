@@ -1102,6 +1102,90 @@ class WindowTests : public QObject {
     QCOMPARE(editor->textCursor().block().text(), QStringLiteral("Newly added heading"));
   }
 
+  void headingShortcutsUpdateTheOutlineAndRespectEditorMode() {
+    const auto language = typist::platform::languagePreference();
+    QSettings settings(QStringLiteral("Typist"), QStringLiteral("Typist"));
+    const auto outlineKey = QStringLiteral("outline/collapsible");
+    const auto outlinePreference = settings.value(outlineKey);
+    const auto restore = qScopeGuard([&] {
+      typist::platform::setLanguagePreference(language);
+      if (outlinePreference.isValid())
+        settings.setValue(outlineKey, outlinePreference);
+      else
+        settings.remove(outlineKey);
+    });
+    settings.setValue(outlineKey, true);
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QTemporaryDir directory;
+    QFile file(directory.filePath(QStringLiteral("headings.md")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("# Parent\n\n## Child\n");
+    file.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.resize(1040, 640);
+    window.show();
+    QVERIFY(window.openFile(file.fileName()));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* tree = window.findChild<QTreeWidget*>(QStringLiteral("outlineHeadings"));
+    auto* promote = window.findChild<QAction*>(QStringLiteral("promoteHeading"));
+    auto* demote = window.findChild<QAction*>(QStringLiteral("demoteHeading"));
+    QVERIFY(editor && tree && promote && demote);
+    QCOMPARE(promote->text(), QStringLiteral("Increase Heading Level"));
+    QCOMPARE(demote->text(), QStringLiteral("Decrease Heading Level"));
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleOutline", Qt::DirectConnection));
+    QTRY_VERIFY(tree->isVisible());
+    QCOMPARE(tree->topLevelItemCount(), 1);
+    QCOMPARE(tree->topLevelItem(0)->childCount(), 1);
+    // QTest sends keys in-process. Set the Qt activation state even when the OS
+    // leaves another process in the foreground.
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_DEPRECATED
+    QApplication::setActiveWindow(&window);
+    QT_WARNING_POP
+    editor->setTextCursor(editor->document()->find(QStringLiteral("Child")));
+    editor->setFocus();
+    QTRY_VERIFY(editor->hasFocus());
+    QTest::keyClick(editor, Qt::Key_Equal, Qt::ControlModifier);
+    QCOMPARE(editor->textCursor().blockFormat().headingLevel(), 1);
+    QTRY_COMPARE(tree->topLevelItemCount(), 2);
+    QTest::keyClick(editor, Qt::Key_Minus, Qt::ControlModifier);
+    QCOMPARE(editor->textCursor().blockFormat().headingLevel(), 2);
+    QTRY_COMPARE(tree->topLevelItemCount(), 1);
+
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleFindBar", Qt::DirectConnection));
+    auto* find = window.findChild<QLineEdit*>(QStringLiteral("findPattern"));
+    QVERIFY(find);
+    QTRY_VERIFY(find->hasFocus());
+    QTest::keyClick(find, Qt::Key_Equal, Qt::ControlModifier);
+    QCOMPARE(editor->textCursor().blockFormat().headingLevel(), 2);
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleFindBar", Qt::DirectConnection));
+
+    auto cursor = editor->textCursor();
+    cursor.clearSelection();
+    editor->setTextCursor(cursor);
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(draft && !promote->isEnabled() && !demote->isEnabled());
+    draft->setPlainText(QStringLiteral("### Unapplied edit"));
+    QTest::keyClick(draft, Qt::Key_Equal, Qt::ControlModifier);
+    QCOMPARE(draft->toPlainText(), QStringLiteral("### Unapplied edit"));
+    QVERIFY(editor->paragraphSourceActive());
+    editor->finishParagraphSourceEdit(false);
+    QVERIFY(promote->isEnabled() && demote->isEnabled());
+
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    QVERIFY(!promote->isEnabled() && !demote->isEnabled());
+    const auto source = editor->toPlainText();
+    QTest::keyClick(editor, Qt::Key_Minus, Qt::ControlModifier);
+    QCOMPARE(editor->toPlainText(), source);
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    QVERIFY(promote->isEnabled() && demote->isEnabled());
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(promote->text(), QStringLiteral("提升标题级别"));
+    QCOMPARE(demote->text(), QStringLiteral("降低标题级别"));
+  }
+
   void rangeShortcutsNavigateAndKeepParagraphDraft() {
     const auto language = typist::platform::languagePreference();
     const auto restore = qScopeGuard([&] { typist::platform::setLanguagePreference(language); });

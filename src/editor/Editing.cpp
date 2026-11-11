@@ -39,6 +39,22 @@ void stripTaskMarker(QTextBlock block) {
   }
 }
 
+void applyHeadingLayout(QTextBlockFormat& format, int level) {
+  format.setHeadingLevel(level);
+  format.setTopMargin(level == 1 ? 8 : 22);
+  format.setBottomMargin(level == 1 ? 18 : 10);
+  format.setLineHeight(125, QTextBlockFormat::ProportionalHeight);
+}
+
+void applyHeadingWeightAndSize(QTextCharFormat& format, int level) {
+  static const double sizes[] = {28, 22, 18, 15, 13, 12};
+  const bool semanticBold =
+      format.fontWeight() >= QFont::Bold && !format.boolProperty(kPresentationBoldProperty);
+  format.setFontPointSize(sizes[level - 1]);
+  format.setFontWeight(QFont::Bold);
+  format.setProperty(kPresentationBoldProperty, !semanticBold);
+}
+
 void styleCharacters(QTextBlock block, int heading, bool code, bool wasCode) {
   struct Span {
     int position;
@@ -52,8 +68,6 @@ void styleCharacters(QTextBlock block, int heading, bool code, bool wasCode) {
   }
   for (const Span& span : spans) {
     QTextCharFormat format = span.format;
-    const bool semanticBold =
-        format.fontWeight() >= QFont::Bold && !format.boolProperty(kPresentationBoldProperty);
     if (code) {
       format = QTextCharFormat();
       format.setFontFamilies(
@@ -63,10 +77,7 @@ void styleCharacters(QTextBlock block, int heading, bool code, bool wasCode) {
       if (wasCode) format.clearProperty(QTextFormat::FontFamilies);
       format.clearProperty(QTextFormat::FontPointSize);
       if (heading > 0) {
-        static const double sizes[] = {28, 22, 18, 15, 13, 12};
-        format.setFontPointSize(sizes[qBound(1, heading, 6) - 1]);
-        format.setFontWeight(QFont::Bold);
-        format.setProperty(kPresentationBoldProperty, !semanticBold);
+        applyHeadingWeightAndSize(format, qBound(1, heading, 6));
       } else if (format.boolProperty(kPresentationBoldProperty)) {
         format.setFontWeight(QFont::Normal);
         format.clearProperty(kPresentationBoldProperty);
@@ -387,10 +398,7 @@ bool setParagraphStyle(QTextCursor& cursor, ParagraphStyle style, int heading) {
     format.setLineHeight(160, QTextBlockFormat::ProportionalHeight);
     format.setBottomMargin(12);
     if (style == ParagraphStyle::Heading) {
-      format.setHeadingLevel(qBound(1, heading, 6));
-      format.setTopMargin(heading == 1 ? 8 : 22);
-      format.setBottomMargin(heading == 1 ? 18 : 10);
-      format.setLineHeight(125, QTextBlockFormat::ProportionalHeight);
+      applyHeadingLayout(format, qBound(1, heading, 6));
     } else if (style == ParagraphStyle::Quote) {
       format.setProperty(kQuoteProperty, group);
       format.setLeftMargin(20);
@@ -415,10 +423,7 @@ bool setParagraphStyle(QTextCursor& cursor, ParagraphStyle style, int heading) {
         character.setFontFamilies({QStringLiteral("Consolas"), QStringLiteral("monospace")});
         character.setFontPointSize(10.5);
       } else if (style == ParagraphStyle::Heading) {
-        static const double sizes[] = {28, 22, 18, 15, 13, 12};
-        character.setFontPointSize(sizes[qBound(1, heading, 6) - 1]);
-        character.setFontWeight(QFont::Bold);
-        character.setProperty(kPresentationBoldProperty, true);
+        applyHeadingWeightAndSize(character, qBound(1, heading, 6));
       }
       line.setBlockCharFormat(character);
       if (block.text().isEmpty() || !cursor.hasSelection()) cursor.setCharFormat(character);
@@ -426,6 +431,30 @@ bool setParagraphStyle(QTextCursor& cursor, ParagraphStyle style, int heading) {
   }
   cursor.endEditBlock();
   return true;
+}
+
+bool shiftHeadingLevels(QTextCursor& cursor, int delta) {
+  if (cursor.isNull() || cursor.hasComplexSelection()) return false;
+  bool changed = false;
+  for (const QTextBlock& block : selectedBlocks(cursor)) {
+    QTextBlockFormat format = block.blockFormat();
+    const int level = format.headingLevel();
+    const int next = level + delta;
+    if (level < 1 || level > 6 || next < 1 || next > 6 || next == level) continue;
+    QTextCursor heading(block);
+    if (heading.currentTable()) continue;
+    if (!changed) cursor.beginEditBlock();
+    changed = true;
+    applyHeadingLayout(format, next);
+    heading.setBlockFormat(format);
+    styleCharacters(block, next, false, false);
+    auto character = block.charFormat();
+    applyHeadingWeightAndSize(character, next);
+    heading.setBlockCharFormat(character);
+    if (block.text().isEmpty() && !cursor.hasSelection()) cursor.setCharFormat(character);
+  }
+  if (changed) cursor.endEditBlock();
+  return changed;
 }
 
 void toggleInlineStyle(QTextCursor& cursor, InlineStyle style) {
