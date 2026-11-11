@@ -1045,6 +1045,22 @@
 <context>
     <name>Editor</name>
     <message>
+        <source>Code Tools</source>
+        <translation>代码工具</translation>
+    </message>
+    <message>
+        <source>Select Code Block</source>
+        <translation>选中代码块</translation>
+    </message>
+    <message>
+        <source>Copy Code Block</source>
+        <translation>复制代码块</translation>
+    </message>
+    <message>
+        <source>Exit Code Block</source>
+        <translation>退出代码块</translation>
+    </message>
+    <message>
         <source>Copy As</source>
         <translation>复制为</translation>
     </message>

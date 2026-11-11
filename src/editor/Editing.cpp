@@ -200,8 +200,7 @@ void selectRange(QTextCursor& cursor, SelectionRange range, bool rendered) {
   if (rendered && (range == SelectionRange::Paragraph || range == SelectionRange::StyledScope)) {
     const auto code = codeRange(cursor);
     if (code.valid()) {
-      cursor.setPosition(code.first.position());
-      cursor.setPosition(code.last.position() + code.last.length() - 1, QTextCursor::KeepAnchor);
+      cursor = code.selection();
       return;
     }
   }
