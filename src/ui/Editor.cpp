@@ -192,10 +192,32 @@ void Editor::updateCodeTabStops() {
   if (!qFuzzyCompare(tabStopDistance(), distance)) setTabStopDistance(distance);
 }
 
+void Editor::setWritingAreaWidths(const platform::WritingAreaWidths& widths) {
+  const auto old = m_rendered ? m_writingAreaWidths.rendered : m_writingAreaWidths.source;
+  m_writingAreaWidths = widths;
+  if (old == (m_rendered ? widths.rendered : widths.source)) return;
+
+  // Keep the reader's position when reflow changes the height of earlier paragraphs.
+  const auto top = isVisible() ? cursorForPosition(QPoint(0, 0)) : QTextCursor();
+  const int topY = top.isNull() ? 0 : cursorRect(top).top();
+  const bool caretVisible = viewport()->rect().intersects(cursorRect());
+  updateWritingArea();
+  if (!top.isNull()) {
+    auto* scroll = verticalScrollBar();
+    scroll->setValue(scroll->value() + cursorRect(top).top() - topY);
+    if (caretVisible) ensureCursorVisible();
+  }
+  updateDecorations();
+  updateParagraphSourceGeometry();
+  updateCodeBlockBar();
+  updateTableBar();
+}
+
 void Editor::updateWritingArea() {
   QScopedValueRollback<bool> guard(m_updatingMargins, true);
   // Use the editor width. Resize events forwarded from the viewport already exclude margins.
-  const int side = qMax(24, (width() - 860) / 2);
+  const int maximum = int(m_rendered ? m_writingAreaWidths.rendered : m_writingAreaWidths.source);
+  const int side = maximum > 0 ? qMax(24, (width() - maximum + 1) / 2) : 24;
   const bool numbers = m_rendered && m_codeLineNumbers;
   const int gutterWidth = numbers ? m_codeLineNumberGutter->numberWidth() : 0;
   const QMargins margins(qMax(side, gutterWidth), 36, side, 28);

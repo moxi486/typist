@@ -5,8 +5,35 @@
 namespace typist::platform {
 
 namespace {
-QSettings openSettings() { return QSettings(QStringLiteral("Typist"), QStringLiteral("Typist")); }
+QSettings openSettings(QSettings::Format format = QSettings::NativeFormat) {
+  return QSettings(format, QSettings::UserScope, QStringLiteral("Typist"),
+                   QStringLiteral("Typist"));
+}
+const auto writingAreaKey = QStringLiteral("editor/writingAreaWidths");
+
+WritingWidth readWritingWidth(const QVariant& value) {
+  bool ok = false;
+  const int width = value.toInt(&ok);
+  if (ok) {
+    for (auto choice :
+         {WritingWidth::Fill, WritingWidth::Compact, WritingWidth::Standard, WritingWidth::Wide})
+      if (width == int(choice)) return choice;
+  }
+  return WritingWidth::Standard;
+}
 }  // namespace
+
+WritingAreaWidths writingAreaWidths() {
+  const auto widths = openSettings(QSettings::defaultFormat()).value(writingAreaKey).toMap();
+  return {readWritingWidth(widths.value(QStringLiteral("rendered"))),
+          readWritingWidth(widths.value(QStringLiteral("source")))};
+}
+
+void setWritingAreaWidths(const WritingAreaWidths& widths) {
+  openSettings(QSettings::defaultFormat())
+      .setValue(writingAreaKey, QVariantMap{{QStringLiteral("rendered"), int(widths.rendered)},
+                                            {QStringLiteral("source"), int(widths.source)}});
+}
 
 FileBrowserOptions fileBrowserOptions() {
   const auto settings = openSettings();

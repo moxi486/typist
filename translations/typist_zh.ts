@@ -276,6 +276,26 @@
         <translation>实际大小</translation>
     </message>
     <message>
+        <source>Writing Area Width</source>
+        <translation>写作区宽度</translation>
+    </message>
+    <message>
+        <source>Compact (%1 px)</source>
+        <translation>紧凑（%1 像素）</translation>
+    </message>
+    <message>
+        <source>Standard (%1 px)</source>
+        <translation>标准（%1 像素）</translation>
+    </message>
+    <message>
+        <source>Wide (%1 px)</source>
+        <translation>宽版（%1 像素）</translation>
+    </message>
+    <message>
+        <source>Fill Window</source>
+        <translation>铺满窗口</translation>
+    </message>
+    <message>
         <source>Align Center</source>
         <translation>居中对齐</translation>
     </message>

@@ -3,6 +3,7 @@
 #include "CodeEditing.h"
 #include "Editing.h"
 #include "ListEditing.h"
+#include "Settings.h"
 #include "SpecialContent.h"
 #include "SyntaxHighlighter.h"
 #include "editor_document.h"
@@ -64,7 +65,7 @@ class Editor : public QTextEdit {
         updateTableBar();
       });
     });
-    if (m_codeLineNumbers) updateWritingArea();
+    if (viewChanged || m_codeLineNumbers) updateWritingArea();
     updateDecorations();
     updateCodeBlockBar(true);
     updateTableBar();
@@ -109,6 +110,7 @@ class Editor : public QTextEdit {
     updateDecorations();
   }
   void setTypewriterMode(bool enabled);
+  void setWritingAreaWidths(const platform::WritingAreaWidths& widths);
   void setAutoPair(bool enabled) { m_autoPair = enabled; }
   bool focusMode() const { return m_focusMode; }
   bool typewriterMode() const { return m_typewriterMode; }
@@ -338,6 +340,7 @@ class Editor : public QTextEdit {
   bool m_autoPair = true;
   bool m_syntaxHighlight = true;
   bool m_codeLineNumbers = false;
+  platform::WritingAreaWidths m_writingAreaWidths;
   bool m_autoIndentOnBacktab = false;
   int m_codeIndentSize = editor::kDefaultCodeIndentSize;
   QString m_lastInlineText;
