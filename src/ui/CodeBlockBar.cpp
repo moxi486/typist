@@ -1,5 +1,7 @@
 #include "CodeBlockBar.h"
 
+#include "CodeEditing.h"
+
 #include <QAbstractItemView>
 #include <QComboBox>
 #include <QHBoxLayout>
@@ -42,15 +44,10 @@ CodeBlockBar::CodeBlockBar(QWidget* parent) : QFrame(parent) {
   m_language->setFixedWidth(128);
   m_language->setMaxVisibleItems(12);
   m_language->addItem(QString(), QString());
-  for (const auto& id :
-       QStringLiteral(
-           "cpp c python javascript typescript json bash powershell java cs go rust swift kotlin "
-           "sql html css yaml toml xml markdown latex mermaid")
-           .split(' '))
-    m_language->addItem(id, id);
+  for (const auto& id : editor::codeLanguages()) m_language->addItem(id, id);
   m_language->lineEdit()->setMaxLength(64);
-  m_language->lineEdit()->setValidator(new QRegularExpressionValidator(
-      QRegularExpression(QStringLiteral("[A-Za-z0-9_+.#-]*")), m_language));
+  m_language->lineEdit()->setValidator(
+      new QRegularExpressionValidator(editor::codeLanguagePattern(), m_language));
   m_language->lineEdit()->installEventFilter(this);
   m_language->installEventFilter(this);
   layout->addWidget(m_language);

@@ -640,6 +640,22 @@
         <translation>代码语言</translation>
     </message>
     <message>
+        <source>Default Code Language</source>
+        <translation>默认代码语言</translation>
+    </message>
+    <message>
+        <source>Use last selected language</source>
+        <translation>使用上次选择的语言</translation>
+    </message>
+    <message>
+        <source>Apply to menu and shortcut</source>
+        <translation>应用于菜单和快捷键</translation>
+    </message>
+    <message>
+        <source>Apply to typed fences</source>
+        <translation>应用于手输围栏</translation>
+    </message>
+    <message>
         <source>Edit Paragraph Markdown</source>
         <translation>编辑段落 Markdown</translation>
     </message>

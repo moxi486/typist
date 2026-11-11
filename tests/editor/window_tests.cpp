@@ -1102,6 +1102,102 @@ class WindowTests : public QObject {
     QCOMPARE(editor->textCursor().block().text(), QStringLiteral("Newly added heading"));
   }
 
+  void defaultCodeLanguageSettingsRememberModeAndExplicitLanguage() {
+    QSettings settings(QStringLiteral("Typist"), QStringLiteral("Typist"));
+    const auto key = QStringLiteral("editor/codeFencePreferences");
+    const auto lastKey = QStringLiteral("editor/lastCodeLanguage");
+    const auto prior = settings.value(key);
+    const auto priorLast = settings.value(lastKey);
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] {
+      typist::platform::setLanguagePreference(language);
+      for (const auto& pair : {qMakePair(key, prior), qMakePair(lastKey, priorLast)}) {
+        if (pair.second.isValid())
+          settings.setValue(pair.first, pair.second);
+        else
+          settings.remove(pair.first);
+      }
+    });
+    settings.remove(key);
+    settings.remove(lastKey);
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.show();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* action = window.findChild<QAction*>(QStringLiteral("defaultCodeLanguage"));
+    auto* code = window.findChild<QAction*>(QStringLiteral("paragraph_code"));
+    auto* fresh = window.findChild<QAction*>(QStringLiteral("newDocument"));
+    QVERIFY(editor && action && code && fresh);
+    QCOMPARE(action->text(), QStringLiteral("Default Code Language"));
+    const auto configure = [&](bool useLast, bool forCommands, bool forTyped, bool accept) {
+      bool seen = false;
+      QTimer::singleShot(0, &window, [&] {
+        auto* dialog = window.findChild<QDialog*>(QStringLiteral("codeFenceSettings"));
+        if (!dialog) {
+          if (auto* modal = QApplication::activeModalWidget()) modal->close();
+          return;
+        }
+        const auto close = qScopeGuard([&] { accept ? dialog->accept() : dialog->reject(); });
+        auto* input = dialog->findChild<QComboBox*>(QStringLiteral("codeFenceLanguage"));
+        auto* last = dialog->findChild<QCheckBox*>(QStringLiteral("codeFenceUseLast"));
+        auto* commands = dialog->findChild<QCheckBox*>(QStringLiteral("codeFenceApplyCommands"));
+        auto* typed = dialog->findChild<QCheckBox*>(QStringLiteral("codeFenceApplyTyped"));
+        if (!input || !last || !commands || !typed) return;
+        input->setEditText(QStringLiteral("python"));
+        last->setChecked(useLast);
+        commands->setChecked(forCommands);
+        typed->setChecked(forTyped);
+        seen = input->isEnabled() == !useLast;
+      });
+      action->trigger();
+      return seen;
+    };
+    QVERIFY(configure(false, true, false, true));
+    code->trigger();
+    QCOMPARE(
+        editor->textCursor().blockFormat().property(typist::editor::kCodeInfoProperty).toString(),
+        QStringLiteral("python"));
+    QVERIFY(typist::platform::lastCodeLanguage().isEmpty());
+    fresh->trigger();
+    QTest::keyClicks(editor, "```");
+    QTest::keyClick(editor, Qt::Key_Return);
+    QVERIFY(editor->textCursor().blockFormat().hasProperty(typist::editor::kCodeBlockProperty));
+    QVERIFY(editor->textCursor()
+                .blockFormat()
+                .property(typist::editor::kCodeInfoProperty)
+                .toString()
+                .isEmpty());
+    QVERIFY(editor->setCodeLanguage(QStringLiteral("rust")));
+    QCOMPARE(typist::platform::lastCodeLanguage(), QStringLiteral("rust"));
+
+    QVERIFY(configure(true, false, true, false));
+    QVERIFY(!typist::platform::codeFencePreferences().useLastLanguage);
+    QVERIFY(configure(true, false, true, true));
+    QVERIFY(typist::platform::codeFencePreferences().useLastLanguage);
+    QVERIFY(!typist::platform::codeFencePreferences().applyToCommands);
+    fresh->trigger();
+    code->trigger();
+    QVERIFY(editor->textCursor()
+                .blockFormat()
+                .property(typist::editor::kCodeInfoProperty)
+                .toString()
+                .isEmpty());
+    typist::MainWindow reopened;
+    reopened.setBenchMode(true);
+    auto* reopenedEditor = reopened.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(reopenedEditor);
+    QTest::keyClicks(reopenedEditor, "```");
+    QTest::keyClick(reopenedEditor, Qt::Key_Return);
+    QCOMPARE(reopenedEditor->textCursor()
+                 .blockFormat()
+                 .property(typist::editor::kCodeInfoProperty)
+                 .toString(),
+             QStringLiteral("rust"));
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(action->text(), QStringLiteral("默认代码语言"));
+  }
+
   void codeLineNumberSettingPersistsAndTranslates() {
     const auto language = typist::platform::languagePreference();
     typist::platform::setLanguagePreference(QStringLiteral("en"));

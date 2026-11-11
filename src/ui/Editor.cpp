@@ -535,24 +535,24 @@ void Editor::updateParagraphSourceGeometry() {
   m_paragraphPanel->setGeometry(4, y, qMax(150, viewport()->width() - 12), height);
   m_paragraphPanel->raise();
 }
+QString Editor::defaultCodeLanguage(CodeFenceCreation creation) const {
+  if (!m_defaultCodeLanguage) return {};
+  const QString identifier = m_defaultCodeLanguage(creation);
+  if (identifier.size() > 64 || !editor::codeLanguagePattern().match(identifier).hasMatch())
+    return {};
+  return identifier;
+}
+
 bool Editor::setCodeLanguage(const QString& language) {
   finishParagraphSourceEdit();
-  const auto range = editor::codeRange(textCursor());
-  if (!m_rendered || !range.valid()) return false;
+  if (!m_rendered || isReadOnly()) return false;
   const QString identifier =
       language.trimmed().section(QRegularExpression(QStringLiteral("\\s+")), 0, 0).left(64);
-  if (!QRegularExpression(QStringLiteral("^[A-Za-z0-9_+.#-]*$")).match(identifier).hasMatch())
+  auto cursor = textCursor();
+  if (!editor::codeLanguagePattern().match(identifier).hasMatch() ||
+      !editor::setCodeLanguage(cursor, identifier))
     return false;
-  if (range.language() == identifier) return true;
-  QTextCursor edit(document());
-  edit.beginEditBlock();
-  for (auto block = range.first; block.isValid(); block = block.next()) {
-    QTextBlockFormat format = block.blockFormat();
-    format.setProperty(editor::kCodeInfoProperty, identifier);
-    QTextCursor(block).setBlockFormat(format);
-    if (block == range.last) break;
-  }
-  edit.endEditBlock();
+  emit codeLanguageChosen(identifier);
   updateCodeBlockBar();
   return true;
 }
@@ -1047,6 +1047,12 @@ void Editor::formatInline(editor::InlineStyle style) {
 void Editor::formatParagraph(editor::ParagraphStyle style, int heading) {
   finishParagraphSourceEdit();
   QTextCursor cursor = textCursor();
+  QString codeLanguage;
+  if (style == editor::ParagraphStyle::Code) {
+    const auto existing = m_rendered ? editor::codeRange(cursor) : editor::CodeRange();
+    codeLanguage =
+        existing.valid() ? existing.language() : defaultCodeLanguage(CodeFenceCreation::Command);
+  }
   if (!m_rendered) {
     const QString prefix = style == editor::ParagraphStyle::Heading
                                ? QString(heading, QLatin1Char('#')) + QLatin1Char(' ')
@@ -1062,9 +1068,11 @@ void Editor::formatParagraph(editor::ParagraphStyle style, int heading) {
     cursor.setPosition(start);
     cursor.setPosition(last.position() + last.length() - 1, QTextCursor::KeepAnchor);
     QString text = cursor.selectedText().replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
-    if (style == editor::ParagraphStyle::Code)
-      text = QStringLiteral("```\n") + text + QStringLiteral("\n```");
-    else if (style == editor::ParagraphStyle::Rule)
+    if (style == editor::ParagraphStyle::Code) {
+      const auto fence =
+          QString::fromStdString(core::codeFence(text.toStdString(), codeLanguage.toStdString()));
+      text = fence + codeLanguage + QLatin1Char('\n') + text + QLatin1Char('\n') + fence;
+    } else if (style == editor::ParagraphStyle::Rule)
       text += QStringLiteral("\n\n---\n");
     else {
       QStringList lines = text.split(QLatin1Char('\n'));
@@ -1084,7 +1092,9 @@ void Editor::formatParagraph(editor::ParagraphStyle style, int heading) {
       cursor.movePosition(QTextCursor::EndOfBlock);
       cursor.insertBlock(QTextBlockFormat(), QTextCharFormat());
     }
-    editor::setParagraphStyle(cursor, style, heading);
+    const bool formatted = editor::setParagraphStyle(cursor, style, heading);
+    if (formatted && style == editor::ParagraphStyle::Code && !codeLanguage.isEmpty())
+      editor::setCodeLanguage(cursor, codeLanguage);
     if (style == editor::ParagraphStyle::Rule) {
       cursor.movePosition(QTextCursor::EndOfBlock);
       cursor.insertBlock(QTextBlockFormat(), QTextCharFormat());
@@ -1496,19 +1506,23 @@ void Editor::keyPressEvent(QKeyEvent* event) {
         setTextCursor(cursor);
         return;
       }
-      const auto fence = QRegularExpression(QStringLiteral("^(?:```|~~~)([A-Za-z0-9_+.-]*)$"))
-                             .match(text.trimmed());
+      static const QRegularExpression fencePattern(
+          QStringLiteral("^(?:```|~~~)([A-Za-z0-9_+.#-]*)$"));
+      const auto fence = fencePattern.match(text.trimmed());
       if (!code && fence.hasMatch() && !cursor.currentTable()) {
+        const auto explicitLanguage = fence.captured(1);
+        const auto language = explicitLanguage.isEmpty()
+                                  ? defaultCodeLanguage(CodeFenceCreation::Typed)
+                                  : explicitLanguage;
         cursor.beginEditBlock();
         cursor.setPosition(cursor.block().position());
         cursor.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
         cursor.removeSelectedText();
         editor::setParagraphStyle(cursor, editor::ParagraphStyle::Code);
-        QTextBlockFormat format = cursor.blockFormat();
-        format.setProperty(editor::kCodeInfoProperty, fence.captured(1));
-        cursor.setBlockFormat(format);
+        if (!language.isEmpty()) editor::setCodeLanguage(cursor, language);
         cursor.endEditBlock();
         setTextCursor(cursor);
+        if (!explicitLanguage.isEmpty()) emit codeLanguageChosen(explicitLanguage.left(64));
         return;
       }
       if (code) {

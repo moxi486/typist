@@ -124,6 +124,10 @@ class Editor : public QTextEdit {
     render::installSyntaxHighlighter(document(), !m_rendered, m_dark, enabled);
   }
   void setCodeLineNumbers(bool enabled);
+  enum class CodeFenceCreation { Command, Typed };
+  void setDefaultCodeLanguageResolver(std::function<QString(CodeFenceCreation)> resolver) {
+    m_defaultCodeLanguage = std::move(resolver);
+  }
   bool setCodeLanguage(const QString& language);
   bool exitCodeBlock();
   bool copyCodeBlock();
@@ -156,6 +160,7 @@ class Editor : public QTextEdit {
     m_imagePasteHandler = std::move(handler);
   }
  signals:
+  void codeLanguageChosen(const QString& language);
   void renderedEditingAvailableChanged(bool available);
   void paragraphSourceChanged();
   void paragraphSourceClosed();
@@ -229,6 +234,7 @@ class Editor : public QTextEdit {
   void clearImageTypingFormat();
   void updateCodeBlockBar(bool reset = false);
   void updateCodeBlockTheme();
+  QString defaultCodeLanguage(CodeFenceCreation creation) const;
   void updateWritingArea();
   void updateTableBar();
   void updateTableTheme();
@@ -236,6 +242,7 @@ class Editor : public QTextEdit {
   CodeBlockBar* m_codeBar = nullptr;
   CodeLineNumberGutter* m_codeLineNumberGutter = nullptr;
   std::function<bool(const QMimeData*)> m_imagePasteHandler;
+  std::function<QString(CodeFenceCreation)> m_defaultCodeLanguage;
   ParagraphSourcePanel* m_paragraphPanel = nullptr;
   bool m_paragraphSourceActive = false;
   bool m_paragraphSourceFocusCommitEnabled = true;
