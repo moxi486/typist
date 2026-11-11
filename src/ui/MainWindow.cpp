@@ -557,6 +557,18 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
           [editor] { editor->paste(); });
   command(edit, QStringLiteral("selectAll"), tr("Select All"), QStringLiteral("Ctrl+A"),
           [editor] { editor->selectAll(); });
+  auto* selectMenu = edit->addMenu(tr("Select Range"));
+  selectMenu->setObjectName(QStringLiteral("selectRangeMenu"));
+  command(selectMenu, QStringLiteral("selectWord"), tr("Select Word"), QStringLiteral("Ctrl+D"),
+          [editor] { editor->selectRange(editor::SelectionRange::Word); });
+  command(selectMenu, QStringLiteral("selectSentence"), tr("Select Line / Sentence"),
+          QStringLiteral("Ctrl+L"),
+          [editor] { editor->selectRange(editor::SelectionRange::LineOrSentence); });
+  command(selectMenu, QStringLiteral("selectParagraph"), tr("Select Paragraph / Block"), QString(),
+          [editor] { editor->selectRange(editor::SelectionRange::Paragraph); });
+  command(selectMenu, QStringLiteral("selectStyle"), tr("Select Styled Scope / Table Cell"),
+          QStringLiteral("Ctrl+E"),
+          [editor] { editor->selectRange(editor::SelectionRange::StyledScope); });
   command(edit, QStringLiteral("copyMarkdown"), tr("Copy as Markdown"),
           QStringLiteral("Ctrl+Shift+C"),
           [editor] { editor->copySelection(ui::Editor::CopyFormat::Markdown); });
@@ -779,6 +791,24 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
           [editor] { editor->resetZoom(); });
   command(view, QStringLiteral("wordCount"), tr("Document Statistics"), QString(),
           [this] { showDocumentStatistics(); });
+  auto* jumpMenu = view->addMenu(tr("Jump"));
+  jumpMenu->setObjectName(QStringLiteral("jumpMenu"));
+  command(jumpMenu, QStringLiteral("jumpSelection"), tr("Jump to Selection"),
+          QStringLiteral("Ctrl+J"), [editor] { editor->revealSelection(); });
+  command(jumpMenu, QStringLiteral("jumpTop"), tr("Jump to Top"), QStringLiteral("Ctrl+Home"),
+          [editor] { editor->moveCaret(QTextCursor::Start); });
+  command(jumpMenu, QStringLiteral("jumpBottom"), tr("Jump to Bottom"), QStringLiteral("Ctrl+End"),
+          [editor] { editor->moveCaret(QTextCursor::End); });
+  command(jumpMenu, QStringLiteral("jumpLineStart"), tr("Jump to Line Start"), QString(),
+          [editor] { editor->moveCaret(QTextCursor::StartOfLine); });
+  command(jumpMenu, QStringLiteral("jumpLineEnd"), tr("Jump to Line End"), QString(),
+          [editor] { editor->moveCaret(QTextCursor::EndOfLine); });
+  for (auto* menu : {selectMenu, jumpMenu}) {
+    for (auto* action : menu->actions()) {
+      action->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+      editor->addAction(action);
+    }
+  }
   m_outlineAction->setShortcuts(
       {QKeySequence(QStringLiteral("Ctrl+Shift+T")), QKeySequence(QStringLiteral("Ctrl+Shift+1"))});
   command(view, QStringLiteral("fileTree"), tr("File Tree"), QStringLiteral("Ctrl+Shift+3"),

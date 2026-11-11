@@ -15,6 +15,10 @@
 | 粘贴为 Markdown | Ctrl+Shift+V |
 | 复制为 Markdown / 粘贴为纯文本 | Ctrl+Shift+C / Ctrl+Alt+Shift+V |
 | 复制为纯文本、HTML 源码或无主题样式 | 编辑菜单，或在编辑器选区右键选择「复制为」 |
+| 选择单词 / 行或句子 / 样式范围 | Ctrl+D / Ctrl+L / Ctrl+E；表格中的后两项选择整行 / 单元格 |
+| 选择段落、代码块或整张表 | 编辑 → 选择范围 → 选择段落／块 |
+| 跳到选区 / 文档开头 / 文档末尾 | Ctrl+J / Ctrl+Home / Ctrl+End |
+| 跳到行首 / 行尾 | 视图 → 跳转 → 跳到行首 / 跳到行尾 |
 | 替换（支持正则捕获组 `$1`、`\1`） | Ctrl+H |
 | 标题 1–6 / 正文 | Ctrl+1…6 / Ctrl+0 |
 | 加粗 / 斜体 / 删除线 | Ctrl+B / Ctrl+I / Alt+Shift+5 |

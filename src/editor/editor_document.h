@@ -55,6 +55,7 @@ void buildDocument(const std::vector<typist::core::Block>& blocks, QTextDocument
 QString serializeDocument(const QTextDocument* document, int paragraphPosition = -1,
                           const QString& paragraphSource = QString());
 QString inlineMarkdown(const QTextBlock& block);
+bool isInlineCodeFormat(const QTextCharFormat& format);
 
 // Parses Markdown and inserts the blocks at the cursor, on one undo step. The cursor
 // lands after the pasted content. Returns false on a parse failure without touching

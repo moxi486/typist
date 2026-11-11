@@ -148,6 +148,65 @@ class EditingTests : public QObject {
     QVERIFY(markdown(editor).startsWith(QStringLiteral("###")));
   }
 
+  void rangeSelectionUsesSentenceStyleAndCodeBoundaries() {
+    using Range = typist::editor::SelectionRange;
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    prepare(editor, view,
+            QStringLiteral("# Title **bold phrase** and `inline code`\n\n"
+                           "Price is 3.14. Second sentence! Last?\n\n"
+                           "第一句。第二句！第三句？\n\n"
+                           "- [x] Task sentence. Next sentence.\n\n"
+                           "```cpp\n  first();\n  second();\n```\n\nTail.\n"));
+    const auto before = markdown(editor);
+    const int undo = editor.document()->availableUndoSteps();
+    const auto select = [&](const QString& inside, Range range) {
+      auto cursor = editor.document()->find(inside);
+      if (cursor.isNull()) return QString();
+      cursor.setPosition(cursor.selectionStart() + 1);
+      editor.setTextCursor(cursor);
+      editor.selectRange(range);
+      return editor.textCursor()
+          .selectedText()
+          .replace(QChar::ParagraphSeparator, QLatin1Char('\n'))
+          .replace(QChar::LineSeparator, QLatin1Char('\n'));
+    };
+    QCOMPARE(select(QStringLiteral("bold"), Range::Word), QStringLiteral("bold"));
+    QCOMPARE(select(QStringLiteral("bold"), Range::StyledScope), QStringLiteral("bold phrase"));
+    QCOMPARE(select(QStringLiteral("inline"), Range::StyledScope), QStringLiteral("inline code"));
+    QCOMPARE(select(QStringLiteral("Title"), Range::StyledScope), QStringLiteral("Title"));
+    QCOMPARE(select(QStringLiteral("phrase"), Range::Paragraph),
+             QStringLiteral("Title bold phrase and inline code"));
+    QCOMPARE(select(QStringLiteral("3.14"), Range::LineOrSentence),
+             QStringLiteral("Price is 3.14."));
+    QCOMPARE(select(QStringLiteral("Second sentence"), Range::LineOrSentence),
+             QStringLiteral("Second sentence!"));
+    QCOMPARE(select(QStringLiteral("第二句"), Range::LineOrSentence), QStringLiteral("第二句！"));
+    QCOMPARE(select(QStringLiteral("Task"), Range::LineOrSentence),
+             QStringLiteral("Task sentence."));
+    QCOMPARE(select(QStringLiteral("second()"), Range::LineOrSentence),
+             QStringLiteral("  second();"));
+    QCOMPARE(select(QStringLiteral("second()"), Range::Paragraph),
+             QStringLiteral("  first();\n  second();"));
+
+    auto last = editor.document()->find(QStringLiteral("Last?"));
+    last.clearSelection();
+    editor.setTextCursor(last);
+    editor.selectRange(Range::LineOrSentence);
+    QCOMPARE(editor.textCursor().selectedText(), QStringLiteral("Last?"));
+    QCOMPARE(markdown(editor), before);
+    QCOMPARE(editor.document()->availableUndoSteps(), undo);
+
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    QCOMPARE(select(QStringLiteral("Second sentence"), Range::LineOrSentence),
+             QStringLiteral("Price is 3.14. Second sentence! Last?"));
+    QCOMPARE(select(QStringLiteral("bold"), Range::StyledScope), QStringLiteral("bold"));
+    editor.moveCursor(QTextCursor::End);
+    editor.selectRange(Range::LineOrSentence);
+    QVERIFY(!editor.textCursor().hasSelection());
+  }
+
   void tableOperationsRoundTripAndUndo() {
     typist::ui::ViewSwitch view;
     typist::ui::Editor editor;

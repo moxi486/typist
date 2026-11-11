@@ -139,6 +139,9 @@ class Editor : public QTextEdit {
   void copySelection(CopyFormat format) const;
   void paste();
   void selectAll();
+  void selectRange(editor::SelectionRange range);
+  void moveCaret(QTextCursor::MoveOperation operation);
+  void revealSelection();
   void insertPlainText(const QString& text);
   void setImagePasteHandler(std::function<bool(const QMimeData*)> handler) {
     m_imagePasteHandler = std::move(handler);

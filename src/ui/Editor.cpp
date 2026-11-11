@@ -287,6 +287,38 @@ void Editor::selectAll() {
   else
     QTextEdit::selectAll();
 }
+void Editor::selectRange(editor::SelectionRange range) {
+  auto* input = m_paragraphSourceActive ? m_paragraphPanel->input() : nullptr;
+  auto cursor = input ? input->textCursor() : textCursor();
+  editor::selectRange(cursor, range, m_rendered && !input);
+  if (input)
+    input->setTextCursor(cursor);
+  else
+    setTextCursor(cursor);
+  revealSelection();
+}
+void Editor::moveCaret(QTextCursor::MoveOperation operation) {
+  auto* input = m_paragraphSourceActive ? m_paragraphPanel->input() : nullptr;
+  auto cursor = input ? input->textCursor() : textCursor();
+  cursor.clearSelection();
+  cursor.movePosition(operation);
+  if (m_rendered && !input && operation == QTextCursor::StartOfLine)
+    cursor.setPosition(qMax(cursor.position(), editor::listContentStart(cursor.block())));
+  if (input)
+    input->setTextCursor(cursor);
+  else
+    setTextCursor(cursor);
+  revealSelection();
+}
+void Editor::revealSelection() {
+  if (m_paragraphSourceActive) {
+    m_paragraphPanel->input()->setFocus();
+    m_paragraphPanel->input()->ensureCursorVisible();
+  } else {
+    setFocus();
+    ensureCursorVisible();
+  }
+}
 void Editor::insertPlainText(const QString& text) {
   if (m_paragraphSourceActive)
     m_paragraphPanel->input()->insertPlainText(text);

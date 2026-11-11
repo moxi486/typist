@@ -587,14 +587,6 @@ QString wrapMarkdownRuns(const QVector<MarkdownRun>& runs, bool rawSource = fals
   return out;
 }
 
-// Inline code is the one family the builder sets; code blocks are separate blocks.
-bool isInlineCodeFormat(const QTextCharFormat& fmt) {
-  for (const QString& family : fmt.fontFamilies().toStringList()) {
-    if (family.compare(QLatin1String("Consolas"), Qt::CaseInsensitive) == 0) return true;
-  }
-  return false;
-}
-
 // textFormats gives styled ranges over the block text, so classification never walks chars.
 QString inlineFromBlock(const QTextBlock& block) {
   const QString text = block.text();
@@ -666,6 +658,12 @@ QString inlineFromBlock(const QTextBlock& block) {
   return wrapMarkdownRuns(runs, rawSource).replace(QChar::LineSeparator, QStringLiteral("  \n"));
 }
 }  // namespace
+
+// Inline code is the one family the builder sets; code blocks are separate blocks.
+bool isInlineCodeFormat(const QTextCharFormat& fmt) {
+  return fmt.fontFamilies().toStringList().contains(QStringLiteral("Consolas"),
+                                                    Qt::CaseInsensitive);
+}
 
 QString inlineMarkdown(const QTextBlock& block) { return inlineFromBlock(block); }
 
