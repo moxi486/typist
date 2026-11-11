@@ -2,6 +2,7 @@
 
 #include "CodeBlockBar.h"
 #include "CodeEditing.h"
+#include "CodeLineNumberGutter.h"
 #include "LinkEditing.h"
 #include "LinkNavigation.h"
 #include "ParagraphSourcePanel.h"
@@ -85,88 +86,82 @@ QString advancedMarkdown(const QString& type, const QString& source) {
 }  // namespace
 
 namespace typist::ui {
-class CodeLineNumberGutter : public QWidget {
- public:
-  explicit CodeLineNumberGutter(Editor* editor) : QWidget(editor), m_editor(editor) {
-    setObjectName(QStringLiteral("codeLineNumberGutter"));
-    setAttribute(Qt::WA_TransparentForMouseEvents);
-    auto numbers = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    numbers.setPointSize(9);
-    setFont(numbers);
-  }
+CodeLineNumberGutter::CodeLineNumberGutter(Editor* editor) : QWidget(editor), m_editor(editor) {
+  setObjectName(QStringLiteral("codeLineNumberGutter"));
+  setAttribute(Qt::WA_TransparentForMouseEvents);
+  auto numbers = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+  numbers.setPointSize(9);
+  setFont(numbers);
+}
 
-  int numberWidth() const {
-    const auto digits = QString::number(qMax(99, m_editor->document()->blockCount())).size();
-    return fontMetrics().horizontalAdvance(QString(digits, QLatin1Char('9'))) + 12;
-  }
+int CodeLineNumberGutter::numberWidth() const {
+  const auto digits = QString::number(qMax(99, m_editor->document()->blockCount())).size();
+  return fontMetrics().horizontalAdvance(QString(digits, QLatin1Char('9'))) + 12;
+}
 
-  void setDark(bool dark) {
-    m_dark = dark;
-    update();
-  }
+void CodeLineNumberGutter::setDark(bool dark) {
+  m_dark = dark;
+  update();
+}
 
- protected:
-  void paintEvent(QPaintEvent*) override {
-    QPainter painter(this);
-    painter.setPen(m_dark ? QColor("#b1bac5") : QColor("#626c78"));
-    const auto firstVisible = m_editor->cursorForPosition(QPoint(0, 0)).block();
-    int group = 0;
-    int number = 0;
-    for (auto block = firstVisible; block.isValid(); block = block.next()) {
-      const QRect caret = m_editor->cursorRect(QTextCursor(block));
-      if (caret.top() >= height()) break;
-      const int next = block.blockFormat().intProperty(editor::kCodeBlockProperty);
-      if (next == 0) {
-        group = 0;
-        continue;
-      }
-      if (next == group)
-        ++number;
-      else
-        number = block == firstVisible ? firstVisibleNumber(block, next) : 1;
-      group = next;
-      if (caret.bottom() >= 0) {
-        painter.drawText(QRect(0, caret.top(), width() - 8, caret.height()),
-                         Qt::AlignRight | Qt::AlignVCenter | Qt::TextSingleLine,
-                         QString::number(number));
-      }
+QList<CodeLineNumberGutter::Row> CodeLineNumberGutter::visibleRows() {
+  QList<Row> rows;
+  const auto firstVisible = m_editor->cursorForPosition(QPoint(0, 0)).block();
+  int group = 0;
+  int number = 0;
+  for (auto block = firstVisible; block.isValid(); block = block.next()) {
+    const QRect caret = m_editor->cursorRect(QTextCursor(block));
+    if (caret.top() >= height()) break;
+    const int next = block.blockFormat().intProperty(editor::kCodeBlockProperty);
+    if (next == 0) {
+      group = 0;
+      continue;
+    }
+    if (next == group)
+      ++number;
+    else
+      number = block == firstVisible ? firstVisibleNumber(block, next) : 1;
+    group = next;
+    if (caret.bottom() >= 0)
+      rows.append({number, QRect(0, caret.top(), width() - 8, caret.height())});
+  }
+  return rows;
+}
+
+void CodeLineNumberGutter::paintEvent(QPaintEvent*) {
+  QPainter painter(this);
+  painter.setFont(font());
+  painter.setPen(m_dark ? QColor("#b1bac5") : QColor("#626c78"));
+  for (const auto& row : visibleRows())
+    painter.drawText(row.bounds, Qt::AlignRight | Qt::AlignVCenter | Qt::TextSingleLine,
+                     QString::number(row.number));
+}
+
+int CodeLineNumberGutter::firstVisibleNumber(const QTextBlock& block, int group) {
+  auto* document = m_editor->document();
+  if (m_document != document || m_revision != document->revision()) {
+    m_document = document;
+    m_revision = document->revision();
+    m_first = m_last = -1;
+  }
+  const int number = block.blockNumber();
+  if (number >= m_first && number <= m_last) return number - m_first + 1;
+
+  // Cache the visited part of this fence so a long fence stays cheap to scroll.
+  int first = number;
+  for (auto previous = block.previous();
+       previous.isValid() &&
+       previous.blockFormat().intProperty(editor::kCodeBlockProperty) == group;
+       previous = previous.previous()) {
+    if (--first == m_last) {
+      first = m_first;
+      break;
     }
   }
-
- private:
-  int firstVisibleNumber(const QTextBlock& block, int group) {
-    auto* document = m_editor->document();
-    if (m_document != document || m_revision != document->revision()) {
-      m_document = document;
-      m_revision = document->revision();
-      m_first = m_last = -1;
-    }
-    const int number = block.blockNumber();
-    if (number >= m_first && number <= m_last) return number - m_first + 1;
-
-    // Cache the visited part of this fence so a long fence stays cheap to scroll.
-    int first = number;
-    for (auto previous = block.previous();
-         previous.isValid() &&
-         previous.blockFormat().intProperty(editor::kCodeBlockProperty) == group;
-         previous = previous.previous()) {
-      if (--first == m_last) {
-        first = m_first;
-        break;
-      }
-    }
-    m_first = first;
-    m_last = number;
-    return number - first + 1;
-  }
-
-  Editor* m_editor;
-  QPointer<QTextDocument> m_document;
-  int m_revision = -1;
-  int m_first = -1;
-  int m_last = -1;
-  bool m_dark = false;
-};
+  m_first = first;
+  m_last = number;
+  return number - first + 1;
+}
 
 void Editor::setCodeLineNumbers(bool enabled) {
   if (m_codeLineNumbers == enabled) return;

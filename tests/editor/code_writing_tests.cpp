@@ -1,4 +1,5 @@
 #include "CodeEditing.h"
+#include "CodeLineNumberGutter.h"
 #include "Editor.h"
 #include "ViewSwitch.h"
 #include "markdown.h"
@@ -6,7 +7,6 @@
 #include <QAbstractItemView>
 #include <QClipboard>
 #include <QComboBox>
-#include <QFontDatabase>
 #include <QLineEdit>
 #include <QMimeData>
 #include <QPushButton>
@@ -33,49 +33,26 @@ QTextCursor at(ui::Editor& editor, int line, int column = 0) {
   return cursor;
 }
 QString code(ui::Editor& editor) { return editor::codeRange(editor.textCursor()).text(); }
-QImage numberRow(QWidget* gutter, const QRect& caret) {
-  return gutter->grab(QRect(0, caret.top(), gutter->width(), caret.height())).toImage();
-}
-int numberInkWidth(const QImage& row) {
-  int left = row.width(), right = -1;
-  for (int y = 0; y < row.height(); ++y) {
-    const QRgb background = row.pixel(0, y);
-    for (int x = 1; x < row.width(); ++x) {
-      if (row.pixel(x, y) == background) continue;
-      left = qMin(left, x);
-      right = qMax(right, x);
-    }
+bool gutterHasInk(QWidget* gutter) {
+  const auto image = gutter->grab().toImage();
+  for (int y = 0; y < image.height(); ++y) {
+    const QRgb background = image.pixel(0, y);
+    for (int x = 1; x < image.width(); ++x)
+      if (image.pixel(x, y) != background) return true;
   }
-  return qMax(0, right - left + 1);
+  return false;
 }
 
-QWidget* enableNumberGutter(ui::Editor& editor, const QString& family) {
+ui::CodeLineNumberGutter* enableNumberGutter(ui::Editor& editor) {
   editor.setCodeLineNumbers(true);
-  auto* gutter = editor.findChild<QWidget*>(QStringLiteral("codeLineNumberGutter"));
-  if (!gutter) return nullptr;
-  auto font = gutter->font();
-  font.setFamily(family);
-  gutter->setFont(font);
-  editor.setCodeLineNumbers(false);
-  editor.setCodeLineNumbers(true);
-  return gutter;
+  return dynamic_cast<ui::CodeLineNumberGutter*>(
+      editor.findChild<QWidget*>(QStringLiteral("codeLineNumberGutter")));
 }
 }  // namespace
 class CodeWritingTests : public QObject {
   Q_OBJECT
- private:
-  QString m_numberFontFamily;
-
  private slots:
-  void initTestCase() {
-    QApplication::setStyle(QStringLiteral("Fusion"));
-    // Qt's offscreen plugin may have no system fonts on a CI runner.
-    const int font =
-        QFontDatabase::addApplicationFont(QStringLiteral(":/microtex/res/fonts/latin/tt10.ttf"));
-    const auto families = QFontDatabase::applicationFontFamilies(font);
-    QVERIFY(!families.isEmpty());
-    m_numberFontFamily = families.first();
-  }
+  void initTestCase() { QApplication::setStyle(QStringLiteral("Fusion")); }
   void lineNumbersFollowLogicalCodeLinesAndResetForEachFence() {
     ui::Editor editor;
     ui::ViewSwitch view;
@@ -86,7 +63,7 @@ class CodeWritingTests : public QObject {
     const auto plain = editor.toPlainText();
     QVERIFY(!editor.findChild<QWidget*>(QStringLiteral("codeLineNumberGutter")));
     editor.resize(500, 650);
-    auto* gutter = enableNumberGutter(editor, m_numberFontFamily);
+    auto* gutter = enableNumberGutter(editor);
     QVERIFY(gutter && gutter->isVisible());
     QCOMPARE(gutter->geometry().top(), editor.viewport()->geometry().top());
     QCOMPARE(gutter->geometry().bottom(), editor.viewport()->geometry().bottom());
@@ -94,21 +71,19 @@ class CodeWritingTests : public QObject {
 
     const auto first = editor.document()->find(QStringLiteral("mmmm")).block();
     const auto second = editor.document()->find(QStringLiteral("second fence")).block();
-    const auto row = [&](const QTextBlock& block) {
-      return numberRow(gutter, editor.cursorRect(QTextCursor(block)));
-    };
     QVERIFY(first.layout()->lineCount() > 1);
     QVERIFY(first.next().text().isEmpty());
-    const auto one = row(first);
-    QVERIFY(numberInkWidth(one) > 0);
-    QCOMPARE(row(second), one);
-    QVERIFY(numberInkWidth(row(first.next())) > 0);
-    QVERIFY(row(first.next()) != one);
-    const auto body = editor.document()->find(QStringLiteral("Body")).block();
-    QCOMPARE(numberInkWidth(row(body)), 0);
-    QTextCursor wrapped(first);
-    wrapped.setPosition(first.position() + first.layout()->lineAt(1).textStart() + 1);
-    QCOMPARE(numberInkWidth(numberRow(gutter, editor.cursorRect(wrapped))), 0);
+    const QList<QTextBlock> numbered{first, first.next(), first.next().next(), second};
+    const QList<int> expected{1, 2, 3, 1};
+    const auto rows = gutter->visibleRows();
+    QCOMPARE(rows.size(), expected.size());
+    for (qsizetype i = 0; i < rows.size(); ++i) {
+      QCOMPARE(rows[i].number, expected[i]);
+      const auto caret = editor.cursorRect(QTextCursor(numbered[i]));
+      QCOMPARE(rows[i].bounds.top(), caret.top());
+      QCOMPARE(rows[i].bounds.height(), caret.height());
+    }
+    QVERIFY(gutterHasInk(gutter));
 
     editor.setTextCursor(QTextCursor(first));
     QVERIFY(editor.copyCodeBlock());
@@ -135,30 +110,33 @@ class CodeWritingTests : public QObject {
     for (int i = 1; i <= 140; ++i) source += QStringLiteral("row %1\n").arg(i);
     source += QStringLiteral("```\n");
     prepare(editor, view, source);
-    auto* gutter = enableNumberGutter(editor, m_numberFontFamily);
+    auto* gutter = enableNumberGutter(editor);
     QVERIFY(gutter && gutter->isVisible());
-    const int singleDigit = numberInkWidth(numberRow(gutter, editor.cursorRect(at(editor, 0))));
-    QVERIFY(singleDigit > 0);
+    QCOMPARE(gutter->visibleRows().first().number, 1);
 
     const auto target = at(editor, 120);
     editor.ensureCursorVisible();
     QVERIFY(editor.verticalScrollBar()->value() > 0);
-    const auto currentRow = [&] { return numberRow(gutter, editor.cursorRect(target)); };
-    const auto before = currentRow();
-    QVERIFY(numberInkWidth(before) > singleDigit);
+    const auto currentNumber = [&] {
+      const int top = editor.cursorRect(target).top();
+      for (const auto& row : gutter->visibleRows())
+        if (row.bounds.top() == top) return row.number;
+      return 0;
+    };
+    QCOMPARE(currentNumber(), 121);
     auto* scroll = editor.verticalScrollBar();
     scroll->setValue(scroll->value() + 45);
-    QCOMPARE(currentRow(), before);
+    QCOMPARE(currentNumber(), 121);
 
     auto previous = target;
     previous.movePosition(QTextCursor::PreviousBlock);
     previous.movePosition(QTextCursor::EndOfBlock);
     editor.setTextCursor(previous);
     QTest::keyClick(&editor, Qt::Key_Return);
-    QVERIFY(target.block().text() == QStringLiteral("row 121"));
-    QVERIFY(currentRow() != before);
+    QCOMPARE(target.block().text(), QStringLiteral("row 121"));
+    QCOMPARE(currentNumber(), 122);
     editor.undo();
-    QCOMPARE(currentRow(), before);
+    QCOMPARE(currentNumber(), 121);
   }
 
   void enterSplitsPairsAndKeepsOneUndoStep() {
