@@ -79,6 +79,30 @@ void setCopyImagesToAssets(bool enabled) {
   store.setValue(QStringLiteral("images/copyToAssets"), enabled);
 }
 
+CodeFencePreferences codeFencePreferences() {
+  const auto values = openSettings().value(QStringLiteral("editor/codeFencePreferences")).toMap();
+  return {values.value(QStringLiteral("language")).toString(),
+          values.value(QStringLiteral("useLastLanguage"), false).toBool(),
+          values.value(QStringLiteral("applyToCommands"), true).toBool(),
+          values.value(QStringLiteral("applyToTypedFences"), true).toBool()};
+}
+
+void setCodeFencePreferences(const CodeFencePreferences& preferences) {
+  const QVariantMap values{{QStringLiteral("language"), preferences.language},
+                           {QStringLiteral("useLastLanguage"), preferences.useLastLanguage},
+                           {QStringLiteral("applyToCommands"), preferences.applyToCommands},
+                           {QStringLiteral("applyToTypedFences"), preferences.applyToTypedFences}};
+  openSettings().setValue(QStringLiteral("editor/codeFencePreferences"), values);
+}
+
+QString lastCodeLanguage() {
+  return openSettings().value(QStringLiteral("editor/lastCodeLanguage")).toString();
+}
+
+void setLastCodeLanguage(const QString& language) {
+  openSettings().setValue(QStringLiteral("editor/lastCodeLanguage"), language);
+}
+
 QString pdfPaper(const QString& fallback) {
   const QString value = openSettings().value(QStringLiteral("pdfPaper"), fallback).toString();
   return value == QStringLiteral("letter") ? value : QStringLiteral("a4");

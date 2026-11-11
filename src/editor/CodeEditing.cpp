@@ -3,6 +3,7 @@
 #include "SyntaxHighlighter.h"
 #include "editor_document.h"
 
+#include <QRegularExpression>
 #include <QTextDocument>
 
 namespace typist::editor {
@@ -102,6 +103,37 @@ CodeRange codeRange(const QTextCursor& cursor) {
     last = last.next();
   return {first, last};
 }
+
+const QStringList& codeLanguages() {
+  static const QStringList languages =
+      QStringLiteral(
+          "cpp c python javascript typescript json bash powershell java cs go rust "
+          "swift kotlin sql html css yaml toml xml markdown latex mermaid")
+          .split(QLatin1Char(' '));
+  return languages;
+}
+
+const QRegularExpression& codeLanguagePattern() {
+  static const QRegularExpression pattern(
+      QRegularExpression::anchoredPattern(QStringLiteral("[A-Za-z0-9_+.#-]*")));
+  return pattern;
+}
+
+bool setCodeLanguage(QTextCursor& cursor, const QString& identifier) {
+  const auto range = codeRange(cursor);
+  if (!range.valid()) return false;
+  if (range.language() == identifier) return true;
+  cursor.beginEditBlock();
+  for (auto block = range.first; block.isValid(); block = block.next()) {
+    auto format = block.blockFormat();
+    format.setProperty(kCodeInfoProperty, identifier);
+    QTextCursor(block).setBlockFormat(format);
+    if (block == range.last) break;
+  }
+  cursor.endEditBlock();
+  return true;
+}
+
 bool indentCode(QTextCursor& cursor, bool outdent) {
   if (!codeSelection(cursor)) return false;
   if (!outdent && !cursor.hasSelection()) {

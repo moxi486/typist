@@ -53,6 +53,84 @@ class CodeWritingTests : public QObject {
   Q_OBJECT
  private slots:
   void initTestCase() { QApplication::setStyle(QStringLiteral("Fusion")); }
+  void defaultsUseTheCreationPathAndKeepUndoAtomic() {
+    using Creation = ui::Editor::CodeFenceCreation;
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    editor.setDefaultCodeLanguageResolver([](Creation creation) {
+      return creation == Creation::Command ? QStringLiteral("python") : QStringLiteral("sql");
+    });
+    QSignalSpy chosen(&editor, &ui::Editor::codeLanguageChosen);
+    prepare(editor, view, QStringLiteral("alpha\n\nbeta\n"));
+    const auto original = view.currentMarkdown();
+    QTextCursor selection(editor.document());
+    selection.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    editor.setTextCursor(selection);
+    editor.formatParagraph(editor::ParagraphStyle::Code);
+    QCOMPARE(editor::codeRange(editor.textCursor()).language(), QStringLiteral("python"));
+    QCOMPARE(editor.textCursor().blockFormat().property(editor::kCodeInfoProperty).toString(),
+             QStringLiteral("python"));
+    QCOMPARE(code(editor), QStringLiteral("alpha\nbeta\n"));
+    QVERIFY(view.currentMarkdown().startsWith(QStringLiteral("```python\n")));
+    QCOMPARE(chosen.size(), 0);
+    editor.undo();
+    QCOMPARE(view.currentMarkdown(), original);
+    QVERIFY(!editor.document()->isUndoAvailable());
+    editor.redo();
+    QVERIFY(view.currentMarkdown().startsWith(QStringLiteral("```python\n")));
+
+    prepare(editor, view, {});
+    QTest::keyClicks(&editor, "```");
+    QTest::keyClick(&editor, Qt::Key_Return);
+    QCOMPARE(editor::codeRange(editor.textCursor()).language(), QStringLiteral("sql"));
+    QCOMPARE(chosen.size(), 0);
+    editor.undo();
+    QCOMPARE(editor.toPlainText(), QStringLiteral("```"));
+
+    prepare(editor, view, {});
+    QTest::keyClicks(&editor, "~~~rust");
+    QTest::keyClick(&editor, Qt::Key_Return);
+    QCOMPARE(editor::codeRange(editor.textCursor()).language(), QStringLiteral("rust"));
+    QCOMPARE(chosen.size(), 1);
+    QCOMPARE(chosen.first().first().toString(), QStringLiteral("rust"));
+    QVERIFY(!editor.setCodeLanguage(QStringLiteral("bad`label")));
+    QCOMPARE(chosen.size(), 1);
+    QVERIFY(editor.setCodeLanguage(QStringLiteral("cpp")));
+    QCOMPARE(chosen.last().first().toString(), QStringLiteral("cpp"));
+    editor.undo();
+    QCOMPARE(editor::codeRange(editor.textCursor()).language(), QStringLiteral("rust"));
+  }
+
+  void commandPreservesExistingLanguageAndWrapsLiteralSource() {
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    editor.setDefaultCodeLanguageResolver(
+        [](ui::Editor::CodeFenceCreation) { return QStringLiteral("python"); });
+    prepare(editor, view, QStringLiteral("```ruby\nputs 42\n```\n"));
+    editor.formatParagraph(editor::ParagraphStyle::Code);
+    QCOMPARE(editor::codeRange(editor.textCursor()).language(), QStringLiteral("ruby"));
+
+    const QString literal = QStringLiteral("Literal ``` marker\n");
+    prepare(editor, view, literal);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    editor.moveCursor(QTextCursor::Start);
+    editor.formatParagraph(editor::ParagraphStyle::Code);
+    QCOMPARE(view.currentMarkdown(), QStringLiteral("````python\nLiteral ``` marker\n````\n"));
+    const auto parsed = core::parseMarkdown(view.currentMarkdown().toStdString());
+    QVERIFY(parsed.ok);
+    QCOMPARE(parsed.blocks.size(), std::size_t(1));
+    QCOMPARE(QString::fromStdString(parsed.blocks.front().text), literal);
+    editor.undo();
+    QCOMPARE(view.currentMarkdown(), literal);
+
+    editor.setDefaultCodeLanguageResolver(
+        [](ui::Editor::CodeFenceCreation) { return QStringLiteral("bad`label"); });
+    editor.moveCursor(QTextCursor::Start);
+    editor.formatParagraph(editor::ParagraphStyle::Code);
+    QVERIFY(view.currentMarkdown().startsWith(QStringLiteral("````\n")));
+  }
+
   void lineNumbersFollowLogicalCodeLinesAndResetForEachFence() {
     ui::Editor editor;
     ui::ViewSwitch view;

@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "AutoSave.h"
+#include "CodeEditing.h"
 #include "Conflict.h"
 #include "DocxWriter.h"
 #include "Editor.h"
@@ -47,8 +48,10 @@
 #endif
 #include "UpdateChecker.h"
 
+#include <QCheckBox>
 #include <QCloseEvent>
 #include <QColor>
+#include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -74,6 +77,7 @@
 #include <QPalette>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QRegularExpressionValidator>
 #include <QScopeGuard>
 #include <QScreen>
 #include <QSettings>
@@ -666,21 +670,9 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
             bool ok = false;
             const QString current =
                 editor->textCursor().blockFormat().property(editor::kCodeInfoProperty).toString();
-            const QStringList languages = {QString(),
-                                           QStringLiteral("cpp"),
-                                           QStringLiteral("python"),
-                                           QStringLiteral("javascript"),
-                                           QStringLiteral("typescript"),
-                                           QStringLiteral("json"),
-                                           QStringLiteral("bash"),
-                                           QStringLiteral("sql"),
-                                           QStringLiteral("html"),
-                                           QStringLiteral("css"),
-                                           QStringLiteral("yaml"),
-                                           QStringLiteral("rust"),
-                                           QStringLiteral("go"),
-                                           QStringLiteral("java"),
-                                           QStringLiteral("markdown")};
+            auto languages = editor::codeLanguages();
+            languages.prepend(QString());
+            if (!languages.contains(current)) languages.append(current);
             const QString chosen = QInputDialog::getItem(
                 this, tr("Code Language"), tr("Language identifier (empty for plain text)"),
                 languages, qMax(0, int(languages.indexOf(current))), true, &ok);
@@ -880,6 +872,18 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
     editor->setCodeLineNumbers(enabled);
     QSettings().setValue(lineNumberSetting, enabled);
   });
+  command(settings, QStringLiteral("defaultCodeLanguage"), tr("Default Code Language"), QString(),
+          [this] { configureCodeFences(); });
+  editor->setDefaultCodeLanguageResolver([](ui::Editor::CodeFenceCreation creation) {
+    const auto preferences = platform::codeFencePreferences();
+    const bool enabled = creation == ui::Editor::CodeFenceCreation::Typed
+                             ? preferences.applyToTypedFences
+                             : preferences.applyToCommands;
+    if (!enabled) return QString();
+    return preferences.useLastLanguage ? platform::lastCodeLanguage() : preferences.language;
+  });
+  connect(editor, &ui::Editor::codeLanguageChosen, this,
+          [](const QString& language) { platform::setLastCodeLanguage(language); });
   autoPair->setCheckable(true);
   autoPair->setChecked(QSettings().value(QStringLiteral("editor/autoPair"), true).toBool());
   editor->setAutoPair(autoPair->isChecked());
@@ -973,6 +977,53 @@ void MainWindow::insertTableDialog() {
   connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
   if (dialog.exec() == QDialog::Accepted)
     static_cast<ui::Editor*>(m_editor)->createTable(rows.value(), columns.value());
+}
+
+void MainWindow::configureCodeFences() {
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+  const auto restore = qScopeGuard(
+      [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
+  const auto preferences = platform::codeFencePreferences();
+  QDialog dialog(this);
+  dialog.setObjectName(QStringLiteral("codeFenceSettings"));
+  dialog.setWindowTitle(tr("Default Code Language"));
+  QFormLayout layout(&dialog);
+  QComboBox language;
+  language.setObjectName(QStringLiteral("codeFenceLanguage"));
+  language.setEditable(true);
+  language.setInsertPolicy(QComboBox::NoInsert);
+  language.addItem(QString());
+  language.addItems(editor::codeLanguages());
+  language.lineEdit()->setMaxLength(64);
+  language.lineEdit()->setValidator(
+      new QRegularExpressionValidator(editor::codeLanguagePattern(), &language));
+  if (editor::codeLanguagePattern().match(preferences.language).hasMatch())
+    language.setEditText(preferences.language);
+  layout.addRow(tr("Language identifier (empty for plain text)"), &language);
+
+  QCheckBox last(tr("Use last selected language"));
+  last.setObjectName(QStringLiteral("codeFenceUseLast"));
+  last.setChecked(preferences.useLastLanguage);
+  language.setDisabled(last.isChecked());
+  connect(&last, &QCheckBox::toggled, &language, &QComboBox::setDisabled);
+  layout.addRow(&last);
+  QCheckBox commands(tr("Apply to menu and shortcut"));
+  commands.setObjectName(QStringLiteral("codeFenceApplyCommands"));
+  commands.setChecked(preferences.applyToCommands);
+  layout.addRow(&commands);
+  QCheckBox typed(tr("Apply to typed fences"));
+  typed.setObjectName(QStringLiteral("codeFenceApplyTyped"));
+  typed.setChecked(preferences.applyToTypedFences);
+  layout.addRow(&typed);
+
+  QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+  layout.addRow(&buttons);
+  connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+  connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+  if (dialog.exec() == QDialog::Accepted && language.lineEdit()->hasAcceptableInput())
+    platform::setCodeFencePreferences(
+        {language.currentText(), last.isChecked(), commands.isChecked(), typed.isChecked()});
 }
 
 void MainWindow::insertLinkDialog() {

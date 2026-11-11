@@ -18,6 +18,17 @@ void setLanguagePreference(const QString& value);
 bool copyImagesToAssets();
 void setCopyImagesToAssets(bool enabled);
 
+struct CodeFencePreferences {
+  QString language;
+  bool useLastLanguage = false;
+  bool applyToCommands = true;
+  bool applyToTypedFences = true;
+};
+CodeFencePreferences codeFencePreferences();
+void setCodeFencePreferences(const CodeFencePreferences& preferences);
+QString lastCodeLanguage();
+void setLastCodeLanguage(const QString& language);
+
 // PDF page controls; the defaults are A4 with 20mm margins.
 QString pdfPaper(const QString& fallback = QStringLiteral("a4"));
 
