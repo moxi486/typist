@@ -32,7 +32,8 @@ bool syntaxAllowsIndent(const QTextBlock& current, const QString& prefix) {
   for (auto block = current.previous();
        block.isValid() && block.blockFormat().intProperty(kCodeBlockProperty) == group;
        block = block.previous()) {
-    if (previous.size() >= 512 || block.text().size() > 32768) return false;
+    if (previous.size() >= 512 || block.length() - 1 > render::kMaxCodeSyntaxLineLength)
+      return false;
     previous.prepend(block);
   }
   render::SyntaxState state;
@@ -179,6 +180,98 @@ bool indentCode(QTextCursor& cursor, bool outdent, int indentSize) {
                      selected ? QTextCursor::KeepAnchor : QTextCursor::MoveAnchor);
   return true;
 }
+
+bool supportsCodeAutoIndent(const QString& info) {
+  const auto language = render::codeSyntaxLanguage(info);
+  return language == "c" || language == "cpp" || language == "go" || language == "json" ||
+         language == "css" || language == "scss";
+}
+
+bool autoIndentCode(QTextCursor& cursor, int indentSize) {
+  const auto range = codeRange(cursor);
+  if (!range.valid() || indentSize < 1 || indentSize > kMaxCodeIndentSize ||
+      !supportsCodeAutoIndent(range.language()))
+    return false;
+
+  struct Edit {
+    QTextBlock block;
+    int oldSize;
+    int newSize;
+  };
+  QList<Edit> edits;
+  QList<QChar> closers;
+  render::SyntaxState state;
+  const auto language = render::codeSyntaxLanguage(range.language());
+  const bool preprocessor = language == "c" || language == "cpp";
+  bool continued = false;
+  const bool selected = cursor.hasSelection();
+  const int first = selected ? cursor.selectionStart() : range.first.position();
+  const int last = selected ? cursor.selectionEnd() - 1 : range.last.position();
+  for (auto block = range.first; block.isValid() && block.position() <= last;
+       block = block.next()) {
+    if (block.length() - 1 > render::kMaxCodeSyntaxLineLength) return true;
+    const auto text = block.text();
+    const int leading = leadingSize(text);
+    const bool directive =
+        state.delimiter.isEmpty() && QStringView(text).mid(leading).startsWith('#');
+    if (preprocessor && (continued || directive)) {
+      continued = text.endsWith('\\');
+      render::codeSyntax(text, language, state);
+      continue;
+    }
+
+    const bool inMultilineToken = !state.delimiter.isEmpty();
+    const auto spans = render::codeSyntax(text, language, state);
+    // A spliced physical line can continue a token the syntax highlighter considers closed.
+    if (text.endsWith('\\') && state.delimiter.isEmpty()) return true;
+    int indent = int(closers.size()) * indentSize;
+    bool leadingClosers = true;
+    auto span = spans.cbegin();
+    for (int i = leading; i < text.size(); ++i) {
+      while (span != spans.cend() && span->start + span->length <= i) ++span;
+      if (span != spans.cend() && span->start <= i) {
+        if (span->token != render::SyntaxToken::Comment) leadingClosers = false;
+        i = span->start + span->length - 1;
+        continue;
+      }
+      const auto ch = text.at(i);
+      if (ch.isSpace()) continue;
+      if (!closers.isEmpty() && ch == closers.back()) {
+        closers.removeLast();
+        if (leadingClosers) indent = int(closers.size()) * indentSize;
+        continue;
+      }
+      leadingClosers = false;
+      const auto opener = QStringView(u"([{").indexOf(ch);
+      if (opener >= 0) closers.append(QStringView(u")]}").at(opener));
+    }
+    if (block.position() + block.length() > first && !inMultilineToken && leading < text.size() &&
+        columns(text.left(leading), indentSize) != indent)
+      edits.append({block, leading, indent});
+  }
+  if (edits.isEmpty()) return true;
+
+  int anchor = cursor.anchor(), position = cursor.position();
+  cursor.beginEditBlock();
+  for (auto it = edits.crbegin(); it != edits.crend(); ++it) {
+    const int start = it->block.position();
+    QTextCursor line(it->block);
+    line.setPosition(start + it->oldSize, QTextCursor::KeepAnchor);
+    line.insertText(QString(it->newSize, ' '), it->block.charFormat());
+    const auto adjust = [start, &it](int value) {
+      if (value <= start) return value;
+      if (value < start + it->oldSize) return qMin(value, start + it->newSize);
+      return value + it->newSize - it->oldSize;
+    };
+    anchor = adjust(anchor);
+    position = adjust(position);
+  }
+  cursor.endEditBlock();
+  cursor.setPosition(anchor);
+  cursor.setPosition(position, QTextCursor::KeepAnchor);
+  return true;
+}
+
 bool backspaceCodeIndent(QTextCursor& cursor, int indentSize) {
   if (indentSize < 1 || cursor.hasSelection() || !isCodeSelection(cursor) || cursor.atBlockStart())
     return false;

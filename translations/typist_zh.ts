@@ -688,6 +688,18 @@
         <translation>每级缩进的列数</translation>
     </message>
     <message>
+        <source>Shift+Tab Auto Indents Code</source>
+        <translation>Shift+Tab 自动缩进代码</translation>
+    </message>
+    <message>
+        <source>Auto Indent Code</source>
+        <translation>自动缩进代码</translation>
+    </message>
+    <message>
+        <source>Auto indent is available in C, C++, Go, JSON, CSS and SCSS code blocks</source>
+        <translation>自动缩进适用于 C、C++、Go、JSON、CSS 和 SCSS 代码块</translation>
+    </message>
+    <message>
         <source>Copy Code Block</source>
         <translation>复制代码块</translation>
     </message>
@@ -1047,6 +1059,10 @@
     <message>
         <source>Code Tools</source>
         <translation>代码工具</translation>
+    </message>
+    <message>
+        <source>Auto Indent Code</source>
+        <translation>自动缩进代码</translation>
     </message>
     <message>
         <source>Select Code Block</source>

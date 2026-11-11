@@ -684,6 +684,13 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
     if (!editor->copyCodeBlock())
       statusBar()->showMessage(tr("Place the cursor in a code block"), 2500);
   });
+  command(paragraph, QStringLiteral("autoIndentCode"), tr("Auto Indent Code"), QString(),
+          [this, editor] {
+            if (!editor->autoIndentCode())
+              statusBar()->showMessage(
+                  tr("Auto indent is available in C, C++, Go, JSON, CSS and SCSS code blocks"),
+                  3000);
+          });
   command(paragraph, QStringLiteral("exitCode"), tr("Exit Code Block"), QString(), [this, editor] {
     if (!editor->exitCodeBlock())
       statusBar()->showMessage(tr("Place the cursor in a code block"), 2500);
@@ -893,6 +900,16 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
           });
   command(settings, QStringLiteral("defaultCodeLanguage"), tr("Default Code Language"), QString(),
           [this] { configureCodeFences(); });
+  const auto autoIndentSetting = QStringLiteral("editor/autoIndentOnBacktab");
+  auto* autoIndent = command(settings, QStringLiteral("autoIndentOnBacktab"),
+                             tr("Shift+Tab Auto Indents Code"), QString(), [] {});
+  autoIndent->setCheckable(true);
+  autoIndent->setChecked(QSettings().value(autoIndentSetting, false).toBool());
+  editor->setAutoIndentOnBacktab(autoIndent->isChecked());
+  connect(autoIndent, &QAction::toggled, this, [editor, autoIndentSetting](bool enabled) {
+    editor->setAutoIndentOnBacktab(enabled);
+    QSettings().setValue(autoIndentSetting, enabled);
+  });
   editor->setDefaultCodeLanguageResolver([](ui::Editor::CodeFenceCreation creation) {
     const auto preferences = platform::codeFencePreferences();
     const bool enabled = creation == ui::Editor::CodeFenceCreation::Typed

@@ -602,6 +602,15 @@ bool Editor::copyCodeBlock(const QTextCursor& cursor) {
   QApplication::clipboard()->setText(range.text());
   return true;
 }
+bool Editor::autoIndentCode() { return autoIndentCode(textCursor()); }
+bool Editor::autoIndentCode(QTextCursor cursor) {
+  if (!m_rendered || m_paragraphSourceActive || isReadOnly() || cursor.document() != document() ||
+      !editor::autoIndentCode(cursor, m_codeIndentSize))
+    return false;
+  setTextCursor(cursor);
+  ensureCursorVisible();
+  return true;
+}
 bool Editor::exitCodeBlock() {
   if (!m_rendered) return false;
   QTextCursor cursor = textCursor();
@@ -977,6 +986,18 @@ void Editor::contextMenuEvent(QContextMenuEvent* event) {
     auto* copy = tools->addAction(tr("Copy Code Block"));
     copy->setObjectName(QStringLiteral("codeContextCopy"));
     connect(copy, &QAction::triggered, this, [this, codeCursor] { copyCodeBlock(codeCursor); });
+    auto* indent = tools->addAction(tr("Auto Indent Code"));
+    indent->setObjectName(QStringLiteral("codeContextAutoIndent"));
+    indent->setEnabled(!isReadOnly() && editor::supportsCodeAutoIndent(code.language()));
+    const auto selection = textCursor();
+    const auto indentCursor = selection.hasSelection() &&
+                                      codeCursor.position() >= selection.selectionStart() &&
+                                      codeCursor.position() < selection.selectionEnd() &&
+                                      editor::isCodeSelection(selection)
+                                  ? selection
+                                  : codeCursor;
+    connect(indent, &QAction::triggered, this,
+            [this, indentCursor] { autoIndentCode(indentCursor); });
     auto* exit = tools->addAction(tr("Exit Code Block"));
     exit->setObjectName(QStringLiteral("codeContextExit"));
     exit->setEnabled(!isReadOnly());
@@ -1453,10 +1474,12 @@ void Editor::keyPressEvent(QKeyEvent* event) {
   if (code && plain) {
     const bool outdent =
         event->key() == Qt::Key_Backtab || event->modifiers().testFlag(Qt::ShiftModifier);
-    if ((event->key() == Qt::Key_Tab || event->key() == Qt::Key_Backtab) &&
-        editor::indentCode(cursor, outdent, m_codeIndentSize)) {
-      setTextCursor(cursor);
-      return;
+    if (!isReadOnly() && (event->key() == Qt::Key_Tab || event->key() == Qt::Key_Backtab)) {
+      if (outdent && m_autoIndentOnBacktab && autoIndentCode(cursor)) return;
+      if (editor::indentCode(cursor, outdent, m_codeIndentSize)) {
+        setTextCursor(cursor);
+        return;
+      }
     }
     if (event->key() == Qt::Key_Backspace &&
         editor::backspaceCodeIndent(cursor, m_codeIndentSize)) {
