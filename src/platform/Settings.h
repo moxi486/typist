@@ -18,6 +18,14 @@ void setLanguagePreference(const QString& value);
 bool copyImagesToAssets();
 void setCopyImagesToAssets(bool enabled);
 
+enum class WritingWidth { Fill = 0, Compact = 640, Standard = 860, Wide = 1120 };
+struct WritingAreaWidths {
+  WritingWidth rendered = WritingWidth::Standard;
+  WritingWidth source = WritingWidth::Standard;
+};
+WritingAreaWidths writingAreaWidths();
+void setWritingAreaWidths(const WritingAreaWidths& widths);
+
 struct CodeFencePreferences {
   QString language;
   bool useLastLanguage = false;

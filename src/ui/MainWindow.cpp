@@ -822,6 +822,9 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
           [editor] { editor->zoomDocument(-1); });
   command(view, QStringLiteral("zoomReset"), tr("Actual Size"), QStringLiteral("Ctrl+Shift+0"),
           [editor] { editor->resetZoom(); });
+  editor->setWritingAreaWidths(platform::writingAreaWidths());
+  command(view, QStringLiteral("writingAreaWidth"), tr("Writing Area Width"), QString(),
+          [this] { configureWritingArea(); });
   command(view, QStringLiteral("wordCount"), tr("Document Statistics"), QString(),
           [this] { showDocumentStatistics(); });
   auto* jumpMenu = view->addMenu(tr("Jump"));
@@ -1060,6 +1063,47 @@ void MainWindow::configureCodeFences() {
   if (dialog.exec() == QDialog::Accepted && language.lineEdit()->hasAcceptableInput())
     platform::setCodeFencePreferences(
         {language.currentText(), last.isChecked(), commands.isChecked(), typed.isChecked()});
+}
+
+void MainWindow::configureWritingArea() {
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+  const auto restore = qScopeGuard(
+      [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
+  const auto widths = platform::writingAreaWidths();
+  using Width = platform::WritingWidth;
+
+  QDialog dialog(this);
+  dialog.setObjectName(QStringLiteral("writingAreaWidthDialog"));
+  dialog.setWindowTitle(tr("Writing Area Width"));
+  QFormLayout layout(&dialog);
+  QComboBox rendered, source;
+  rendered.setObjectName(QStringLiteral("renderedWritingWidth"));
+  source.setObjectName(QStringLiteral("sourceWritingWidth"));
+  const auto populate = [this](QComboBox& combo, Width value) {
+    combo.addItem(tr("Compact (%1 px)").arg(int(Width::Compact)), int(Width::Compact));
+    combo.addItem(tr("Standard (%1 px)").arg(int(Width::Standard)), int(Width::Standard));
+    combo.addItem(tr("Wide (%1 px)").arg(int(Width::Wide)), int(Width::Wide));
+    combo.addItem(tr("Fill Window"), int(Width::Fill));
+    combo.setCurrentIndex(combo.findData(int(value)));
+  };
+  populate(rendered, widths.rendered);
+  populate(source, widths.source);
+  layout.addRow(tr("Rendered View"), &rendered);
+  layout.addRow(tr("Source View"), &source);
+
+  QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+  layout.addRow(&buttons);
+  connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+  connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+  if (dialog.exec() != QDialog::Accepted) return;
+
+  const platform::WritingAreaWidths chosen{Width(rendered.currentData().toInt()),
+                                           Width(source.currentData().toInt())};
+  platform::setWritingAreaWidths(chosen);
+  for (auto* widget : QApplication::topLevelWidgets())
+    if (auto* window = qobject_cast<MainWindow*>(widget))
+      static_cast<ui::Editor*>(window->m_editor)->setWritingAreaWidths(chosen);
 }
 
 void MainWindow::insertLinkDialog() {

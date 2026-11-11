@@ -159,6 +159,7 @@ class MainWindow : public QMainWindow {
   void openQuickly();
   void insertTableDialog();
   void configureCodeFences();
+  void configureWritingArea();
   void insertLinkDialog();
   void showDocumentStatistics();
   void replaceOne();

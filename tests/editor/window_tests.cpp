@@ -893,6 +893,142 @@ class WindowTests : public QObject {
     QVERIFY(editor->toPlainText().startsWith(QStringLiteral("Typist")));
   }
 
+  void writingAreaWidthsApplyIndependentlyAndPersist() {
+    using Width = typist::platform::WritingWidth;
+    const auto key = QStringLiteral("editor/writingAreaWidths");
+    QSettings settings;
+    const auto prior = settings.value(key);
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] {
+      typist::platform::setLanguagePreference(language);
+      if (prior.isValid())
+        settings.setValue(key, prior);
+      else
+        settings.remove(key);
+    });
+    settings.setValue(key, QVariantMap{{QStringLiteral("rendered"), QStringLiteral("invalid")},
+                                       {QStringLiteral("source"), 8000}});
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QCOMPARE(typist::platform::writingAreaWidths().rendered, Width::Standard);
+    QCOMPARE(typist::platform::writingAreaWidths().source, Width::Standard);
+
+    typist::MainWindow other;
+    other.setBenchMode(true);
+    other.resize(1350, 700);
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.resize(1350, 700);
+    window.show();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* action = window.findChild<QAction*>(QStringLiteral("writingAreaWidth"));
+    auto* sourceToggle = window.findChild<QToolButton*>(QStringLiteral("sourceToggle"));
+    QVERIFY(editor && action && sourceToggle);
+    QTRY_VERIFY(editor->viewport()->width() > 800);
+    QCOMPARE(action->text(), QStringLiteral("Writing Area Width"));
+    const auto configure = [&](Width rendered, Width source, bool accept, const QString& title) {
+      bool shown = false;
+      QTimer::singleShot(0, &window, [&] {
+        auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        auto* r = dialog->findChild<QComboBox*>(QStringLiteral("renderedWritingWidth"));
+        auto* s = dialog->findChild<QComboBox*>(QStringLiteral("sourceWritingWidth"));
+        if (r && s && dialog->windowTitle() == title) {
+          r->setCurrentIndex(r->findData(int(rendered)));
+          s->setCurrentIndex(s->findData(int(source)));
+          shown = r->currentIndex() >= 0 && s->currentIndex() >= 0;
+        }
+        if (accept && shown)
+          dialog->accept();
+        else
+          dialog->reject();
+      });
+      action->trigger();
+      return shown;
+    };
+
+    QTest::keyClicks(editor, "Paragraph with a draft.");
+    auto selection = editor->textCursor();
+    selection.movePosition(QTextCursor::StartOfBlock, QTextCursor::KeepAnchor);
+    editor->setTextCursor(selection);
+    const auto original = typist::editor::serializeDocument(editor->document());
+    const auto steps = editor->document()->availableUndoSteps();
+    QVERIFY(configure(Width::Compact, Width::Wide, true, QStringLiteral("Writing Area Width")));
+    QTRY_VERIFY(editor->viewport()->width() > 600 && editor->viewport()->width() <= 640);
+    QCOMPARE(editor->textCursor().position(), selection.position());
+    QCOMPARE(editor->textCursor().anchor(), selection.anchor());
+    QCOMPARE(editor->document()->availableUndoSteps(), steps);
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+    other.show();
+    auto* otherEditor = other.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(otherEditor);
+    QTRY_VERIFY(otherEditor->viewport()->width() > 600 && otherEditor->viewport()->width() <= 640);
+    window.raise();
+
+    selection.clearSelection();
+    editor->setTextCursor(selection);
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(draft);
+    draft->setPlainText(QStringLiteral("Unsaved **draft**."));
+    QVERIFY(configure(Width::Fill, Width::Compact, false, QStringLiteral("Writing Area Width")));
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Unsaved **draft**."));
+    QCOMPARE(typist::platform::writingAreaWidths().rendered, Width::Compact);
+    QCOMPARE(typist::platform::writingAreaWidths().source, Width::Wide);
+    QVERIFY(configure(Width::Wide, Width::Wide, true, QStringLiteral("Writing Area Width")));
+    QTRY_VERIFY(editor->viewport()->width() > 1080 && editor->viewport()->width() <= 1120);
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Unsaved **draft**."));
+    QCOMPARE(editor->document()->availableUndoSteps(), steps);
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+    editor->finishParagraphSourceEdit(false);
+
+    QTest::mouseClick(sourceToggle, Qt::LeftButton);
+    QTRY_VERIFY(editor->viewport()->width() > 1080 && editor->viewport()->width() <= 1120);
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(action->text(), QStringLiteral("写作区宽度"));
+    QVERIFY(configure(Width::Compact, Width::Fill, true, QStringLiteral("写作区宽度")));
+    QTRY_VERIFY(editor->viewport()->width() > 1180);
+    window.resize(710, 600);
+    QTRY_VERIFY(window.width() < 1000);
+    QTRY_VERIFY(editor->viewport()->width() <= editor->width() &&
+                editor->viewport()->width() >= editor->width() - 80);
+
+    typist::MainWindow reopened;
+    reopened.setBenchMode(true);
+    reopened.resize(1350, 700);
+    reopened.show();
+    auto* reopenedEditor = reopened.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(reopenedEditor);
+    QTRY_VERIFY(reopenedEditor->viewport()->width() > 600 &&
+                reopenedEditor->viewport()->width() <= 640);
+    QVERIFY(QMetaObject::invokeMethod(&reopened, "toggleSourceView", Qt::DirectConnection));
+    QTRY_VERIFY(reopenedEditor->viewport()->width() > 1180);
+  }
+
+  void writingAreaReflowKeepsTheReadingPosition() {
+    using Width = typist::platform::WritingWidth;
+    typist::ui::Editor editor;
+    editor.resize(1200, 560);
+    QString text;
+    for (int i = 0; i < 80; ++i)
+      text += QString::number(i) + QStringLiteral(" a long line of text").repeated(14) + '\n';
+    editor.setPlainText(text);
+    editor.show();
+    QTRY_VERIFY(editor.verticalScrollBar()->maximum() > 0);
+    auto* scroll = editor.verticalScrollBar();
+    scroll->setValue(scroll->maximum() / 2);
+    const auto anchor = editor.cursorForPosition(QPoint(0, 0));
+    const int oldY = editor.cursorRect(anchor).top();
+    QVERIFY(anchor.blockNumber() > 8);
+    QVERIFY(editor.cursorRect().bottom() < 0);
+    editor.setWritingAreaWidths({Width::Compact, Width::Wide});
+    QTRY_VERIFY(qAbs(editor.cursorRect(anchor).top() - oldY) <= editor.fontMetrics().height());
+    QVERIFY(editor.cursorRect().bottom() < 0);
+    QCOMPARE(editor.toPlainText(), text);
+    QVERIFY(!editor.document()->isUndoAvailable());
+  }
+
   void editingActionsReplaceAndOutline() {
     typist::platform::setLanguagePreference(QStringLiteral("en"));
     typist::MainWindow window;

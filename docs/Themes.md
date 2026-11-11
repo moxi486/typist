@@ -2,7 +2,8 @@
 
 - `ui::Theme` 提供 light / dark / system 三套，`Ctrl+Shift+D` 循环；偏好写入 `platform::Settings`（Windows 注册表 `HKCU\Software\Typist\Typist`，Linux/macOS 走各自原生存储）。
 - **设置 > 外观** 可以直接选择浅色、深色或跟随系统。界面采用 Typora 风格的简洁菜单和居中正文，常用操作归入菜单，底部提供侧栏、源码切换和字符数；文件与大纲在同一侧栏中切换。
-- 编辑区保持约 860 逻辑像素的居中栏宽，标题分级字号、正文行距、引用竖线、代码底色和链接颜色共同呈现阅读层次。显示装饰不改写 Markdown，也不占用撤销历史。
+- **视图 > 写作区宽度** 可分别设置渲染视图和源码视图的栏宽。选项为紧凑（640 逻辑像素）、标准（860，默认）、宽版（1120）和铺满窗口。固定栏宽居中，在窄窗口或展开侧栏时随可用空间收缩。确认后立即应用到已打开的窗口，重启后恢复设置。栏宽只用于编辑区的显示，保留 Markdown、撤销历史和段落源码草稿。[Typora 写作区宽度文档](https://support.typora.io/Width-of-Writing-Area/)
+- 标题分级字号、正文行距、引用竖线、代码底色和链接颜色共同呈现阅读层次。
 - 首次启动窗口按屏幕大小设为最大 1180 × 820，关闭时记住尺寸和位置。编辑区留白以控件外部宽度计算并保护尺寸事件重入，避免宽窗口打开长文档或侧栏切换时崩溃。
 - `system` 的判定顺序：Windows 读 `CurrentVersion/Themes/Personalize/AppsUseLightTheme`；Linux 读 `GTK_THEME` 或 `~/.config/gtk-3.0/settings.ini`；macOS 读 `AppleInterfaceStyle`；都读不到时回退窗口调色板亮度。macOS 与 Linux 分支未在本地实机验证。
 - 编辑器样式来自主题 QSS，导出的 HTML 内嵌同一份样式，所以导出结果与屏幕一致。
