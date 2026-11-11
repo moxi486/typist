@@ -6,6 +6,7 @@
 #include <QAbstractItemView>
 #include <QClipboard>
 #include <QComboBox>
+#include <QFontDatabase>
 #include <QLineEdit>
 #include <QMimeData>
 #include <QPushButton>
@@ -47,11 +48,34 @@ int numberInkWidth(const QImage& row) {
   }
   return qMax(0, right - left + 1);
 }
+
+QWidget* enableNumberGutter(ui::Editor& editor, const QString& family) {
+  editor.setCodeLineNumbers(true);
+  auto* gutter = editor.findChild<QWidget*>(QStringLiteral("codeLineNumberGutter"));
+  if (!gutter) return nullptr;
+  auto font = gutter->font();
+  font.setFamily(family);
+  gutter->setFont(font);
+  editor.setCodeLineNumbers(false);
+  editor.setCodeLineNumbers(true);
+  return gutter;
+}
 }  // namespace
 class CodeWritingTests : public QObject {
   Q_OBJECT
+ private:
+  QString m_numberFontFamily;
+
  private slots:
-  void initTestCase() { QApplication::setStyle(QStringLiteral("Fusion")); }
+  void initTestCase() {
+    QApplication::setStyle(QStringLiteral("Fusion"));
+    // Qt's offscreen plugin may have no system fonts on a CI runner.
+    const int font =
+        QFontDatabase::addApplicationFont(QStringLiteral(":/microtex/res/fonts/latin/tt10.ttf"));
+    const auto families = QFontDatabase::applicationFontFamilies(font);
+    QVERIFY(!families.isEmpty());
+    m_numberFontFamily = families.first();
+  }
   void lineNumbersFollowLogicalCodeLinesAndResetForEachFence() {
     ui::Editor editor;
     ui::ViewSwitch view;
@@ -62,8 +86,7 @@ class CodeWritingTests : public QObject {
     const auto plain = editor.toPlainText();
     QVERIFY(!editor.findChild<QWidget*>(QStringLiteral("codeLineNumberGutter")));
     editor.resize(500, 650);
-    editor.setCodeLineNumbers(true);
-    auto* gutter = editor.findChild<QWidget*>(QStringLiteral("codeLineNumberGutter"));
+    auto* gutter = enableNumberGutter(editor, m_numberFontFamily);
     QVERIFY(gutter && gutter->isVisible());
     QCOMPARE(gutter->geometry().top(), editor.viewport()->geometry().top());
     QCOMPARE(gutter->geometry().bottom(), editor.viewport()->geometry().bottom());
@@ -112,8 +135,7 @@ class CodeWritingTests : public QObject {
     for (int i = 1; i <= 140; ++i) source += QStringLiteral("row %1\n").arg(i);
     source += QStringLiteral("```\n");
     prepare(editor, view, source);
-    editor.setCodeLineNumbers(true);
-    auto* gutter = editor.findChild<QWidget*>(QStringLiteral("codeLineNumberGutter"));
+    auto* gutter = enableNumberGutter(editor, m_numberFontFamily);
     QVERIFY(gutter && gutter->isVisible());
     const int singleDigit = numberInkWidth(numberRow(gutter, editor.cursorRect(at(editor, 0))));
     QVERIFY(singleDigit > 0);
