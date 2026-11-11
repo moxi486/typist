@@ -1,4 +1,5 @@
 #include "CodeEditing.h"
+#include "CodeLineNumberGutter.h"
 #include "Editor.h"
 #include "ViewSwitch.h"
 #include "markdown.h"
@@ -32,11 +33,112 @@ QTextCursor at(ui::Editor& editor, int line, int column = 0) {
   return cursor;
 }
 QString code(ui::Editor& editor) { return editor::codeRange(editor.textCursor()).text(); }
+bool gutterHasInk(QWidget* gutter) {
+  const auto image = gutter->grab().toImage();
+  for (int y = 0; y < image.height(); ++y) {
+    const QRgb background = image.pixel(0, y);
+    for (int x = 1; x < image.width(); ++x)
+      if (image.pixel(x, y) != background) return true;
+  }
+  return false;
+}
+
+ui::CodeLineNumberGutter* enableNumberGutter(ui::Editor& editor) {
+  editor.setCodeLineNumbers(true);
+  return dynamic_cast<ui::CodeLineNumberGutter*>(
+      editor.findChild<QWidget*>(QStringLiteral("codeLineNumberGutter")));
+}
 }  // namespace
 class CodeWritingTests : public QObject {
   Q_OBJECT
  private slots:
   void initTestCase() { QApplication::setStyle(QStringLiteral("Fusion")); }
+  void lineNumbersFollowLogicalCodeLinesAndResetForEachFence() {
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    prepare(editor, view,
+            QStringLiteral("Intro\n\n```text\n") + QString(126, QLatin1Char('m')) +
+                QStringLiteral("\n\nlast\n```\n\nBody\n\n```text\nsecond fence\n```\n"));
+    const auto markdown = view.currentMarkdown();
+    const auto plain = editor.toPlainText();
+    QVERIFY(!editor.findChild<QWidget*>(QStringLiteral("codeLineNumberGutter")));
+    editor.resize(500, 650);
+    auto* gutter = enableNumberGutter(editor);
+    QVERIFY(gutter && gutter->isVisible());
+    QCOMPARE(gutter->geometry().top(), editor.viewport()->geometry().top());
+    QCOMPARE(gutter->geometry().bottom(), editor.viewport()->geometry().bottom());
+    QVERIFY(gutter->geometry().right() < editor.viewport()->geometry().left());
+
+    const auto first = editor.document()->find(QStringLiteral("mmmm")).block();
+    const auto second = editor.document()->find(QStringLiteral("second fence")).block();
+    QVERIFY(first.layout()->lineCount() > 1);
+    QVERIFY(first.next().text().isEmpty());
+    const QList<QTextBlock> numbered{first, first.next(), first.next().next(), second};
+    const QList<int> expected{1, 2, 3, 1};
+    const auto rows = gutter->visibleRows();
+    QCOMPARE(rows.size(), expected.size());
+    for (qsizetype i = 0; i < rows.size(); ++i) {
+      QCOMPARE(rows[i].number, expected[i]);
+      const auto caret = editor.cursorRect(QTextCursor(numbered[i]));
+      QCOMPARE(rows[i].bounds.top(), caret.top());
+      QCOMPARE(rows[i].bounds.height(), caret.height());
+    }
+    QVERIFY(gutterHasInk(gutter));
+
+    editor.setTextCursor(QTextCursor(first));
+    QVERIFY(editor.copyCodeBlock());
+    QCOMPARE(QApplication::clipboard()->text(), QString(126, QLatin1Char('m')) + "\n\nlast\n");
+    QCOMPARE(view.currentMarkdown(), markdown);
+    QCOMPARE(editor.toPlainText(), plain);
+    QVERIFY(!editor.document()->isUndoAvailable());
+
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    QVERIFY(gutter->isHidden());
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    QVERIFY(gutter->isVisible());
+    editor.setCodeLineNumbers(false);
+    QVERIFY(gutter->isHidden());
+    QCOMPARE(view.currentMarkdown(), markdown);
+  }
+
+  void lineNumbersStayAlignedWhenScrollingAndRenumberAfterEditing() {
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    QString source = QStringLiteral("```text\n");
+    for (int i = 1; i <= 140; ++i) source += QStringLiteral("row %1\n").arg(i);
+    source += QStringLiteral("```\n");
+    prepare(editor, view, source);
+    auto* gutter = enableNumberGutter(editor);
+    QVERIFY(gutter && gutter->isVisible());
+    QCOMPARE(gutter->visibleRows().first().number, 1);
+
+    const auto target = at(editor, 120);
+    editor.ensureCursorVisible();
+    QVERIFY(editor.verticalScrollBar()->value() > 0);
+    const auto currentNumber = [&] {
+      const int top = editor.cursorRect(target).top();
+      for (const auto& row : gutter->visibleRows())
+        if (row.bounds.top() == top) return row.number;
+      return 0;
+    };
+    QCOMPARE(currentNumber(), 121);
+    auto* scroll = editor.verticalScrollBar();
+    scroll->setValue(scroll->value() + 45);
+    QCOMPARE(currentNumber(), 121);
+
+    auto previous = target;
+    previous.movePosition(QTextCursor::PreviousBlock);
+    previous.movePosition(QTextCursor::EndOfBlock);
+    editor.setTextCursor(previous);
+    QTest::keyClick(&editor, Qt::Key_Return);
+    QCOMPARE(target.block().text(), QStringLiteral("row 121"));
+    QCOMPARE(currentNumber(), 122);
+    editor.undo();
+    QCOMPARE(currentNumber(), 121);
+  }
+
   void enterSplitsPairsAndKeepsOneUndoStep() {
     ui::Editor editor;
     ui::ViewSwitch view;

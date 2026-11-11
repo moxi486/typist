@@ -870,6 +870,16 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
     editor->setSyntaxHighlight(enabled);
     QSettings().setValue(QStringLiteral("editor/syntaxHighlight"), enabled);
   });
+  auto* codeLineNumbers = command(settings, QStringLiteral("codeLineNumbers"),
+                                  tr("Code Block Line Numbers"), QString(), [] {});
+  const auto lineNumberSetting = QStringLiteral("editor/codeLineNumbers");
+  codeLineNumbers->setCheckable(true);
+  codeLineNumbers->setChecked(QSettings().value(lineNumberSetting, false).toBool());
+  editor->setCodeLineNumbers(codeLineNumbers->isChecked());
+  connect(codeLineNumbers, &QAction::toggled, this, [editor, lineNumberSetting](bool enabled) {
+    editor->setCodeLineNumbers(enabled);
+    QSettings().setValue(lineNumberSetting, enabled);
+  });
   autoPair->setCheckable(true);
   autoPair->setChecked(QSettings().value(QStringLiteral("editor/autoPair"), true).toBool());
   editor->setAutoPair(autoPair->isChecked());

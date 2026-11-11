@@ -660,6 +660,10 @@
         <translation>语法高亮</translation>
     </message>
     <message>
+        <source>Code Block Line Numbers</source>
+        <translation>代码块行号</translation>
+    </message>
+    <message>
         <source>Copy Code Block</source>
         <translation>复制代码块</translation>
     </message>
