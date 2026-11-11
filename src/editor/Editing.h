@@ -7,6 +7,7 @@ namespace typist::editor {
 
 enum class InlineStyle { Bold, Italic, Strike, Code, Clear };
 enum class ParagraphStyle { Body, Heading, BulletList, OrderedList, TaskList, Quote, Code, Rule };
+enum class SelectionRange { Word, LineOrSentence, Paragraph, StyledScope };
 enum class TableCommand {
   RowAbove,
   RowBelow,
@@ -28,5 +29,6 @@ QTextTable* insertTable(QTextCursor& cursor, int rows, int columns);
 bool editTable(QTextCursor& cursor, TableCommand command);
 bool renderInlineMarkdown(QTextCursor& cursor);
 QString selectedMarkdown(const QTextCursor& cursor);
+void selectRange(QTextCursor& cursor, SelectionRange range, bool rendered);
 
 }  // namespace typist::editor

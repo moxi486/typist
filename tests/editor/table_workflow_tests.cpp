@@ -156,6 +156,38 @@ class TableWorkflowTests : public QObject {
     editor.undo();
     QCOMPARE(view.currentMarkdown(), original);
   }
+  void rangeCommandsSelectTheCurrentRowCellAndTable() {
+    using Range = editor::SelectionRange;
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    prepare(editor, view, fixture);
+    auto* table = firstTable(editor.document());
+    QVERIFY(table);
+    const auto original = view.currentMarkdown();
+    choose(editor, table, 1, 1);
+    editor.selectRange(Range::LineOrSentence);
+    QVERIFY(editor.textCursor().hasComplexSelection());
+    const auto cells = editor::tableCells(editor.textCursor());
+    QCOMPARE(cells.row, 1);
+    QCOMPARE(cells.rows, 1);
+    QCOMPARE(cells.column, 0);
+    QCOMPARE(cells.columns, 2);
+    editor.copy();
+    QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("one\t1"));
+    choose(editor, table, 2, 0);
+    editor.selectRange(Range::StyledScope);
+    QCOMPARE(editor.textCursor().selectedText(), QStringLiteral("two"));
+    editor.selectRange(Range::Paragraph);
+    const auto selected = editor::selectedMarkdown(editor.textCursor());
+    QVERIFY(selected.startsWith(QStringLiteral("| Name | Value |")));
+    QVERIFY(selected.contains(QStringLiteral("| **one** | 1 |")));
+    QVERIFY(selected.contains(QStringLiteral("| two | 2 |")));
+    QVERIFY(!selected.contains(QStringLiteral("Before.")));
+    QVERIFY(!selected.contains(QStringLiteral("TAIL.")));
+    QCOMPARE(view.currentMarkdown(), original);
+    QVERIFY(!editor.document()->isUndoAvailable());
+  }
+
   void explicitHtmlCopyKeepsOnlyTheSelectedTableCells() {
     ui::Editor editor;
     ui::ViewSwitch view;

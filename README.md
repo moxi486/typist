@@ -49,6 +49,7 @@
 - 行内样式保真：粗体、斜体、删除线、行内代码、链接、图片在 parse → serialize → parse 里完整往返，标题里的行内样式同样进序列化；渲染视图用字重/斜体/删除线/等宽字体/锚点呈现，链接显示为带下划线的锚点文本
 - 粘贴为 Markdown（Ctrl+Shift+V）：把剪贴板里的 Markdown 解析成块插到光标处，整个粘贴是一步撤销；源码视图下按纯文本粘贴
 - 剪贴板复制格式：支持 Markdown、纯文本、HTML 源码与无主题样式的富文本，见 [docs/Clipboard.md](docs/Clipboard.md)
+- 选择与定位：按单词、句子、样式或段落选择，表格中可选整行和单元格。用 Ctrl+J 跳回当前选区。
 - 拖拽图片：把图片文件拖到窗口会在光标处插入 ![文件名](路径) 链接（源码视图直接插入该文本）
 - 往返保真测试：parse → serialize → parse 产生相同 AST
 - 文档：`docs/index.md`（首页）、`docs/Build.md`（依赖与三平台构建）、`docs/Keyboard.md`（快捷键）、`docs/Themes.md`（主题与配置）、`docs/Translations.md`（翻译与 `.qm`）、`docs/Release.md`（发布打包、签名与更新通道）、`docs/ROADMAP.md`（路线图与实现事实）；第三方许可声明见仓库根目录的 `NOTICE`

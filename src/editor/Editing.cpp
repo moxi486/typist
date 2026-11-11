@@ -1,11 +1,13 @@
 #include "Editing.h"
 
+#include "CodeEditing.h"
 #include "ListEditing.h"
 #include "TableEditing.h"
 #include "editor_document.h"
 
 #include <QFontDatabase>
 #include <QTextBlock>
+#include <QTextBoundaryFinder>
 #include <QTextDocumentFragment>
 #include <QTextFragment>
 #include <QTextList>
@@ -76,7 +78,110 @@ void styleCharacters(QTextBlock block, int heading, bool code, bool wasCode) {
     run.setCharFormat(format);
   }
 }
+
+QTextCharFormat inlineScopeStyle(const QTextCharFormat& format) {
+  QTextCharFormat style;
+  if (format.fontWeight() >= QFont::Bold && !format.boolProperty(kPresentationBoldProperty))
+    style.setFontWeight(QFont::Bold);
+  if (format.fontItalic()) style.setFontItalic(true);
+  if (format.fontStrikeOut()) style.setFontStrikeOut(true);
+  if (isInlineCodeFormat(format)) style.setFontFixedPitch(true);
+  if (format.isAnchor()) style.setAnchorHref(format.anchorHref());
+  for (const auto property : {kMathSourceProperty, kImageProperty, kFootnoteReferenceProperty})
+    if (format.hasProperty(property)) style.setProperty(property, format.property(property));
+  return style;
+}
+
+bool selectInlineScope(QTextCursor& cursor) {
+  const auto block = cursor.block();
+  const int probe = qMin(cursor.position(), block.position() + block.length() - 2);
+  QVector<QTextFragment> fragments;
+  int current = -1;
+  for (auto it = block.begin(); !it.atEnd(); ++it) {
+    const auto fragment = it.fragment();
+    if (!fragment.isValid()) continue;
+    if (probe >= fragment.position() && probe < fragment.position() + fragment.length())
+      current = static_cast<int>(fragments.size());
+    fragments.append(fragment);
+  }
+  if (current < 0) return false;
+  const auto style = inlineScopeStyle(fragments[current].charFormat());
+  if (style.isEmpty()) return false;
+  int first = current, last = current;
+  while (first > 0 && inlineScopeStyle(fragments[first - 1].charFormat()) == style) --first;
+  while (last + 1 < fragments.size() && inlineScopeStyle(fragments[last + 1].charFormat()) == style)
+    ++last;
+  cursor.setPosition(fragments[first].position());
+  cursor.setPosition(fragments[last].position() + fragments[last].length(),
+                     QTextCursor::KeepAnchor);
+  return true;
+}
 }  // namespace
+
+void selectRange(QTextCursor& cursor, SelectionRange range, bool rendered) {
+  if (cursor.isNull()) return;
+  cursor.clearSelection();
+  auto* table = rendered ? cursor.currentTable() : nullptr;
+  if (table && range != SelectionRange::Word) {
+    const auto cell = table->cellAt(cursor.position());
+    if (!cell.isValid()) return;
+    if (range == SelectionRange::LineOrSentence) {
+      cursor = table->cellAt(cell.row(), 0).firstCursorPosition();
+      cursor.setPosition(table->cellAt(cell.row(), table->columns() - 1).lastPosition(),
+                         QTextCursor::KeepAnchor);
+    } else if (range == SelectionRange::StyledScope) {
+      cursor = cell.firstCursorPosition();
+      cursor.setPosition(cell.lastPosition(), QTextCursor::KeepAnchor);
+    } else {
+      cursor.setPosition(table->firstPosition() - 1);
+      cursor.setPosition(table->lastPosition() + 1, QTextCursor::KeepAnchor);
+    }
+    return;
+  }
+  if (rendered && (range == SelectionRange::Paragraph || range == SelectionRange::StyledScope)) {
+    const auto code = codeRange(cursor);
+    if (code.valid()) {
+      cursor.setPosition(code.first.position());
+      cursor.setPosition(code.last.position() + code.last.length() - 1, QTextCursor::KeepAnchor);
+      return;
+    }
+  }
+  const auto block = cursor.block();
+  const int contentStart = rendered ? listContentStart(block) : block.position();
+  if (cursor.position() < contentStart) cursor.setPosition(contentStart);
+  if (range == SelectionRange::StyledScope && rendered && selectInlineScope(cursor)) return;
+  if (range == SelectionRange::Word || range == SelectionRange::StyledScope) {
+    cursor.select(QTextCursor::WordUnderCursor);
+    if (cursor.selectionStart() < contentStart) {
+      const int end = qMax(contentStart, cursor.selectionEnd());
+      cursor.setPosition(contentStart);
+      cursor.setPosition(end, QTextCursor::KeepAnchor);
+    }
+    return;
+  }
+  const QString text = block.text().mid(contentStart - block.position());
+  int start = 0, end = static_cast<int>(text.size());
+  const int position = qBound(0, cursor.position() - contentStart, end);
+  if (range == SelectionRange::LineOrSentence) {
+    if (!rendered || block.blockFormat().hasProperty(kCodeBlockProperty)) {
+      if (position > 0) start = text.lastIndexOf(QChar::LineSeparator, position - 1) + 1;
+      const int next = text.indexOf(QChar::LineSeparator, position);
+      if (next >= 0) end = next;
+    } else if (!block.blockFormat().hasProperty(kSpecialBlockProperty)) {
+      QTextBoundaryFinder finder(QTextBoundaryFinder::Sentence, text);
+      finder.setPosition(position);
+      start = position < end && finder.isAtBoundary() ? position : finder.toPreviousBoundary();
+      start = qMax(0, start);
+      finder.setPosition(start);
+      const int next = static_cast<int>(finder.toNextBoundary());
+      if (next >= 0) end = next;
+      while (start < end && text.at(start).isSpace()) ++start;
+      while (end > start && text.at(end - 1).isSpace()) --end;
+    }
+  }
+  cursor.setPosition(contentStart + start);
+  cursor.setPosition(contentStart + end, QTextCursor::KeepAnchor);
+}
 
 bool setParagraphStyle(QTextCursor& cursor, ParagraphStyle style, int heading) {
   if (cursor.currentTable()) return false;

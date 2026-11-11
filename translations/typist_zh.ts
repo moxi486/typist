@@ -496,6 +496,50 @@
         <translation>全选</translation>
     </message>
     <message>
+        <source>Select Range</source>
+        <translation>选择范围</translation>
+    </message>
+    <message>
+        <source>Select Word</source>
+        <translation>选择单词</translation>
+    </message>
+    <message>
+        <source>Select Line / Sentence</source>
+        <translation>选择行／句子</translation>
+    </message>
+    <message>
+        <source>Select Paragraph / Block</source>
+        <translation>选择段落／块</translation>
+    </message>
+    <message>
+        <source>Select Styled Scope / Table Cell</source>
+        <translation>选择样式范围／单元格</translation>
+    </message>
+    <message>
+        <source>Jump</source>
+        <translation>跳转</translation>
+    </message>
+    <message>
+        <source>Jump to Selection</source>
+        <translation>跳到选区</translation>
+    </message>
+    <message>
+        <source>Jump to Top</source>
+        <translation>跳到文档开头</translation>
+    </message>
+    <message>
+        <source>Jump to Bottom</source>
+        <translation>跳到文档末尾</translation>
+    </message>
+    <message>
+        <source>Jump to Line Start</source>
+        <translation>跳到行首</translation>
+    </message>
+    <message>
+        <source>Jump to Line End</source>
+        <translation>跳到行尾</translation>
+    </message>
+    <message>
         <source>Strikethrough</source>
         <translation>删除线</translation>
     </message>

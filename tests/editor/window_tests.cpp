@@ -1102,6 +1102,101 @@ class WindowTests : public QObject {
     QCOMPARE(editor->textCursor().block().text(), QStringLiteral("Newly added heading"));
   }
 
+  void rangeShortcutsNavigateAndKeepParagraphDraft() {
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] { typist::platform::setLanguagePreference(language); });
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QTemporaryDir directory;
+    QFile file(directory.filePath(QStringLiteral("ranges.md")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("Start **bold phrase**. Another sentence.\n\n");
+    for (int i = 0; i < 70; ++i) file.write("Scrolling content.\n\n");
+    file.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.resize(1040, 640);
+    window.show();
+    window.activateWindow();
+    QVERIFY(window.openFile(file.fileName()));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* selectMenu = window.findChild<QMenu*>(QStringLiteral("selectRangeMenu"));
+    auto* jumpMenu = window.findChild<QMenu*>(QStringLiteral("jumpMenu"));
+    QVERIFY(editor && selectMenu && jumpMenu);
+    QCOMPARE(selectMenu->title(), QStringLiteral("Select Range"));
+    QCOMPARE(jumpMenu->title(), QStringLiteral("Jump"));
+    const auto trigger = [&](const char* name) {
+      auto* action = window.findChild<QAction*>(QLatin1String(name));
+      if (action) action->trigger();
+      return action != nullptr;
+    };
+    auto cursor = editor->document()->find(QStringLiteral("bold"));
+    QVERIFY(!cursor.isNull());
+    cursor.setPosition(cursor.selectionStart() + 1);
+    editor->setTextCursor(cursor);
+    editor->setFocus();
+    QTRY_VERIFY(editor->hasFocus());
+    QTest::keyClick(editor, Qt::Key_D, Qt::ControlModifier);
+    QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("bold"));
+    QTest::keyClick(editor, Qt::Key_E, Qt::ControlModifier);
+    QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("bold phrase"));
+    QTest::keyClick(editor, Qt::Key_L, Qt::ControlModifier);
+    QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("Start bold phrase."));
+
+    const auto selected = editor->textCursor();
+    cursor.setPosition(selected.selectionEnd());
+    cursor.setPosition(selected.selectionStart(), QTextCursor::KeepAnchor);
+    editor->setTextCursor(cursor);
+    auto* scroll = editor->verticalScrollBar();
+    QTRY_VERIFY(scroll->maximum() > 0);
+    scroll->setValue(scroll->maximum());
+    QTest::keyClick(editor, Qt::Key_J, Qt::ControlModifier);
+    QTRY_VERIFY(scroll->value() < scroll->maximum());
+    QCOMPARE(editor->textCursor().anchor(), cursor.anchor());
+    QCOMPARE(editor->textCursor().position(), cursor.position());
+    QVERIFY(trigger("jumpLineEnd"));
+    QVERIFY(editor->textCursor().atBlockEnd());
+    QVERIFY(!editor->textCursor().hasSelection());
+    QVERIFY(trigger("jumpLineStart"));
+    QVERIFY(editor->textCursor().atBlockStart());
+    QVERIFY(trigger("jumpBottom"));
+    QVERIFY(editor->textCursor().atEnd());
+    QVERIFY(trigger("jumpTop"));
+    QVERIFY(editor->textCursor().atStart());
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleFindBar", Qt::DirectConnection));
+    auto* find = window.findChild<QLineEdit*>(QStringLiteral("findPattern"));
+    QVERIFY(find && find->isVisible());
+    find->setFocus();
+    QTRY_VERIFY(find->hasFocus());
+    QTest::keyClick(find, Qt::Key_L, Qt::ControlModifier);
+    QVERIFY(find->hasFocus());
+    QVERIFY(!editor->textCursor().hasSelection());
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleFindBar", Qt::DirectConnection));
+
+    const auto original = typist::editor::serializeDocument(editor->document());
+    const auto undo = editor->document()->availableUndoSteps();
+    editor->setTextCursor(editor->document()->find(QStringLiteral("Start")));
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(draft);
+    draft->setPlainText(QStringLiteral("Draft **one**.\n第二行内容。"));
+    draft->moveCursor(QTextCursor::End);
+    QTRY_VERIFY(draft->hasFocus());
+    QTest::keyClick(draft, Qt::Key_L, Qt::ControlModifier);
+    QCOMPARE(draft->textCursor().selectedText(), QStringLiteral("第二行内容。"));
+    QVERIFY(trigger("jumpTop"));
+    QVERIFY(draft->textCursor().atStart());
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Draft **one**.\n第二行内容。"));
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+    QCOMPARE(editor->document()->availableUndoSteps(), undo);
+    QVERIFY(trigger("language_zh"));
+    QCOMPARE(selectMenu->title(), QStringLiteral("选择范围"));
+    QCOMPARE(jumpMenu->title(), QStringLiteral("跳转"));
+    QCOMPARE(window.findChild<QAction*>(QStringLiteral("selectSentence"))->text(),
+             QStringLiteral("选择行／句子"));
+    editor->finishParagraphSourceEdit(false);
+  }
+
   void clipboardFormatsUseTheSelectionAcrossViewsAndLanguages() {
     const auto language = typist::platform::languagePreference();
     const auto theme = typist::platform::themePreference();
