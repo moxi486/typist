@@ -53,6 +53,54 @@ class CodeWritingTests : public QObject {
   Q_OBJECT
  private slots:
   void initTestCase() { QApplication::setStyle(QStringLiteral("Fusion")); }
+  void selectAllStagesTheCurrentFenceAndCopiesItsLiteralSelection() {
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    const auto expected = QStringLiteral("\tfirst\u00a0value  \n\n  last ");
+    const auto source =
+        QStringLiteral("Before\n\n```text\n") + expected + QStringLiteral("\n```\n\nAfter\n");
+    prepare(editor, view, source);
+    const auto original = view.currentMarkdown();
+    auto first = editor.document()->find(QStringLiteral("first"));
+    QVERIFY(first.hasSelection());
+    editor.setTextCursor(first);
+    QTest::keyClick(&editor, Qt::Key_A, Qt::ControlModifier);
+    const auto selected = editor.textCursor();
+    QCOMPARE(selected.selectionStart(), first.block().position());
+    QCOMPARE(selected.selectedText().replace(QChar::ParagraphSeparator, QLatin1Char('\n')),
+             expected);
+    QTest::keyClick(&editor, Qt::Key_C, Qt::ControlModifier);
+    QCOMPARE(QApplication::clipboard()->text(), expected);
+    QVERIFY(!QApplication::clipboard()->mimeData()->hasHtml());
+
+    QTest::keyClick(&editor, Qt::Key_A, Qt::ControlModifier);
+    QCOMPARE(editor.textCursor().selectionStart(), 0);
+    QCOMPARE(editor.textCursor().selectionEnd(), editor.document()->characterCount() - 1);
+    QCOMPARE(view.currentMarkdown(), original);
+    QVERIFY(!editor.document()->isUndoAvailable());
+
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    editor.setTextCursor(editor.document()->find(QStringLiteral("first")));
+    QTest::keyClick(&editor, Qt::Key_A, Qt::ControlModifier);
+    QCOMPARE(editor.textCursor().selectionStart(), 0);
+    QCOMPARE(editor.textCursor().selectionEnd(), editor.document()->characterCount() - 1);
+  }
+
+  void selectAllFromAnEmptyFenceSelectsTheDocument() {
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    prepare(editor, view, QStringLiteral("Before\n\n```text\n```\n\nAfter\n"));
+    const auto first = editor.document()->find(QStringLiteral("Before")).block();
+    const auto empty = first.next();
+    QVERIFY(empty.blockFormat().hasProperty(editor::kCodeBlockProperty));
+    QVERIFY(empty.text().isEmpty());
+    editor.setTextCursor(QTextCursor(empty));
+    editor.selectAll();
+    QCOMPARE(editor.textCursor().selectionStart(), 0);
+    QCOMPARE(editor.textCursor().selectionEnd(), editor.document()->characterCount() - 1);
+  }
+
   void customCodeIndentSizeAppliesToWhitespaceCommands() {
     ui::Editor editor;
     ui::ViewSwitch view;

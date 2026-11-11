@@ -15,7 +15,9 @@ struct CodeRange {
   bool valid() const { return first.isValid() && last.isValid(); }
   QString language() const;
   QString text() const;
+  QTextCursor selection() const;
 };
+bool isCodeSelection(const QTextCursor& cursor);
 CodeRange codeRange(const QTextCursor& cursor);
 const QStringList& codeLanguages();
 const QRegularExpression& codeLanguagePattern();

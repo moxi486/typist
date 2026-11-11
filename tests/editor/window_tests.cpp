@@ -1103,6 +1103,90 @@ class WindowTests : public QObject {
     QCOMPARE(editor->textCursor().block().text(), QStringLiteral("Newly added heading"));
   }
 
+  void codeToolsTargetTheClickedFenceAndSelectAllStaysInTheEditor() {
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] { typist::platform::setLanguagePreference(language); });
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QTemporaryDir directory;
+    QFile file(directory.filePath(QStringLiteral("code-tools.md")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("Before\n\n```cpp\nfirst\n```\n\nMiddle\n\n```text\n\tother \n```\n\nTail.\n");
+    file.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.resize(1040, 640);
+    window.show();
+    QVERIFY(window.openFile(file.fileName()));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* selectAll = window.findChild<QAction*>(QStringLiteral("selectAll"));
+    QVERIFY(editor && selectAll);
+    const auto original = typist::editor::serializeDocument(editor->document());
+    // Deliver synthetic shortcuts to the Qt window even if the OS has another foreground app.
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_DEPRECATED
+    QApplication::setActiveWindow(&window);
+    QT_WARNING_POP
+    editor->setTextCursor(editor->document()->find(QStringLiteral("first")));
+    auto caret = editor->textCursor();
+    caret.clearSelection();
+    editor->setTextCursor(caret);
+    editor->setFocus();
+    QTRY_VERIFY(editor->hasFocus());
+    selectAll->trigger();
+    QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("first"));
+    QTest::keyClick(editor, Qt::Key_A, Qt::ControlModifier);
+    QCOMPARE(editor->textCursor().selectionStart(), 0);
+    QCOMPARE(editor->textCursor().selectionEnd(), editor->document()->characterCount() - 1);
+
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleFindBar", Qt::DirectConnection));
+    auto* find = window.findChild<QLineEdit*>(QStringLiteral("findPattern"));
+    QVERIFY(find);
+    find->setText(QStringLiteral("find this"));
+    find->setCursorPosition(find->text().size());
+    QTRY_VERIFY(find->hasFocus());
+    QTest::keyClick(find, Qt::Key_A, Qt::ControlModifier);
+    QCOMPARE(find->selectedText(), find->text());
+    QCOMPARE(editor->textCursor().selectionStart(), 0);
+    QCOMPARE(editor->textCursor().selectionEnd(), editor->document()->characterCount() - 1);
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleFindBar", Qt::DirectConnection));
+
+    editor->setTextCursor(caret);
+    const auto other = editor->document()->find(QStringLiteral("other"));
+    QVERIFY(!other.isNull());
+    const auto activateTool = [&](const QString& id, const QString& expectedTitle) {
+      const QPoint point = editor->cursorRect(other).center();
+      if (!editor->viewport()->rect().contains(point)) return false;
+      bool activated = false;
+      QTimer::singleShot(0, &window, [&] {
+        auto* popup = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+        if (!popup) return;
+        auto* tools = popup->findChild<QMenu*>(QStringLiteral("codeToolsContextMenu"));
+        if (tools && tools->title() == expectedTitle) {
+          auto* action = tools->findChild<QAction*>(id);
+          if (action && action->isEnabled()) {
+            action->trigger();
+            activated = true;
+          }
+        }
+        popup->close();
+      });
+      QContextMenuEvent event(QContextMenuEvent::Mouse, point,
+                              editor->viewport()->mapToGlobal(point));
+      QApplication::sendEvent(editor->viewport(), &event);
+      return activated;
+    };
+    QVERIFY(activateTool(QStringLiteral("codeContextCopy"), QStringLiteral("Code Tools")));
+    QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("\tother \n"));
+    QCOMPARE(editor->textCursor().position(), caret.position());
+    QVERIFY(activateTool(QStringLiteral("codeContextSelect"), QStringLiteral("Code Tools")));
+    QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("\tother "));
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QVERIFY(activateTool(QStringLiteral("codeContextExit"), QStringLiteral("代码工具")));
+    QCOMPARE(editor->textCursor().block().text(), QStringLiteral("Tail."));
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+    QVERIFY(!editor->document()->isUndoAvailable());
+  }
+
   void codeIndentSizeSettingAppliesImmediatelyAndPersists() {
     QSettings settings;
     const auto key = QStringLiteral("editor/codeIndentSize");

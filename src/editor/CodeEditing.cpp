@@ -24,18 +24,6 @@ int outdentSize(const QString& text, int indentSize) {
   if (size < indentSize && size < text.size() && text.at(size) == '\t') ++size;
   return size;
 }
-bool codeSelection(const QTextCursor& cursor) {
-  const int group = cursor.document()
-                        ->findBlock(cursor.selectionStart())
-                        .blockFormat()
-                        .intProperty(kCodeBlockProperty);
-  if (!group || cursor.currentTable()) return false;
-  const int end = cursor.hasSelection() ? cursor.selectionEnd() - 1 : cursor.position();
-  for (auto block = cursor.document()->findBlock(cursor.selectionStart());
-       block.isValid() && block.position() <= end; block = block.next())
-    if (block.blockFormat().intProperty(kCodeBlockProperty) != group) return false;
-  return true;
-}
 bool syntaxAllowsIndent(const QTextBlock& current, const QString& prefix) {
   // Only candidate openers need lexical work. Bound the scan for very large fences;
   // ordinary newline insertion always retains indentation without scanning the fence.
@@ -77,6 +65,17 @@ void splitLine(QTextCursor& cursor, const QString& indent) {
 }
 }  // namespace
 
+bool isCodeSelection(const QTextCursor& cursor) {
+  if (cursor.isNull() || cursor.hasComplexSelection() || cursor.currentTable()) return false;
+  const auto first = cursor.document()->findBlock(cursor.selectionStart());
+  const int group = first.blockFormat().intProperty(kCodeBlockProperty);
+  if (!group) return false;
+  const int end = cursor.hasSelection() ? cursor.selectionEnd() - 1 : cursor.position();
+  for (auto block = first.next(); block.isValid() && block.position() <= end; block = block.next())
+    if (block.blockFormat().intProperty(kCodeBlockProperty) != group) return false;
+  return true;
+}
+
 QString CodeRange::language() const {
   return first.blockFormat().property(kCodeInfoProperty).toString();
 }
@@ -92,8 +91,14 @@ QString CodeRange::text() const {
   }
   return result;
 }
+QTextCursor CodeRange::selection() const {
+  if (!valid()) return {};
+  QTextCursor cursor(first);
+  cursor.setPosition(last.position() + last.length() - 1, QTextCursor::KeepAnchor);
+  return cursor;
+}
 CodeRange codeRange(const QTextCursor& cursor) {
-  if (!codeSelection(cursor)) return {};
+  if (!isCodeSelection(cursor)) return {};
   auto first = cursor.document()->findBlock(cursor.selectionStart()), last = first;
   const int group = first.blockFormat().intProperty(kCodeBlockProperty);
   while (first.previous().isValid() &&
@@ -136,7 +141,7 @@ bool setCodeLanguage(QTextCursor& cursor, const QString& identifier) {
 }
 
 bool indentCode(QTextCursor& cursor, bool outdent, int indentSize) {
-  if (indentSize < 1 || !codeSelection(cursor)) return false;
+  if (indentSize < 1 || !isCodeSelection(cursor)) return false;
   if (!outdent && !cursor.hasSelection()) {
     const int column = columns(cursor.block().text().left(cursor.positionInBlock()), indentSize);
     const int width = indentSize - column % indentSize;
@@ -175,7 +180,7 @@ bool indentCode(QTextCursor& cursor, bool outdent, int indentSize) {
   return true;
 }
 bool backspaceCodeIndent(QTextCursor& cursor, int indentSize) {
-  if (indentSize < 1 || cursor.hasSelection() || !codeSelection(cursor) || cursor.atBlockStart())
+  if (indentSize < 1 || cursor.hasSelection() || !isCodeSelection(cursor) || cursor.atBlockStart())
     return false;
   const QString prefix = cursor.block().text().left(cursor.positionInBlock());
   if (leadingSize(prefix) != prefix.size()) return false;
@@ -189,7 +194,7 @@ bool backspaceCodeIndent(QTextCursor& cursor, int indentSize) {
   return true;
 }
 bool insertCodeLine(QTextCursor& cursor, bool literal, int indentSize) {
-  if (indentSize < 1 || !codeSelection(cursor)) return false;
+  if (indentSize < 1 || !isCodeSelection(cursor)) return false;
   cursor.beginEditBlock();
   cursor.removeSelectedText();
   const QString text = cursor.block().text();
@@ -222,7 +227,7 @@ bool insertCodeLine(QTextCursor& cursor, bool literal, int indentSize) {
   return true;
 }
 bool insertCodeText(QTextCursor& cursor, QString text) {
-  if (!codeSelection(cursor)) return false;
+  if (!isCodeSelection(cursor)) return false;
   text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
   text.replace('\r', '\n');
   text.replace(QChar::ParagraphSeparator, QChar('\n'));

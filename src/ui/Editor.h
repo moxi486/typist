@@ -207,6 +207,7 @@ class Editor : public QTextEdit {
 
  private:
   QString selectedPlainText() const;
+  bool copyCodeBlock(const QTextCursor& cursor);
   void paintCodeBackgrounds() {
     QPainter painter(viewport());
     painter.setPen(Qt::NoPen);

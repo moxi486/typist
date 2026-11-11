@@ -417,22 +417,28 @@ void Editor::cut() {
     QTextEdit::cut();
 }
 void Editor::copy() {
-  if (m_rendered && !m_paragraphSourceActive && textCursor().hasComplexSelection()) {
+  if (m_paragraphSourceActive) {
+    m_paragraphPanel->input()->copy();
+    return;
+  }
+  const auto cursor = textCursor();
+  if (m_rendered && cursor.hasComplexSelection()) {
     auto* data = new QMimeData;
-    data->setText(editor::tableTsv(textCursor(), true));
+    data->setText(editor::tableTsv(cursor, true));
     data->setData(QStringLiteral("text/tab-separated-values"), data->text().toUtf8());
     QApplication::clipboard()->setMimeData(data);
     return;
   }
-  if (m_paragraphSourceActive)
-    m_paragraphPanel->input()->copy();
+  if (m_rendered && cursor.hasSelection() && editor::isCodeSelection(cursor))
+    QApplication::clipboard()->setText(
+        cursor.selectedText().replace(QChar::ParagraphSeparator, QLatin1Char('\n')));
   else
     QTextEdit::copy();
 }
 QString Editor::selectedPlainText() const {
   if (m_paragraphSourceActive) return paragraphSourceSelection();
   const auto cursor = textCursor();
-  if (!m_rendered)
+  if (!m_rendered || editor::isCodeSelection(cursor))
     return cursor.selectedText().replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
   if (cursor.hasComplexSelection()) return editor::tableTsv(cursor, true);
   return QTextDocumentFragment(cursor).toPlainText().remove(QChar::ObjectReplacementCharacter);
@@ -472,10 +478,23 @@ void Editor::paste() {
     QTextEdit::paste();
 }
 void Editor::selectAll() {
-  if (m_paragraphSourceActive)
+  if (m_paragraphSourceActive) {
     m_paragraphPanel->input()->selectAll();
-  else
-    QTextEdit::selectAll();
+    return;
+  }
+  if (m_rendered) {
+    const auto current = textCursor();
+    const auto code = editor::codeRange(current).selection();
+    if (code.hasSelection() && current.selectionStart() >= code.selectionStart() &&
+        current.selectionEnd() <= code.selectionEnd() &&
+        (current.selectionStart() != code.selectionStart() ||
+         current.selectionEnd() != code.selectionEnd())) {
+      setTextCursor(code);
+      ensureCursorVisible();
+      return;
+    }
+  }
+  QTextEdit::selectAll();
 }
 void Editor::selectRange(editor::SelectionRange range) {
   auto* input = m_paragraphSourceActive ? m_paragraphPanel->input() : nullptr;
@@ -572,11 +591,15 @@ bool Editor::setCodeLanguage(const QString& language) {
   return true;
 }
 bool Editor::copyCodeBlock() {
-  if (!m_rendered) return false;
-  const auto range = editor::codeRange(textCursor());
+  if (!copyCodeBlock(textCursor())) return false;
+  if (m_codeBar) m_codeBar->showCopied();
+  return true;
+}
+bool Editor::copyCodeBlock(const QTextCursor& cursor) {
+  if (!m_rendered || m_paragraphSourceActive || cursor.document() != document()) return false;
+  const auto range = editor::codeRange(cursor);
   if (!range.valid()) return false;
   QApplication::clipboard()->setText(range.text());
-  if (m_codeBar) m_codeBar->showCopied();
   return true;
 }
 bool Editor::exitCodeBlock() {
@@ -934,6 +957,37 @@ void Editor::contextMenuEvent(QContextMenuEvent* event) {
     addFormat(tr("Copy without Theme Styling"), CopyFormat::WithoutTheme);
   }
   const auto cursor = cursorForPosition(event->pos());
+  const auto codeCursor = event->reason() == QContextMenuEvent::Keyboard ? textCursor() : cursor;
+  const auto code =
+      m_rendered && !m_paragraphSourceActive ? editor::codeRange(codeCursor) : editor::CodeRange();
+  if (code.valid()) {
+    menu->addSeparator();
+    auto* tools = menu->addMenu(tr("Code Tools"));
+    tools->setObjectName(QStringLiteral("codeToolsContextMenu"));
+    auto* select = tools->addAction(tr("Select Code Block"));
+    select->setObjectName(QStringLiteral("codeContextSelect"));
+    select->setEnabled(code.selection().hasSelection());
+    connect(select, &QAction::triggered, this, [this, codeCursor] {
+      if (!m_rendered || m_paragraphSourceActive || codeCursor.document() != document()) return;
+      const auto selection = editor::codeRange(codeCursor).selection();
+      if (!selection.hasSelection()) return;
+      setTextCursor(selection);
+      revealSelection();
+    });
+    auto* copy = tools->addAction(tr("Copy Code Block"));
+    copy->setObjectName(QStringLiteral("codeContextCopy"));
+    connect(copy, &QAction::triggered, this, [this, codeCursor] { copyCodeBlock(codeCursor); });
+    auto* exit = tools->addAction(tr("Exit Code Block"));
+    exit->setObjectName(QStringLiteral("codeContextExit"));
+    exit->setEnabled(!isReadOnly());
+    connect(exit, &QAction::triggered, this, [this, codeCursor] {
+      if (!m_rendered || m_paragraphSourceActive || isReadOnly() ||
+          codeCursor.document() != document() || !editor::isCodeSelection(codeCursor))
+        return;
+      setTextCursor(codeCursor);
+      exitCodeBlock();
+    });
+  }
   const auto link = m_rendered ? editor::linkSelection(cursor) : QTextCursor();
   if (!link.isNull() && !anchorAt(event->pos()).isEmpty()) {
     menu->addSeparator();
@@ -1316,6 +1370,10 @@ void Editor::dropEvent(QDropEvent* event) {
 }
 
 void Editor::keyPressEvent(QKeyEvent* event) {
+  if (event->matches(QKeySequence::SelectAll)) {
+    selectAll();
+    return;
+  }
   if (event->matches(QKeySequence::Copy)) {
     copy();
     return;

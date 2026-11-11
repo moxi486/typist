@@ -559,8 +559,10 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
           [editor] { editor->copy(); });
   command(edit, QStringLiteral("paste"), tr("Paste"), QStringLiteral("Ctrl+V"),
           [editor] { editor->paste(); });
-  command(edit, QStringLiteral("selectAll"), tr("Select All"), QStringLiteral("Ctrl+A"),
-          [editor] { editor->selectAll(); });
+  auto* selectAll = command(edit, QStringLiteral("selectAll"), tr("Select All"),
+                            QStringLiteral("Ctrl+A"), [editor] { editor->selectAll(); });
+  selectAll->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+  editor->addAction(selectAll);
   auto* selectMenu = edit->addMenu(tr("Select Range"));
   selectMenu->setObjectName(QStringLiteral("selectRangeMenu"));
   command(selectMenu, QStringLiteral("selectWord"), tr("Select Word"), QStringLiteral("Ctrl+D"),
