@@ -32,11 +32,113 @@ QTextCursor at(ui::Editor& editor, int line, int column = 0) {
   return cursor;
 }
 QString code(ui::Editor& editor) { return editor::codeRange(editor.textCursor()).text(); }
+QImage numberRow(QWidget* gutter, const QRect& caret) {
+  return gutter->grab(QRect(0, caret.top(), gutter->width(), caret.height())).toImage();
+}
+int numberInkWidth(const QImage& row) {
+  int left = row.width(), right = -1;
+  for (int y = 0; y < row.height(); ++y) {
+    const QRgb background = row.pixel(0, y);
+    for (int x = 1; x < row.width(); ++x) {
+      if (row.pixel(x, y) == background) continue;
+      left = qMin(left, x);
+      right = qMax(right, x);
+    }
+  }
+  return qMax(0, right - left + 1);
+}
 }  // namespace
 class CodeWritingTests : public QObject {
   Q_OBJECT
  private slots:
   void initTestCase() { QApplication::setStyle(QStringLiteral("Fusion")); }
+  void lineNumbersFollowLogicalCodeLinesAndResetForEachFence() {
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    prepare(editor, view,
+            QStringLiteral("Intro\n\n```text\n") + QString(126, QLatin1Char('m')) +
+                QStringLiteral("\n\nlast\n```\n\nBody\n\n```text\nsecond fence\n```\n"));
+    const auto markdown = view.currentMarkdown();
+    const auto plain = editor.toPlainText();
+    QVERIFY(!editor.findChild<QWidget*>(QStringLiteral("codeLineNumberGutter")));
+    editor.resize(500, 650);
+    editor.setCodeLineNumbers(true);
+    auto* gutter = editor.findChild<QWidget*>(QStringLiteral("codeLineNumberGutter"));
+    QVERIFY(gutter && gutter->isVisible());
+    QCOMPARE(gutter->geometry().top(), editor.viewport()->geometry().top());
+    QCOMPARE(gutter->geometry().bottom(), editor.viewport()->geometry().bottom());
+    QVERIFY(gutter->geometry().right() < editor.viewport()->geometry().left());
+
+    const auto first = editor.document()->find(QStringLiteral("mmmm")).block();
+    const auto second = editor.document()->find(QStringLiteral("second fence")).block();
+    const auto row = [&](const QTextBlock& block) {
+      return numberRow(gutter, editor.cursorRect(QTextCursor(block)));
+    };
+    QVERIFY(first.layout()->lineCount() > 1);
+    QVERIFY(first.next().text().isEmpty());
+    const auto one = row(first);
+    QVERIFY(numberInkWidth(one) > 0);
+    QCOMPARE(row(second), one);
+    QVERIFY(numberInkWidth(row(first.next())) > 0);
+    QVERIFY(row(first.next()) != one);
+    const auto body = editor.document()->find(QStringLiteral("Body")).block();
+    QCOMPARE(numberInkWidth(row(body)), 0);
+    QTextCursor wrapped(first);
+    wrapped.setPosition(first.position() + first.layout()->lineAt(1).textStart() + 1);
+    QCOMPARE(numberInkWidth(numberRow(gutter, editor.cursorRect(wrapped))), 0);
+
+    editor.setTextCursor(QTextCursor(first));
+    QVERIFY(editor.copyCodeBlock());
+    QCOMPARE(QApplication::clipboard()->text(), QString(126, QLatin1Char('m')) + "\n\nlast\n");
+    QCOMPARE(view.currentMarkdown(), markdown);
+    QCOMPARE(editor.toPlainText(), plain);
+    QVERIFY(!editor.document()->isUndoAvailable());
+
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    QVERIFY(gutter->isHidden());
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    QVERIFY(gutter->isVisible());
+    editor.setCodeLineNumbers(false);
+    QVERIFY(gutter->isHidden());
+    QCOMPARE(view.currentMarkdown(), markdown);
+  }
+
+  void lineNumbersStayAlignedWhenScrollingAndRenumberAfterEditing() {
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    QString source = QStringLiteral("```text\n");
+    for (int i = 1; i <= 140; ++i) source += QStringLiteral("row %1\n").arg(i);
+    source += QStringLiteral("```\n");
+    prepare(editor, view, source);
+    editor.setCodeLineNumbers(true);
+    auto* gutter = editor.findChild<QWidget*>(QStringLiteral("codeLineNumberGutter"));
+    QVERIFY(gutter && gutter->isVisible());
+    const int singleDigit = numberInkWidth(numberRow(gutter, editor.cursorRect(at(editor, 0))));
+    QVERIFY(singleDigit > 0);
+
+    const auto target = at(editor, 120);
+    editor.ensureCursorVisible();
+    QVERIFY(editor.verticalScrollBar()->value() > 0);
+    const auto currentRow = [&] { return numberRow(gutter, editor.cursorRect(target)); };
+    const auto before = currentRow();
+    QVERIFY(numberInkWidth(before) > singleDigit);
+    auto* scroll = editor.verticalScrollBar();
+    scroll->setValue(scroll->value() + 45);
+    QCOMPARE(currentRow(), before);
+
+    auto previous = target;
+    previous.movePosition(QTextCursor::PreviousBlock);
+    previous.movePosition(QTextCursor::EndOfBlock);
+    editor.setTextCursor(previous);
+    QTest::keyClick(&editor, Qt::Key_Return);
+    QVERIFY(target.block().text() == QStringLiteral("row 121"));
+    QVERIFY(currentRow() != before);
+    editor.undo();
+    QCOMPARE(currentRow(), before);
+  }
+
   void enterSplitsPairsAndKeepsOneUndoStep() {
     ui::Editor editor;
     ui::ViewSwitch view;

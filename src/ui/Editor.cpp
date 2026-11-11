@@ -17,6 +17,7 @@
 #include <QDialogButtonBox>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QFontDatabase>
 #include <QHelpEvent>
 #include <QInputDialog>
 #include <QInputMethodEvent>
@@ -84,6 +85,150 @@ QString advancedMarkdown(const QString& type, const QString& source) {
 }  // namespace
 
 namespace typist::ui {
+class CodeLineNumberGutter : public QWidget {
+ public:
+  explicit CodeLineNumberGutter(Editor* editor) : QWidget(editor), m_editor(editor) {
+    setObjectName(QStringLiteral("codeLineNumberGutter"));
+    setAttribute(Qt::WA_TransparentForMouseEvents);
+    auto numbers = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    numbers.setPointSize(9);
+    setFont(numbers);
+  }
+
+  int numberWidth() const {
+    const auto digits = QString::number(qMax(99, m_editor->document()->blockCount())).size();
+    return fontMetrics().horizontalAdvance(QString(digits, QLatin1Char('9'))) + 12;
+  }
+
+  void setDark(bool dark) {
+    m_dark = dark;
+    update();
+  }
+
+ protected:
+  void paintEvent(QPaintEvent*) override {
+    QPainter painter(this);
+    painter.setPen(m_dark ? QColor("#b1bac5") : QColor("#626c78"));
+    const auto firstVisible = m_editor->cursorForPosition(QPoint(0, 0)).block();
+    int group = 0;
+    int number = 0;
+    for (auto block = firstVisible; block.isValid(); block = block.next()) {
+      const QRect caret = m_editor->cursorRect(QTextCursor(block));
+      if (caret.top() >= height()) break;
+      const int next = block.blockFormat().intProperty(editor::kCodeBlockProperty);
+      if (next == 0) {
+        group = 0;
+        continue;
+      }
+      if (next == group)
+        ++number;
+      else
+        number = block == firstVisible ? firstVisibleNumber(block, next) : 1;
+      group = next;
+      if (caret.bottom() >= 0) {
+        painter.drawText(QRect(0, caret.top(), width() - 8, caret.height()),
+                         Qt::AlignRight | Qt::AlignVCenter | Qt::TextSingleLine,
+                         QString::number(number));
+      }
+    }
+  }
+
+ private:
+  int firstVisibleNumber(const QTextBlock& block, int group) {
+    auto* document = m_editor->document();
+    if (m_document != document || m_revision != document->revision()) {
+      m_document = document;
+      m_revision = document->revision();
+      m_first = m_last = -1;
+    }
+    const int number = block.blockNumber();
+    if (number >= m_first && number <= m_last) return number - m_first + 1;
+
+    // Cache the visited part of this fence so a long fence stays cheap to scroll.
+    int first = number;
+    for (auto previous = block.previous();
+         previous.isValid() &&
+         previous.blockFormat().intProperty(editor::kCodeBlockProperty) == group;
+         previous = previous.previous()) {
+      if (--first == m_last) {
+        first = m_first;
+        break;
+      }
+    }
+    m_first = first;
+    m_last = number;
+    return number - first + 1;
+  }
+
+  Editor* m_editor;
+  QPointer<QTextDocument> m_document;
+  int m_revision = -1;
+  int m_first = -1;
+  int m_last = -1;
+  bool m_dark = false;
+};
+
+void Editor::setCodeLineNumbers(bool enabled) {
+  if (m_codeLineNumbers == enabled) return;
+  m_codeLineNumbers = enabled;
+  if (enabled && !m_codeLineNumberGutter) {
+    m_codeLineNumberGutter = new CodeLineNumberGutter(this);
+    m_codeLineNumberGutter->setDark(m_dark);
+  }
+  updateWritingArea();
+  updateDecorations();
+  updateParagraphSourceGeometry();
+  updateCodeBlockBar();
+  updateTableBar();
+}
+
+void Editor::updateWritingArea() {
+  QScopedValueRollback<bool> guard(m_updatingMargins, true);
+  // Use the editor width. Resize events forwarded from the viewport already exclude margins.
+  const int side = qMax(24, (width() - 860) / 2);
+  const bool numbers = m_rendered && m_codeLineNumbers;
+  const int gutterWidth = numbers ? m_codeLineNumberGutter->numberWidth() : 0;
+  const QMargins margins(qMax(side, gutterWidth), 36, side, 28);
+  if (viewportMargins() != margins) setViewportMargins(margins);
+  if (!m_codeLineNumberGutter) return;
+  if (numbers) {
+    const QRect view = viewport()->geometry();
+    m_codeLineNumberGutter->setGeometry(view.left() - gutterWidth, view.top(), gutterWidth,
+                                        view.height());
+    m_codeLineNumberGutter->update();
+  }
+  m_codeLineNumberGutter->setVisible(numbers);
+}
+
+void Editor::paintEvent(QPaintEvent* event) {
+  if (m_rendered) paintCodeBackgrounds();
+  QTextEdit::paintEvent(event);
+  if (!m_rendered) return;
+  if (m_codeLineNumbers) m_codeLineNumberGutter->update();
+  QPainter painter(viewport());
+  const QColor border = m_dark ? QColor("#555b62") : QColor("#e8e8e8");
+  int visited = 0;
+  for (QTextBlock block = cursorForPosition(QPoint(0, 0)).block();
+       block.isValid() && visited++ < 200; block = block.next()) {
+    QTextCursor start(block), end(block);
+    end.movePosition(QTextCursor::EndOfBlock);
+    const QRect first = cursorRect(start), last = cursorRect(end);
+    if (first.top() > viewport()->height()) break;
+    const QTextBlockFormat format = block.blockFormat();
+    if (!block.text().isEmpty() && !block.textList() &&
+        (format.headingLevel() == 1 || format.headingLevel() == 2)) {
+      painter.setPen(QPen(border, 1));
+      painter.drawLine(0, last.bottom() + 5, viewport()->width() - 1, last.bottom() + 5);
+    }
+    if (format.hasProperty(editor::kQuoteProperty))
+      painter.fillRect(QRect(0, first.top(), 4, last.bottom() - first.top() + 4), border);
+    if (format.hasProperty(editor::kRuleProperty)) {
+      painter.setPen(QPen(border, 1));
+      painter.drawLine(0, first.center().y(), viewport()->width() - 1, first.center().y());
+    }
+  }
+}
+
 bool Editor::startParagraphSourceEdit() {
   if (m_paragraphSourceActive) {
     finishParagraphSourceEdit();
@@ -437,6 +582,7 @@ bool Editor::exitCodeBlock() {
 }
 void Editor::updateCodeBlockTheme() {
   if (m_codeBar) m_codeBar->setDark(m_dark);
+  if (m_codeLineNumberGutter) m_codeLineNumberGutter->setDark(m_dark);
 }
 bool Editor::copyTable(bool spreadsheet) {
   if (!m_rendered || !textCursor().currentTable()) return false;

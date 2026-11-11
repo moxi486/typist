@@ -20,6 +20,7 @@
 namespace typist::ui {
 class ParagraphSourcePanel;
 class CodeBlockBar;
+class CodeLineNumberGutter;
 class TableBar;
 
 // Keep a readable writing column while retaining native QTextEdit editing and scrolling.
@@ -55,11 +56,13 @@ class Editor : public QTextEdit {
       QTimer::singleShot(0, this, [this] {
         m_decorationPending = false;
         if (m_rendered) typist::render::invalidateToc(document());
+        if (m_rendered && m_codeLineNumbers) updateWritingArea();
         updateDecorations();
         updateCodeBlockBar();
         updateTableBar();
       });
     });
+    if (m_codeLineNumbers) updateWritingArea();
     updateDecorations();
     updateCodeBlockBar(true);
     updateTableBar();
@@ -120,6 +123,7 @@ class Editor : public QTextEdit {
     m_syntaxHighlight = enabled;
     render::installSyntaxHighlighter(document(), !m_rendered, m_dark, enabled);
   }
+  void setCodeLineNumbers(bool enabled);
   bool setCodeLanguage(const QString& language);
   bool exitCodeBlock();
   bool copyCodeBlock();
@@ -179,11 +183,7 @@ class Editor : public QTextEdit {
       return;
     }
     QScopedValueRollback<bool> guard(m_updatingMargins, true);
-    // QAbstractScrollArea forwards viewport resize events here. Their width
-    // already excludes the margins; feeding it back makes wide windows recurse.
-    const int side = qMax(24, (width() - 860) / 2);
-    const QMargins margins(side, 36, side, 28);
-    if (viewportMargins() != margins) setViewportMargins(margins);
+    updateWritingArea();
     QTextEdit::resizeEvent(event);
     updateDecorations();
     updateParagraphSourceGeometry();
@@ -192,33 +192,7 @@ class Editor : public QTextEdit {
     if (m_typewriterMode) centerWritingLine();
   }
 
-  void paintEvent(QPaintEvent* event) override {
-    if (m_rendered) paintCodeBackgrounds();
-    QTextEdit::paintEvent(event);
-    if (!m_rendered) return;
-    QPainter painter(viewport());
-    const QColor border = m_dark ? QColor("#555b62") : QColor("#e8e8e8");
-    int visited = 0;
-    for (QTextBlock block = cursorForPosition(QPoint(0, 0)).block();
-         block.isValid() && visited++ < 200; block = block.next()) {
-      QTextCursor start(block), end(block);
-      end.movePosition(QTextCursor::EndOfBlock);
-      const QRect first = cursorRect(start), last = cursorRect(end);
-      if (first.top() > viewport()->height()) break;
-      const QTextBlockFormat format = block.blockFormat();
-      if (!block.text().isEmpty() && !block.textList() &&
-          (format.headingLevel() == 1 || format.headingLevel() == 2)) {
-        painter.setPen(QPen(border, 1));
-        painter.drawLine(0, last.bottom() + 5, viewport()->width() - 1, last.bottom() + 5);
-      }
-      if (format.hasProperty(editor::kQuoteProperty))
-        painter.fillRect(QRect(0, first.top(), 4, last.bottom() - first.top() + 4), border);
-      if (format.hasProperty(editor::kRuleProperty)) {
-        painter.setPen(QPen(border, 1));
-        painter.drawLine(0, first.center().y(), viewport()->width() - 1, first.center().y());
-      }
-    }
-  }
+  void paintEvent(QPaintEvent* event) override;
 
  private:
   QString selectedPlainText() const;
@@ -255,10 +229,12 @@ class Editor : public QTextEdit {
   void clearImageTypingFormat();
   void updateCodeBlockBar(bool reset = false);
   void updateCodeBlockTheme();
+  void updateWritingArea();
   void updateTableBar();
   void updateTableTheme();
   TableBar* m_tableBar = nullptr;
   CodeBlockBar* m_codeBar = nullptr;
+  CodeLineNumberGutter* m_codeLineNumberGutter = nullptr;
   std::function<bool(const QMimeData*)> m_imagePasteHandler;
   ParagraphSourcePanel* m_paragraphPanel = nullptr;
   bool m_paragraphSourceActive = false;
@@ -343,6 +319,7 @@ class Editor : public QTextEdit {
   bool m_centering = false;
   bool m_autoPair = true;
   bool m_syntaxHighlight = true;
+  bool m_codeLineNumbers = false;
   QString m_lastInlineText;
   int m_lastInlineBlock = -1;
   int m_zoomSteps = 0;

@@ -1102,6 +1102,44 @@ class WindowTests : public QObject {
     QCOMPARE(editor->textCursor().block().text(), QStringLiteral("Newly added heading"));
   }
 
+  void codeLineNumberSettingPersistsAndTranslates() {
+    const auto language = typist::platform::languagePreference();
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QSettings settings;
+    const auto key = QStringLiteral("editor/codeLineNumbers");
+    const auto prior = settings.value(key);
+    const auto restore = qScopeGuard([&] {
+      typist::platform::setLanguagePreference(language);
+      if (prior.isValid())
+        settings.setValue(key, prior);
+      else
+        settings.remove(key);
+    });
+    settings.remove(key);
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.show();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* action = window.findChild<QAction*>(QStringLiteral("codeLineNumbers"));
+    QVERIFY(editor && action);
+    QCOMPARE(action->text(), QStringLiteral("Code Block Line Numbers"));
+    QVERIFY(action->isCheckable() && !action->isChecked());
+    action->trigger();
+    QVERIFY(settings.value(key).toBool());
+    auto* gutter = editor->findChild<QWidget*>(QStringLiteral("codeLineNumberGutter"));
+    QVERIFY(gutter && gutter->isVisible());
+
+    typist::MainWindow reopened;
+    reopened.setBenchMode(true);
+    auto* reopenedAction = reopened.findChild<QAction*>(QStringLiteral("codeLineNumbers"));
+    QVERIFY(reopenedAction && reopenedAction->isChecked());
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(action->text(), QStringLiteral("代码块行号"));
+    action->trigger();
+    QVERIFY(!settings.value(key).toBool());
+    QVERIFY(gutter->isHidden());
+  }
+
   void underlineShortcutWorksAcrossEditorViews() {
     const auto language = typist::platform::languagePreference();
     const auto restore = qScopeGuard([&] { typist::platform::setLanguagePreference(language); });
