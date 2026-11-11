@@ -81,7 +81,7 @@ class EpubExportTests : public QObject {
     const auto path = directory.filePath(QStringLiteral("book.epub"));
     QString error;
     const auto source = QStringLiteral(
-        "# 中文标题\n\n[TOC]\n\n**Bold** and *italic*, ~~gone~~, `x < y`.\n\n"
+        "# 中文标题\n\n[TOC]\n\n**Bold** and *italic*, ~~gone~~, <u>marked</u>, `x < y`.\n\n"
         "[Jump](#中文标题) [Again](#中文标题-1) [Web](https://example.org/?a=1&b=2).[^note]\n\n"
         "- [x] Done\n  - Child\n- [ ] Next\n\n"
         "| Name | Value |\n| :--- | ---: |\n| two<br>lines | **42** |\n\n"
@@ -107,9 +107,10 @@ class EpubExportTests : public QObject {
     const auto body = entries.value("OEBPS/content.xhtml");
     for (const auto& fragment :
          {QByteArray("<strong>Bold</strong>"), QByteArray("<em>italic</em>"),
-          QByteArray("<del>gone</del>"), QByteArray("<blockquote>"), QByteArray("<thead>"),
-          QByteArray("text-align:right"), QByteArray("two<br />lines"), QByteArray("<pre><code>"),
-          QByteArray("epub:type=\"footnote\""), QString(QChar(0x2611)).toUtf8()})
+          QByteArray("<del>gone</del>"), QByteArray("<u>marked</u>"), QByteArray("<blockquote>"),
+          QByteArray("<thead>"), QByteArray("text-align:right"), QByteArray("two<br />lines"),
+          QByteArray("<pre><code>"), QByteArray("epub:type=\"footnote\""),
+          QString(QChar(0x2611)).toUtf8()})
       QVERIFY2(body.contains(fragment), fragment.constData());
     QVERIFY(body.contains("https://example.org/?a=1&amp;b=2"));
     QSet<QString> ids;

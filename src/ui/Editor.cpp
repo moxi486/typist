@@ -39,6 +39,38 @@
 
 namespace {
 QString editorText(const char* text) { return QCoreApplication::translate("Editor", text); }
+
+bool toggleUnderlineTags(QTextCursor& cursor) {
+  const QString selected = cursor.selectedText();
+  if (selected.contains(QChar::ParagraphSeparator)) return false;
+  const QString open = QStringLiteral("<u>");
+  const QString close = QStringLiteral("</u>");
+  const auto block = cursor.block();
+  const int start = cursor.selectionStart();
+  const int end = cursor.selectionEnd();
+  const bool reverse = cursor.position() < cursor.anchor();
+  const QString line = block.text();
+  const bool wrapped =
+      start - block.position() >= open.size() &&
+      line.mid(start - block.position() - open.size(), open.size())
+              .compare(open, Qt::CaseInsensitive) == 0 &&
+      line.mid(end - block.position(), close.size()).compare(close, Qt::CaseInsensitive) == 0;
+  cursor.beginEditBlock();
+  if (wrapped) {
+    cursor.setPosition(start - open.size());
+    cursor.setPosition(end + close.size(), QTextCursor::KeepAnchor);
+    cursor.insertText(selected);
+  } else {
+    cursor.insertText(open + selected + close);
+  }
+  const int first = wrapped ? start - open.size() : start + open.size();
+  const int last = first + selected.size();
+  cursor.setPosition(reverse ? last : first);
+  cursor.setPosition(reverse ? first : last, QTextCursor::KeepAnchor);
+  cursor.endEditBlock();
+  return true;
+}
+
 QString advancedMarkdown(const QString& type, const QString& source) {
   if (type == QLatin1String("inline-math"))
     return QStringLiteral("$") + source + QStringLiteral("$");
@@ -829,6 +861,22 @@ void Editor::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void Editor::formatInline(editor::InlineStyle style) {
+  if (style == editor::InlineStyle::Underline) {
+    if (isReadOnly()) return;
+    if (auto* input = m_paragraphSourceActive ? m_paragraphPanel->input() : nullptr) {
+      auto cursor = input->textCursor();
+      if (!input->isReadOnly() && toggleUnderlineTags(cursor)) input->setTextCursor(cursor);
+      return;
+    }
+    if (!m_rendered) {
+      auto cursor = textCursor();
+      if (toggleUnderlineTags(cursor)) {
+        setTextCursor(cursor);
+        revealSelection();
+      }
+      return;
+    }
+  }
   finishParagraphSourceEdit();
   m_lastInlineBlock = -1;
   QTextCursor cursor = textCursor();
@@ -1141,6 +1189,10 @@ void Editor::keyPressEvent(QKeyEvent* event) {
       formatInline(editor::InlineStyle::Italic);
       return;
     }
+    if (event->matches(QKeySequence::Underline)) {
+      formatInline(editor::InlineStyle::Underline);
+      return;
+    }
   }
   const bool plain = !control && !event->modifiers().testFlag(Qt::AltModifier);
   const bool special =
@@ -1412,12 +1464,22 @@ void Editor::keyPressEvent(QKeyEvent* event) {
     }
   }
   QTextEdit::keyPressEvent(event);
-  if (m_rendered && plain && !code &&
-      (event->text() == QStringLiteral("*") || event->text() == QStringLiteral("_") ||
-       event->text() == QStringLiteral("~") || event->text() == QStringLiteral("`") ||
-       event->text() == QStringLiteral(")") || event->text() == QStringLiteral("$") ||
-       event->text() == QStringLiteral("]") || event->key() == Qt::Key_Space)) {
-    tryRenderInline();
+  if (m_rendered && plain && !code) {
+    const auto typed = event->text();
+    if (typed == QStringLiteral(">")) {
+      const auto caret = textCursor();
+      const int offset = caret.positionInBlock();
+      if (offset >= 4 && caret.block()
+                                 .text()
+                                 .mid(offset - 4, 4)
+                                 .compare(QStringLiteral("</u>"), Qt::CaseInsensitive) == 0)
+        tryRenderInline();
+    } else if (typed == QStringLiteral("*") || typed == QStringLiteral("_") ||
+               typed == QStringLiteral("~") || typed == QStringLiteral("`") ||
+               typed == QStringLiteral(")") || typed == QStringLiteral("$") ||
+               typed == QStringLiteral("]") || event->key() == Qt::Key_Space) {
+      tryRenderInline();
+    }
   }
 }
 

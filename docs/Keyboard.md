@@ -25,6 +25,7 @@
 | 标题 1–6 / 正文 | Ctrl+1…6 / Ctrl+0 |
 | 提升 / 降低标题级别 | Ctrl+= / Ctrl+-（macOS Cmd+= / Cmd+-）；渲染视图中可批量调整选区标题 |
 | 加粗 / 斜体 / 删除线 | Ctrl+B / Ctrl+I / Alt+Shift+5 |
+| 下划线 | Ctrl+U（macOS Cmd+U） |
 | 行内代码 / 清除格式 | Ctrl+Shift+反引号 / Ctrl+反斜杠 |
 | 超链接 / 图片 | Ctrl+K / Ctrl+Shift+I |
 | 打开渲染视图中的链接 | Ctrl+单击（macOS Cmd+单击） |

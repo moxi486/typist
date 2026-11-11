@@ -17,13 +17,62 @@
 namespace typist::core {
 namespace {
 
+bool replaceWithUnderlineTag(cmark_node* node, const char* tag) {
+  // The safe HTML renderer can emit this fixed tag without enabling raw HTML.
+  std::unique_ptr<cmark_node, decltype(&cmark_node_free)> marker(
+      cmark_node_new(CMARK_NODE_CUSTOM_INLINE), &cmark_node_free);
+  if (!cmark_node_set_on_enter(marker.get(), tag) || !cmark_node_replace(node, marker.get()))
+    return false;
+  marker.release();
+  cmark_node_free(node);
+  return true;
+}
+
+bool isUnderlineTag(std::string_view tag, std::size_t name) {
+  return tag.size() > name + 1 && (tag[name] == 'u' || tag[name] == 'U') &&
+         (tag[name + 1] == '>' || std::isspace(static_cast<unsigned char>(tag[name + 1])));
+}
+
+void recognizeUnderlineTags(cmark_node* parent) {
+  std::vector<cmark_node*> openings;
+  for (auto* child = cmark_node_first_child(parent); child;) {
+    auto* next = cmark_node_next(child);
+    const auto type = cmark_node_get_type(child);
+    if (type == CMARK_NODE_HTML_INLINE) {
+      const char* literal = cmark_node_get_literal(child);
+      const std::string_view tag = literal ? literal : "";
+      if (isUnderlineTag(tag, 1) && tag.substr(tag.size() - 2) != "/>") {
+        openings.push_back(child);
+      } else if (tag.size() > 2 && tag[1] == '/' && isUnderlineTag(tag, 2) && !openings.empty()) {
+        auto* opening = openings.back();
+        openings.pop_back();
+        // Attributed tags still participate in pairing so a nested raw tag
+        // cannot consume the closing tag of a surrounding semantic underline.
+        if ((tag == "</u>" || tag == "</U>") && cmark_node_next(opening) != child &&
+            std::string_view(cmark_node_get_literal(opening)).size() == 3 &&
+            replaceWithUnderlineTag(opening, "<u>"))
+          replaceWithUnderlineTag(child, "</u>");
+      }
+    } else if (type != CMARK_NODE_IMAGE && cmark_node_first_child(child)) {
+      recognizeUnderlineTags(child);
+    }
+    child = next;
+  }
+}
+
+void recognizeUnderlines(cmark_node* root, std::string_view source) {
+  // Let cmark distinguish HTML tokens from escaped text, code and link destinations.
+  if (source.find("<u>") != std::string_view::npos || source.find("<U>") != std::string_view::npos)
+    recognizeUnderlineTags(root);
+}
+
 void pushRun(std::vector<InlineRun>& runs, const InlineRun& run) {
   if (run.text.empty()) return;
   if (!runs.empty() && runs.back().bold == run.bold && runs.back().italic == run.italic &&
-      runs.back().strike == run.strike && runs.back().code == run.code &&
-      runs.back().link == run.link && runs.back().image == run.image && !run.math &&
-      !run.footnote && !runs.back().math && !runs.back().footnote && !run.html &&
-      !runs.back().html && runs.back().url == run.url) {
+      runs.back().strike == run.strike && runs.back().underline == run.underline &&
+      runs.back().code == run.code && runs.back().link == run.link &&
+      runs.back().image == run.image && !run.math && !run.footnote && !runs.back().math &&
+      !runs.back().footnote && !run.html && !runs.back().html && runs.back().url == run.url) {
     runs.back().text += run.text;
     return;
   }
@@ -31,9 +80,20 @@ void pushRun(std::vector<InlineRun>& runs, const InlineRun& run) {
 }
 
 // Inline children become styled runs; structural children stay blocks.
-void collectInline(cmark_node* node, const InlineRun& base, std::vector<InlineRun>& runs) {
+void collectInline(cmark_node* node, const InlineRun& inherited, std::vector<InlineRun>& runs) {
+  InlineRun base = inherited;
+  int underlineDepth = 0;
   for (cmark_node* child = cmark_node_first_child(node); child != nullptr;
        child = cmark_node_next(child)) {
+    if (cmark_node_get_type(child) == CMARK_NODE_CUSTOM_INLINE) {
+      const char* literal = cmark_node_get_on_enter(child);
+      const std::string_view tag = literal ? literal : "";
+      if (tag == "<u>" || tag == "</u>") {
+        underlineDepth += tag == "<u>" ? 1 : -1;
+        base.underline = inherited.underline || underlineDepth > 0;
+        continue;
+      }
+    }
     const std::string_view type = cmark_node_get_type_string(child);
     if (type == "list" || type == "item" || type == "tasklist" || type == "table" ||
         type == "table_row" || type == "table_header" || type == "table_cell") {
@@ -179,20 +239,30 @@ std::string renderInline(const std::vector<InlineRun>& runs, const std::string& 
   if (runs.empty()) return fallback;
   std::string out;
   std::vector<int> open;
-  static const char* markers[] = {"**", "*", "~~"};
+  static const char* opening[] = {"**", "*", "~~", "<u>"};
+  static const char* closing[] = {"**", "*", "~~", "</u>"};
   const auto active = [](const InlineRun& run, int style) {
-    return style == 0 ? run.bold : style == 1 ? run.italic : run.strike;
+    switch (style) {
+      case 0:
+        return run.bold;
+      case 1:
+        return run.italic;
+      case 2:
+        return run.strike;
+      default:
+        return run.underline;
+    }
   };
   for (std::size_t index = 0; index < runs.size(); ++index) {
     const InlineRun& run = runs[index];
     std::size_t common = 0;
     while (common < open.size() && active(run, open[common])) ++common;
     while (open.size() > common) {
-      out += markers[open.back()];
+      out += closing[open.back()];
       open.pop_back();
     }
     std::vector<std::pair<int, std::size_t>> additions;
-    for (int style = 0; style < 3; ++style) {
+    for (int style = 0; style < 4; ++style) {
       if (!active(run, style) || std::find(open.begin(), open.end(), style) != open.end()) continue;
       std::size_t end = index + 1;
       while (end < runs.size() && active(runs[end], style)) ++end;
@@ -204,7 +274,7 @@ std::string renderInline(const std::vector<InlineRun>& runs, const std::string& 
     std::stable_sort(additions.begin(), additions.end(),
                      [](const auto& a, const auto& b) { return a.second > b.second; });
     for (const auto& addition : additions) {
-      out += markers[addition.first];
+      out += opening[addition.first];
       open.push_back(addition.first);
     }
     InlineRun body = run;
@@ -212,7 +282,7 @@ std::string renderInline(const std::vector<InlineRun>& runs, const std::string& 
     out += renderRun(body);
   }
   while (!open.empty()) {
-    out += markers[open.back()];
+    out += closing[open.back()];
     open.pop_back();
   }
   return out;
@@ -659,6 +729,7 @@ ParseResult parseMarkdown(std::string_view source, const ParseOptions& options) 
     return result;
   }
 
+  recognizeUnderlines(root.get(), source);
   for (cmark_node* child = cmark_node_first_child(root.get()); child != nullptr;
        child = cmark_node_next(child)) {
     result.blocks.push_back(buildBlock(child, lines));
@@ -752,7 +823,10 @@ std::string renderHtml(std::string_view source, const ParseOptions& options, boo
     return "";
   }
 
-  if (!preserveRawHtml) makeHtmlLiteral(root.get());
+  if (!preserveRawHtml) {
+    recognizeUnderlines(root.get(), source);
+    makeHtmlLiteral(root.get());
+  }
   char* html = cmark_render_html(root.get(), flags, extensions);
   std::string out = html != nullptr ? std::string(html) : std::string();
   if (html != nullptr) mem->free(html);
@@ -797,8 +871,9 @@ bool runsEqual(const std::vector<InlineRun>& lhs, const std::vector<InlineRun>& 
     const InlineRun& a = lhs[i];
     const InlineRun& b = rhs[i];
     if (a.text != b.text || a.url != b.url || a.bold != b.bold || a.italic != b.italic ||
-        a.strike != b.strike || a.code != b.code || a.link != b.link || a.image != b.image ||
-        a.math != b.math || a.footnote != b.footnote || a.html != b.html) {
+        a.strike != b.strike || a.underline != b.underline || a.code != b.code ||
+        a.link != b.link || a.image != b.image || a.math != b.math || a.footnote != b.footnote ||
+        a.html != b.html) {
       return false;
     }
   }

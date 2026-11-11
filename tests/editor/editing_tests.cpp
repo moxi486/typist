@@ -1,6 +1,7 @@
 #include "DocxWriter.h"
 #include "Editing.h"
 #include "Editor.h"
+#include "LinkEditing.h"
 #include "Search.h"
 #include "ViewSwitch.h"
 #include "markdown.h"
@@ -68,6 +69,66 @@ class EditingTests : public QObject {
              qPrintable(source));
     QVERIFY(!editor.textCursor().charFormat().fontItalic());
     QVERIFY(!editor.textCursor().charFormat().fontStrikeOut());
+  }
+
+  void underlineTogglePreservesInlineStylesAndLinks() {
+    using typist::editor::InlineStyle;
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    prepare(editor, view, QStringLiteral("**Bold** and [link](https://example.org) after.\n"));
+    const auto original = markdown(editor);
+    const auto plain = editor.toPlainText();
+    auto cursor = editor.document()->find(QStringLiteral("Bold and link"));
+    QVERIFY(cursor.hasSelection());
+    const int end = cursor.selectionEnd();
+    const int start = cursor.selectionStart();
+    cursor.setPosition(end);
+    cursor.setPosition(start, QTextCursor::KeepAnchor);
+    editor.setTextCursor(cursor);
+    editor.formatInline(InlineStyle::Underline);
+    QCOMPARE(editor.textCursor().position(), start);
+    QCOMPARE(editor.textCursor().anchor(), end);
+    QCOMPARE(editor.toPlainText(), plain);
+    QVERIFY(markdown(editor).startsWith(
+        QStringLiteral("<u>**Bold** and [link](https://example.org)</u> after.")));
+    auto link = editor.document()->find(QStringLiteral("link"));
+    QVERIFY(link.charFormat().boolProperty(typist::editor::kUnderlineProperty));
+    QVERIFY(typist::editor::removeLink(link));
+    QVERIFY(link.charFormat().fontUnderline());
+    QVERIFY(!link.charFormat().isAnchor());
+    editor.undo();
+    editor.setTextCursor(cursor);
+    editor.formatInline(InlineStyle::Underline);
+    QCOMPARE(markdown(editor), original);
+    link = editor.document()->find(QStringLiteral("link"));
+    QVERIFY(link.charFormat().fontUnderline());
+    QVERIFY(!link.charFormat().boolProperty(typist::editor::kUnderlineProperty));
+    editor.undo();
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("<u>")));
+    editor.undo();
+    QCOMPARE(markdown(editor), original);
+  }
+
+  void underlineLiveMarkupAndLiteralCode() {
+    using typist::editor::InlineStyle;
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "<u>**underlined**</u> next");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("underlined next"));
+    const auto expected = typist::core::parseMarkdown("<u>**underlined**</u> next");
+    const auto actual = typist::core::parseMarkdown(markdown(editor).toStdString());
+    QVERIFY(typist::core::astEqual(expected.blocks, actual.blocks));
+    editor.formatInline(InlineStyle::Underline);
+    QTest::keyClicks(&editor, " note");
+    QVERIFY(markdown(editor).contains(QStringLiteral("next<u> note</u>")));
+
+    prepare(editor, view, QStringLiteral("```html\n<u>literal</u>\n```\n"));
+    const auto code = markdown(editor);
+    editor.setTextCursor(editor.document()->find(QStringLiteral("literal")));
+    editor.formatInline(InlineStyle::Underline);
+    QCOMPARE(markdown(editor), code);
+    QVERIFY(!editor.document()->isUndoAvailable());
   }
 
   void liveListsContinueExitAndIndent() {

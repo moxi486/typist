@@ -32,6 +32,7 @@ struct InlineRun {
   bool bold = false;
   bool italic = false;
   bool strike = false;
+  bool underline = false;
   bool code = false;
   bool link = false;
   bool image = false;
@@ -89,7 +90,7 @@ std::vector<ImageSource> imageSources(std::string_view source);
 std::string toHtml(std::string_view source, const ParseOptions& options = {});
 
 // Renders a stylesheet-free fragment. Raw HTML is shown as text, except for
-// simple line breaks used in table cells. cmark also filters unsafe destinations.
+// simple line breaks and paired underline tags. cmark also filters unsafe destinations.
 std::string toSemanticHtml(std::string_view source, const ParseOptions& options = {});
 
 // Wraps an HTML fragment in a standalone document with a UTF-8 charset and a

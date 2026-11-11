@@ -67,6 +67,7 @@ QTextCharFormat formatForRun(const typist::core::InlineRun& run) {
   if (run.bold) fmt.setFontWeight(QFont::Bold);
   if (run.italic) fmt.setFontItalic(true);
   if (run.strike) fmt.setFontStrikeOut(true);
+  if (run.underline) setExplicitUnderline(fmt, true);
   if (run.code) fmt.setFontFamilies({QStringLiteral("Consolas"), QStringLiteral("Courier New")});
   if (run.image) {
     fmt.setProperty(kImageProperty, QVariant(QString::fromStdString(run.url)));
@@ -119,6 +120,7 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
         format.setHeight(rendered.image.height() / 2.);
         format.setVerticalAlignment(QTextCharFormat::AlignMiddle);
         format.setProperty(kMathSourceProperty, text);
+        if (run.underline) setExplicitUnderline(format, true);
         cursor.insertImage(format);
       } else {
         cursor.insertText(QStringLiteral("$") + text + QStringLiteral("$"), base);
@@ -133,6 +135,7 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
       format.setAnchor(true);
       format.setAnchorHref(QStringLiteral("#fn-") + text);
       format.setForeground(QColor("#4d90ce"));
+      if (run.underline) setExplicitUnderline(format, true);
       cursor.insertText(text, format);
       cursor.setCharFormat(base);
       continue;
@@ -166,6 +169,7 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
         QTextCharFormat objectFormat = cursor.charFormat();
         objectFormat.setProperty(kImageProperty, QVariant(target));
         objectFormat.setProperty(kImageAltProperty, QVariant(text));
+        if (run.underline) setExplicitUnderline(objectFormat, true);
         cursor.setCharFormat(objectFormat);
       }
       cursor.clearSelection();
@@ -494,6 +498,7 @@ struct MarkdownRun {
   bool bold = false;
   bool italic = false;
   bool strike = false;
+  bool underline = false;
   bool code = false;
   bool link = false;
   bool image = false;
@@ -507,11 +512,12 @@ struct MarkdownRun {
 void pushMarkdownRun(QVector<MarkdownRun>& runs, const MarkdownRun& run) {
   if (run.text.isEmpty() && run.specialType.isEmpty()) return;
   if (!runs.empty() && runs.back().bold == run.bold && runs.back().italic == run.italic &&
-      runs.back().strike == run.strike && runs.back().code == run.code &&
-      runs.back().link == run.link && runs.back().image == run.image &&
-      runs.back().html == run.html && runs.back().literal == run.literal && !run.math &&
-      !run.footnote && !runs.back().math && !runs.back().footnote && run.specialType.isEmpty() &&
-      runs.back().specialType.isEmpty() && runs.back().url == run.url) {
+      runs.back().strike == run.strike && runs.back().underline == run.underline &&
+      runs.back().code == run.code && runs.back().link == run.link &&
+      runs.back().image == run.image && runs.back().html == run.html &&
+      runs.back().literal == run.literal && !run.math && !run.footnote && !runs.back().math &&
+      !runs.back().footnote && run.specialType.isEmpty() && runs.back().specialType.isEmpty() &&
+      runs.back().url == run.url) {
     runs.back().text += run.text;
     return;
   }
@@ -575,6 +581,7 @@ QString wrapMarkdownRuns(const QVector<MarkdownRun>& runs, bool rawSource = fals
     span.bold = run.bold;
     span.italic = run.italic;
     span.strike = run.strike;
+    span.underline = run.underline;
     span.code = run.code;
     span.link = run.link;
     span.image = run.image;
@@ -615,6 +622,7 @@ QString inlineFromBlock(const QTextBlock& block) {
     run.bold = fmt.fontWeight() >= QFont::Bold && !fmt.boolProperty(kPresentationBoldProperty);
     run.italic = fmt.fontItalic();
     run.strike = fmt.fontStrikeOut();
+    run.underline = fmt.boolProperty(kUnderlineProperty);
     run.literal = fmt.boolProperty(kLiteralTextProperty);
     run.html = fmt.hasProperty(kRawHtmlProperty);
     if (run.html && run.text.contains(QChar::LineSeparator))
@@ -658,6 +666,14 @@ QString inlineFromBlock(const QTextBlock& block) {
   return wrapMarkdownRuns(runs, rawSource).replace(QChar::LineSeparator, QStringLiteral("  \n"));
 }
 }  // namespace
+
+void setExplicitUnderline(QTextCharFormat& format, bool enabled) {
+  if (enabled)
+    format.setProperty(kUnderlineProperty, true);
+  else
+    format.clearProperty(kUnderlineProperty);
+  format.setFontUnderline(enabled || format.isAnchor());
+}
 
 // Inline code is the one family the builder sets; code blocks are separate blocks.
 bool isInlineCodeFormat(const QTextCharFormat& fmt) {

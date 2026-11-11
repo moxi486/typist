@@ -1102,6 +1102,67 @@ class WindowTests : public QObject {
     QCOMPARE(editor->textCursor().block().text(), QStringLiteral("Newly added heading"));
   }
 
+  void underlineShortcutWorksAcrossEditorViews() {
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] { typist::platform::setLanguagePreference(language); });
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QTemporaryDir directory;
+    QFile file(directory.filePath(QStringLiteral("underline.md")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("Some text to underline.\n");
+    file.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.resize(1040, 640);
+    window.show();
+    QVERIFY(window.openFile(file.fileName()));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* underline = window.findChild<QAction*>(QStringLiteral("format_underline"));
+    QVERIFY(editor && underline);
+    QCOMPARE(underline->text(), QStringLiteral("Underline"));
+    // Set the Qt activation state for synthetic keys when the OS keeps another
+    // process in the foreground.
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_DEPRECATED
+    QApplication::setActiveWindow(&window);
+    QT_WARNING_POP
+    editor->setFocus();
+    QTRY_VERIFY(editor->hasFocus());
+    editor->setTextCursor(editor->document()->find(QStringLiteral("Some text")));
+    QTest::keyClick(editor, Qt::Key_U, Qt::ControlModifier);
+    QCOMPARE(typist::editor::inlineMarkdown(editor->textCursor().block()),
+             QStringLiteral("<u>Some text</u> to underline."));
+    editor->copySelection(typist::ui::Editor::CopyFormat::WithoutTheme);
+    QVERIFY(
+        QApplication::clipboard()->mimeData()->html().contains(QStringLiteral("<u>Some text</u>")));
+
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    editor->setTextCursor(editor->document()->find(QStringLiteral("to underline")));
+    const auto source = editor->toPlainText();
+    QTest::keyClick(editor, Qt::Key_U, Qt::ControlModifier);
+    QVERIFY(editor->toPlainText().contains(QStringLiteral("<u>to underline</u>")));
+    QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("to underline"));
+    QTest::keyClick(editor, Qt::Key_U, Qt::ControlModifier);
+    QCOMPARE(editor->toPlainText(), source);
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+
+    editor->moveCursor(QTextCursor::Start);
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(draft);
+    const auto originalDraft = draft->toPlainText();
+    draft->setTextCursor(draft->document()->find(QStringLiteral("to underline")));
+    QTRY_VERIFY(draft->hasFocus());
+    QTest::keyClick(draft, Qt::Key_U, Qt::ControlModifier);
+    QVERIFY(editor->paragraphSourceActive());
+    QVERIFY(draft->toPlainText().contains(QStringLiteral("<u>to underline</u>")));
+    QVERIFY(QMetaObject::invokeMethod(&window, "undo", Qt::DirectConnection));
+    QCOMPARE(draft->toPlainText(), originalDraft);
+    editor->finishParagraphSourceEdit(false);
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(underline->text(), QStringLiteral("下划线"));
+  }
+
   void headingShortcutsUpdateTheOutlineAndRespectEditorMode() {
     const auto language = typist::platform::languagePreference();
     QSettings settings(QStringLiteral("Typist"), QStringLiteral("Typist"));

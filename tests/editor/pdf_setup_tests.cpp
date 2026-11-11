@@ -100,6 +100,18 @@ class PdfSetupTests : public QObject {
       QVERIFY(last.save(output + '/' + stem + QStringLiteral("-last-preview.png")));
     }
   }
+  void previewDrawsUnderline() {
+    QTextDocument plain, marked;
+    QVERIFY(typist::editor::loadMarkdown(QStringLiteral("Same words\n"), &plain, nullptr));
+    QVERIFY(typist::editor::loadMarkdown(QStringLiteral("<u>Same words</u>\n"), &marked, nullptr));
+    QCOMPARE(plain.toPlainText(), marked.toPlainText());
+    const typist::platform::PdfPageOptions options;
+    const auto before = typist::platform::pdfPagePreview(&plain, options, 0, nullptr, nullptr);
+    const auto after = typist::platform::pdfPagePreview(&marked, options, 0, nullptr, nullptr);
+    QVERIFY(!before.isNull() && !after.isNull());
+    QVERIFY(before != after);
+  }
+
   void invalidExportPreservesTarget() {
     QTemporaryDir directory;
     const auto path = directory.filePath(QStringLiteral("existing.pdf"));

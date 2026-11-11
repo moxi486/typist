@@ -717,6 +717,11 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
           [editor] { editor->formatInline(editor::InlineStyle::Bold); });
   command(format, QStringLiteral("format_italic"), tr("Emphasis"), QStringLiteral("Ctrl+I"),
           [editor] { editor->formatInline(editor::InlineStyle::Italic); });
+  auto* underline =
+      command(format, QStringLiteral("format_underline"), tr("Underline"), QStringLiteral("Ctrl+U"),
+              [editor] { editor->formatInline(editor::InlineStyle::Underline); });
+  underline->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+  editor->addAction(underline);
   command(format, QStringLiteral("format_strike"), tr("Strikethrough"),
           QStringLiteral("Alt+Shift+5"),
           [editor] { editor->formatInline(editor::InlineStyle::Strike); });

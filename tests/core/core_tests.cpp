@@ -121,6 +121,28 @@ int main(int argc, char** argv) {
             localLink.find("Local file") != std::string::npos,
         "semantic html uses cmark destination filtering");
 
+  const auto underline = typist::core::parseMarkdown(
+      "A <u>**bold** and [linked](https://example.org)</u> and `<u>code</u>`.");
+  bool boldUnderline = false, linkedUnderline = false, literalCode = false;
+  if (underline.ok && underline.blocks.size() == 1) {
+    for (const auto& run : underline.blocks.front().runs) {
+      boldUnderline |= run.text == "bold" && run.bold && run.underline;
+      linkedUnderline |= run.text == "linked" && run.link && run.underline;
+      literalCode |= run.text == "<u>code</u>" && run.code && !run.underline;
+    }
+  }
+  check(boldUnderline && linkedUnderline && literalCode,
+        "underline composes with bold and links while leaving code literal");
+  const auto underlineHtml = typist::core::toSemanticHtml(
+      "Text <U>**bold**</U>, <u class=\"custom\">raw</u>, and unpaired <u>.");
+  check(underlineHtml.find("<u><strong>bold</strong></u>") != std::string::npos &&
+            underlineHtml.find("&lt;u class=") != std::string::npos &&
+            underlineHtml.find("unpaired &lt;u&gt;") != std::string::npos,
+        "semantic html keeps only paired attribute-free underline tags");
+  const auto nestedHtml = typist::core::toSemanticHtml("<u>a <u class=\"x\">b</u> c</u>");
+  check(nestedHtml.find("<u>a &lt;u class=&quot;x&quot;&gt;b&lt;/u&gt; c</u>") != std::string::npos,
+        "nested attributed markup does not close a semantic underline early");
+
   const std::string page = typist::core::wrapHtmlDocument(tableHtml, "Doc <title>");
   check(page.find("<meta charset=\"utf-8\">") != std::string::npos, "html page declares charset");
   check(page.find("<title>Doc &lt;title&gt;</title>") != std::string::npos,

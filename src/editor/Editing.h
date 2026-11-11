@@ -5,7 +5,7 @@ class QTextTable;
 
 namespace typist::editor {
 
-enum class InlineStyle { Bold, Italic, Strike, Code, Clear };
+enum class InlineStyle { Bold, Italic, Strike, Underline, Code, Clear };
 enum class ParagraphStyle { Body, Heading, BulletList, OrderedList, TaskList, Quote, Code, Rule };
 enum class SelectionRange { Word, LineOrSentence, Paragraph, StyledScope };
 enum class TableCommand {

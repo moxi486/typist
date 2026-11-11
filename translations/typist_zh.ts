@@ -364,6 +364,10 @@
         <translation>斜体</translation>
     </message>
     <message>
+        <source>Underline</source>
+        <translation>下划线</translation>
+    </message>
+    <message>
         <source>File Tree</source>
         <translation>文件树</translation>
     </message>
