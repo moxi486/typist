@@ -297,6 +297,22 @@ void Editor::selectRange(editor::SelectionRange range) {
     setTextCursor(cursor);
   revealSelection();
 }
+bool Editor::deleteRange(editor::SelectionRange range) {
+  auto* input = m_paragraphSourceActive ? m_paragraphPanel->input() : nullptr;
+  if (input ? input->isReadOnly() : isReadOnly()) return false;
+  auto cursor = input ? input->textCursor() : textCursor();
+  if (!editor::deleteRange(cursor, range, m_rendered && !input)) return false;
+  if (input) {
+    input->setTextCursor(cursor);
+  } else {
+    m_lastInlineBlock = -1;
+    setTextCursor(cursor);
+    updateTableBar();
+    updateCodeBlockBar(true);
+  }
+  revealSelection();
+  return true;
+}
 void Editor::moveCaret(QTextCursor::MoveOperation operation) {
   auto* input = m_paragraphSourceActive ? m_paragraphPanel->input() : nullptr;
   auto cursor = input ? input->textCursor() : textCursor();

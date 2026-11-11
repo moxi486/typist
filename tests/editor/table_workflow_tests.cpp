@@ -188,6 +188,52 @@ class TableWorkflowTests : public QObject {
     QVERIFY(!editor.document()->isUndoAvailable());
   }
 
+  void deleteRangesPreserveTableLimitsAndUndoStructure() {
+    using Range = editor::SelectionRange;
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    prepare(editor, view,
+            "Before.\n\n| Key | Value |\n|---|---|\n| one | 1 |\n| two | 2 |\n| three | 3 "
+            "|\n\nAfter.\n");
+    auto* table = firstTable(editor.document());
+    QVERIFY(table);
+    const auto original = view.currentMarkdown();
+    QSignalSpy edits(editor.document(), &QTextDocument::contentsChanged);
+    choose(editor, table, 0, 0);
+    QVERIFY(!editor.deleteRange(Range::LineOrSentence));
+    QCOMPARE(edits.count(), 0);
+    QVERIFY(!editor.document()->isUndoAvailable());
+
+    select(editor, table, 1, 0, 2, 1);
+    QVERIFY(editor.deleteRange(Range::LineOrSentence));
+    QCOMPARE(table->rows(), 2);
+    QCOMPARE(plain(table->cellAt(1, 0)), QStringLiteral("three"));
+    const auto reduced = view.currentMarkdown();
+    choose(editor, table, 1, 0);
+    QVERIFY(!editor.deleteRange(Range::LineOrSentence));
+    QCOMPARE(view.currentMarkdown(), reduced);
+    editor.undo();
+    QCOMPARE(view.currentMarkdown(), original);
+
+    table = firstTable(editor.document());
+    choose(editor, table, 1, 0);
+    QVERIFY(editor.deleteRange(Range::StyledScope));
+    QCOMPARE(plain(table->cellAt(1, 0)), QString());
+    QCOMPARE(plain(table->cellAt(1, 1)), QStringLiteral("1"));
+    QCOMPARE(table->rows(), 4);
+    editor.undo();
+    QCOMPARE(view.currentMarkdown(), original);
+
+    table = firstTable(editor.document());
+    choose(editor, table, 1, 0);
+    QVERIFY(editor.deleteRange(Range::Paragraph));
+    QVERIFY(!firstTable(editor.document()));
+    QVERIFY(view.currentMarkdown().contains(QStringLiteral("Before.")));
+    QVERIFY(view.currentMarkdown().contains(QStringLiteral("After.")));
+    editor.undo();
+    QCOMPARE(view.currentMarkdown(), original);
+  }
+
   void explicitHtmlCopyKeepsOnlyTheSelectedTableCells() {
     ui::Editor editor;
     ui::ViewSwitch view;
