@@ -71,12 +71,22 @@ bool replaceLink(QTextCursor& cursor, const QString& destination, const QString&
 bool removeLink(QTextCursor& cursor) {
   auto link = linkSelection(cursor);
   if (link.isNull()) return false;
-  QTextCharFormat format;
-  format.setAnchor(false);
-  format.setAnchorHref(QString());
-  format.setFontUnderline(false);
+  const auto block = link.block();
+  const auto ranges = block.textFormats();
   link.beginEditBlock();
-  link.mergeCharFormat(format);
+  for (const auto& range : ranges) {
+    const int start = qMax(link.selectionStart(), block.position() + range.start);
+    const int end = qMin(link.selectionEnd(), block.position() + range.start + range.length);
+    if (start >= end) continue;
+    auto format = range.format;
+    format.setAnchor(false);
+    format.setAnchorHref(QString());
+    format.setFontUnderline(format.boolProperty(kUnderlineProperty));
+    QTextCursor text(block);
+    text.setPosition(start);
+    text.setPosition(end, QTextCursor::KeepAnchor);
+    text.setCharFormat(format);
+  }
   link.endEditBlock();
   cursor = link;
   return true;

@@ -155,6 +155,7 @@ QString runs(const std::vector<core::InlineRun>& spans, const QString& fallback,
     if (run.bold) body = "<strong>" + body + "</strong>";
     if (run.italic) body = "<em>" + body + "</em>";
     if (run.strike) body = "<del>" + body + "</del>";
+    if (run.underline) body = "<u>" + body + "</u>";
     if (run.link) {
       const auto target = href(string(run.url), context);
       if (!target.isEmpty()) body = "<a href=\"" + xml(target) + "\">" + body + "</a>";

@@ -28,6 +28,7 @@ constexpr uint kTableAlignmentProperty = 0x10000a;    // 0=default, 1=left, 2=ce
 constexpr uint kLiteralTextProperty = 0x100013;  // Spreadsheet paste stays literal Markdown text.
 constexpr uint kRawHtmlProperty = 0x100014;
 constexpr uint kRawBlockSourceProperty = 0x100015;
+constexpr uint kUnderlineProperty = 0x100016;  // explicit Markdown underline, independent of links
 constexpr uint kMathSourceProperty = 0x10000b;
 constexpr uint kSpecialBlockProperty = 0x10000c;  // math, mermaid or toc
 constexpr uint kSpecialSourceProperty = 0x10000d;
@@ -56,6 +57,7 @@ QString serializeDocument(const QTextDocument* document, int paragraphPosition =
                           const QString& paragraphSource = QString());
 QString inlineMarkdown(const QTextBlock& block);
 bool isInlineCodeFormat(const QTextCharFormat& format);
+void setExplicitUnderline(QTextCharFormat& format, bool enabled);
 
 // Parses Markdown and inserts the blocks at the cursor, on one undo step. The cursor
 // lands after the pasted content. Returns false on a parse failure without touching

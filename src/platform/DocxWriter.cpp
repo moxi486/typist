@@ -246,7 +246,7 @@ QString runsXml(const std::vector<typist::core::InlineRun>& runs, const QString&
       out += QStringLiteral("</w:hyperlink>");
       continue;
     }
-    out += runXml(text, run.bold || forceBold, run.italic, run.code, run.strike);
+    out += runXml(text, run.bold || forceBold, run.italic, run.code, run.strike, run.underline);
   }
   return out;
 }

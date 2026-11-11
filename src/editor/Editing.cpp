@@ -96,6 +96,7 @@ QTextCharFormat inlineScopeStyle(const QTextCharFormat& format) {
     style.setFontWeight(QFont::Bold);
   if (format.fontItalic()) style.setFontItalic(true);
   if (format.fontStrikeOut()) style.setFontStrikeOut(true);
+  if (format.boolProperty(kUnderlineProperty)) style.setProperty(kUnderlineProperty, true);
   if (isInlineCodeFormat(format)) style.setFontFixedPitch(true);
   if (format.isAnchor()) style.setAnchorHref(format.anchorHref());
   for (const auto property : {kMathSourceProperty, kImageProperty, kFootnoteReferenceProperty})
@@ -126,6 +127,53 @@ bool selectInlineScope(QTextCursor& cursor) {
   cursor.setPosition(fragments[last].position() + fragments[last].length(),
                      QTextCursor::KeepAnchor);
   return true;
+}
+
+void toggleUnderline(QTextCursor& cursor) {
+  if (cursor.hasComplexSelection()) return;
+  const auto editableBlock = [](const QTextBlock& block) {
+    const auto format = block.blockFormat();
+    return !format.hasProperty(kCodeBlockProperty) && !format.hasProperty(kSpecialBlockProperty) &&
+           !format.hasProperty(kRawBlockSourceProperty);
+  };
+  if (!cursor.hasSelection()) {
+    if (!editableBlock(cursor.block())) return;
+    auto format = cursor.charFormat();
+    setExplicitUnderline(format, !format.boolProperty(kUnderlineProperty));
+    cursor.setCharFormat(format);
+    return;
+  }
+
+  struct Span {
+    int start;
+    int end;
+    QTextCharFormat format;
+  };
+  QVector<Span> spans;
+  bool allUnderlined = true;
+  for (const auto& block : selectedBlocks(cursor)) {
+    if (!editableBlock(block)) continue;
+    for (auto it = block.begin(); !it.atEnd(); ++it) {
+      const auto fragment = it.fragment();
+      const int start = qMax(fragment.position(), cursor.selectionStart());
+      const int end = qMin(fragment.position() + fragment.length(), cursor.selectionEnd());
+      if (start >= end) continue;
+      const auto format = fragment.charFormat();
+      const bool underlined = format.boolProperty(kUnderlineProperty);
+      if (format.hasProperty(kTaskMarkProperty) || format.hasProperty(kFootnoteLabelProperty) ||
+          (format.hasProperty(kRawHtmlProperty) && !underlined))
+        continue;
+      allUnderlined &= underlined;
+      spans.append({start, end, format});
+    }
+  }
+  for (auto& span : spans) {
+    setExplicitUnderline(span.format, !allUnderlined);
+    QTextCursor text(cursor.document());
+    text.setPosition(span.start);
+    text.setPosition(span.end, QTextCursor::KeepAnchor);
+    text.setCharFormat(span.format);
+  }
 }
 }  // namespace
 
@@ -474,6 +522,9 @@ void toggleInlineStyle(QTextCursor& cursor, InlineStyle style) {
     case InlineStyle::Strike:
       format.setFontStrikeOut(!current.fontStrikeOut());
       break;
+    case InlineStyle::Underline:
+      toggleUnderline(cursor);
+      return;
     case InlineStyle::Code: {
       const bool code = current.fontFamilies().toStringList().contains(QStringLiteral("Consolas"));
       format.setFontFamilies(
@@ -493,7 +544,7 @@ void setLink(QTextCursor& cursor, const QString& destination, const QString& lab
   QTextCharFormat format = cursor.charFormat();
   format.setAnchor(!destination.isEmpty());
   format.setAnchorHref(destination);
-  format.setFontUnderline(!destination.isEmpty());
+  format.setFontUnderline(!destination.isEmpty() || format.boolProperty(kUnderlineProperty));
   if (!cursor.hasSelection() && !label.isEmpty())
     cursor.insertText(label, format);
   else if (!cursor.hasSelection() && !destination.isEmpty())
@@ -617,8 +668,8 @@ bool renderInlineMarkdown(QTextCursor& cursor) {
     if (it.fragment().position() >= cursor.position()) break;
     const QTextCharFormat format = it.fragment().charFormat();
     if ((format.fontWeight() >= QFont::Bold && !format.boolProperty(kPresentationBoldProperty)) ||
-        format.fontItalic() || format.fontStrikeOut() || format.isAnchor() ||
-        format.boolProperty(kLiteralTextProperty) || format.isImageFormat() ||
+        format.fontItalic() || format.fontStrikeOut() || format.boolProperty(kUnderlineProperty) ||
+        format.isAnchor() || format.boolProperty(kLiteralTextProperty) || format.isImageFormat() ||
         format.fontFamilies().toStringList().contains(QStringLiteral("Consolas")))
       start = qMin(cursor.position(), it.fragment().position() + it.fragment().length());
   }
@@ -640,9 +691,11 @@ bool renderInlineMarkdown(QTextCursor& cursor) {
       parsed.blocks.front().type != core::BlockType::Paragraph)
     return false;
   bool styled = false;
-  for (const auto& run : parsed.blocks.front().runs)
-    styled |= run.bold || run.italic || run.strike || run.code || run.link || run.image ||
-              run.math || run.footnote;
+  for (const auto& run : parsed.blocks.front().runs) {
+    if (run.html && (run.text == "<u>" || run.text == "<U>")) return false;
+    styled |= run.bold || run.italic || run.strike || run.underline || run.code || run.link ||
+              run.image || run.math || run.footnote;
+  }
   if (!styled) return false;
   QTextDocument temporary;
   temporary.setBaseUrl(cursor.document()->baseUrl());

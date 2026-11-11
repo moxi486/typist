@@ -1846,12 +1846,13 @@ void EditorSpike::imageLinkSurvivesDocumentRoundTrip() {
 void EditorSpike::docxInlineEmphasisWritesRunProperties() {
   const QString path = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_docx_inline.docx"));
   QString error;
-  QVERIFY(typist::platform::exportDocx(path, QStringLiteral("**bold** *em* ~~gone~~ `code`\n"),
-                                       &error));
+  QVERIFY(typist::platform::exportDocx(
+      path, QStringLiteral("**bold** *em* ~~gone~~ `code` <u>marked</u>\n"), &error));
   const QByteArray data = readWholeFile(path);
   QVERIFY(data.contains("<w:b/>"));
   QVERIFY(data.contains("<w:i/>"));
   QVERIFY(data.contains("<w:strike/>"));
+  QVERIFY(data.contains("<w:u w:val=\"single\"/></w:rPr><w:t xml:space=\"preserve\">marked</w:t>"));
   QVERIFY(data.contains("Consolas"));
   QFile::remove(path);
 }
