@@ -130,6 +130,7 @@ class Editor : public QTextEdit {
   void setCodeLineNumbers(bool enabled);
   int codeIndentSize() const { return m_codeIndentSize; }
   void setCodeIndentSize(int columns);
+  void setAutoIndentOnBacktab(bool enabled) { m_autoIndentOnBacktab = enabled; }
   enum class CodeFenceCreation { Command, Typed };
   void setDefaultCodeLanguageResolver(std::function<QString(CodeFenceCreation)> resolver) {
     m_defaultCodeLanguage = std::move(resolver);
@@ -137,6 +138,7 @@ class Editor : public QTextEdit {
   bool setCodeLanguage(const QString& language);
   bool exitCodeBlock();
   bool copyCodeBlock();
+  bool autoIndentCode();
   bool copyTable(bool spreadsheet = false);
   bool exitTable();
   bool pasteTableText(const QString& text);
@@ -208,6 +210,7 @@ class Editor : public QTextEdit {
  private:
   QString selectedPlainText() const;
   bool copyCodeBlock(const QTextCursor& cursor);
+  bool autoIndentCode(QTextCursor cursor);
   void paintCodeBackgrounds() {
     QPainter painter(viewport());
     painter.setPen(Qt::NoPen);
@@ -335,6 +338,7 @@ class Editor : public QTextEdit {
   bool m_autoPair = true;
   bool m_syntaxHighlight = true;
   bool m_codeLineNumbers = false;
+  bool m_autoIndentOnBacktab = false;
   int m_codeIndentSize = editor::kDefaultCodeIndentSize;
   QString m_lastInlineText;
   int m_lastInlineBlock = -1;

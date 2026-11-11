@@ -145,6 +145,106 @@ class CodeWritingTests : public QObject {
     QCOMPARE(code(editor), QStringLiteral("\t if ready:\n\t   \n"));
   }
 
+  void autoIndentChangesOnlyLeadingWhitespaceAndIsOneUndo() {
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    editor.setCodeIndentSize(2);
+    const auto source = QStringLiteral(
+        "Before\n\n```c++\n"
+        "  void run() {\n"
+        "\tconst auto raw = u8R\"tag(\n"
+        "    literal )} {\n"
+        "  )tag\";\n"
+        "/* ) {\n"
+        "\tcomment }\n"
+        " */\n"
+        "#define SAMPLE \\\n"
+        "   {\n"
+        "if (raw) {\n"
+        "return;  \n"
+        "   \n"
+        "      }\n"
+        "  }\n"
+        "```\n\nAfter\n");
+    prepare(editor, view, source);
+    const auto original = view.currentMarkdown();
+    auto cursor = editor.document()->find(QStringLiteral("run"));
+    cursor.clearSelection();
+    const int column = cursor.positionInBlock();
+    editor.setTextCursor(cursor);
+    QVERIFY(editor.autoIndentCode());
+    const auto formatted = QStringLiteral(
+        "void run() {\n"
+        "\tconst auto raw = u8R\"tag(\n"
+        "    literal )} {\n"
+        "  )tag\";\n"
+        "  /* ) {\n"
+        "\tcomment }\n"
+        " */\n"
+        "#define SAMPLE \\\n"
+        "   {\n"
+        "  if (raw) {\n"
+        "    return;  \n"
+        "   \n"
+        "  }\n"
+        "}\n");
+    QCOMPARE(code(editor), formatted);
+    QCOMPARE(editor.textCursor().positionInBlock(), column - 2);
+    QVERIFY(editor.autoIndentCode());
+    QCOMPARE(code(editor), formatted);
+    editor.undo();
+    QCOMPARE(view.currentMarkdown(), original);
+    QVERIFY(!editor.document()->isUndoAvailable());
+    editor.redo();
+    editor.setTextCursor(editor.document()->find(QStringLiteral("run")));
+    QCOMPARE(code(editor), formatted);
+  }
+
+  void autoIndentSelectionUsesEarlierCodeAndKeepsReverseSelection() {
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    editor.setCodeIndentSize(2);
+    prepare(editor, view,
+            QStringLiteral("```json\n"
+                           " {\n"
+                           "\"[key}\": [\n"
+                           "\"value {\"\n"
+                           "        ]\n"
+                           "   }\n"
+                           "```\n\nOutside\n"));
+    const auto original = view.currentMarkdown();
+    auto reverse = at(editor, 4);
+    reverse.setPosition(editor.document()->findBlockByNumber(1).position(),
+                        QTextCursor::KeepAnchor);
+    editor.setTextCursor(reverse);
+    editor.setAutoIndentOnBacktab(true);
+    QTest::keyClick(&editor, Qt::Key_Backtab);
+    QCOMPARE(code(editor), QStringLiteral(" {\n  \"[key}\": [\n    \"value {\"\n  ]\n   }\n"));
+    const auto selected = editor.textCursor();
+    QCOMPARE(selected.position(), editor.document()->findBlockByNumber(1).position());
+    QCOMPARE(selected.anchor(), editor.document()->findBlockByNumber(4).position());
+    editor.undo();
+    QCOMPARE(view.currentMarkdown(), original);
+
+    auto mixed = at(editor, 0);
+    mixed.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    editor.setTextCursor(mixed);
+    QVERIFY(!editor.autoIndentCode());
+    QCOMPARE(view.currentMarkdown(), original);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    const auto source = view.currentMarkdown();
+    QVERIFY(!editor.autoIndentCode());
+    QCOMPARE(view.currentMarkdown(), source);
+
+    prepare(editor, view, QStringLiteral("```python\nif ready:\n    run()\n```\n"));
+    at(editor, 1);
+    QVERIFY(!editor.autoIndentCode());
+    QCOMPARE(code(editor), QStringLiteral("if ready:\n    run()\n"));
+    QTest::keyClick(&editor, Qt::Key_Backtab);
+    QCOMPARE(code(editor), QStringLiteral("if ready:\n  run()\n"));
+  }
+
   void codeIndentSizeResizesDisplayedTabsWithoutEditingMarkdown() {
     ui::Editor editor;
     ui::ViewSwitch view;

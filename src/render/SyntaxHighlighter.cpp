@@ -7,15 +7,7 @@
 #include <algorithm>
 
 namespace typist::render {
-namespace {
-constexpr int codeGroupProperty = 0x100001;
-constexpr int codeLanguageProperty = 0x100005;
-struct Data : QTextBlockUserData {
-  SyntaxState lexical;
-  QString language, fence;
-  int group = 0;
-};
-QString normalized(QString language) {
+QString codeSyntaxLanguage(QString language) {
   language = language.toLower().trimmed().section(' ', 0, 0);
   if (language == "c++" || language == "cc" || language == "cxx" || language == "h" ||
       language == "hpp")
@@ -33,6 +25,14 @@ QString normalized(QString language) {
   if (language == "tex" || language == "math") return "latex";
   return language;
 }
+namespace {
+constexpr int codeGroupProperty = 0x100001;
+constexpr int codeLanguageProperty = 0x100005;
+struct Data : QTextBlockUserData {
+  SyntaxState lexical;
+  QString language, fence;
+  int group = 0;
+};
 const QSet<QString>& keywords() {
   static const QSet<QString> words = [] {
     QSet<QString> set;
@@ -119,12 +119,12 @@ QColor syntaxColor(SyntaxToken token, bool dark) {
 }
 QList<SyntaxSpan> codeSyntax(const QString& text, const QString& info, SyntaxState& state) {
   QList<SyntaxSpan> spans;
-  const auto language = normalized(info);
+  const auto language = codeSyntaxLanguage(info);
   static const QSet<QString> supported = {
       "c",      "cpp",  "cs",  "csharp", "java",  "js",      "json",  "python",  "shell",
       "yaml",   "toml", "sql", "html",   "css",   "scss",    "rust",  "go",      "swift",
       "kotlin", "ruby", "r",   "lua",    "cmake", "mermaid", "latex", "markdown"};
-  if (!supported.contains(language) || text.size() > 32768) {
+  if (!supported.contains(language) || text.size() > kMaxCodeSyntaxLineLength) {
     state = {};
     return spans;
   }
@@ -171,10 +171,16 @@ QList<SyntaxSpan> codeSyntax(const QString& text, const QString& info, SyntaxSta
       continue;
     }
     // C++ raw strings keep their custom closing delimiter across lines.
-    if ((language == "cpp" || language == "c") && rest.startsWith(u"R\"")) {
-      const int open = text.indexOf('(', i + 2);
-      if (open >= i + 2 && open - i <= 18) {
-        const QString close = ")" + text.mid(i + 2, open - i - 2) + "\"";
+    if (language == "cpp" || language == "c") {
+      int raw = i;
+      if (rest.startsWith(u"u8R\""))
+        raw += 2;
+      else if (rest.mid(1).startsWith(u"R\"") && (ch == 'u' || ch == 'U' || ch == 'L'))
+        ++raw;
+      const bool rawString = QStringView(text).mid(raw).startsWith(u"R\"");
+      const int open = rawString ? text.indexOf('(', raw + 2) : -1;
+      if (open >= raw + 2 && open - raw <= 18) {
+        const QString close = ")" + text.mid(raw + 2, open - raw - 2) + "\"";
         const int end = quotedEnd(text, open + 1, close, false);
         add(i, end < 0 ? text.size() : end, SyntaxToken::String);
         if (end < 0) {
@@ -190,7 +196,8 @@ QList<SyntaxSpan> codeSyntax(const QString& text, const QString& info, SyntaxSta
       QString delimiter(ch);
       const bool triple = language == "python" && rest.startsWith(QString(3, ch));
       if (triple) delimiter = QString(3, ch);
-      const int end = quotedEnd(text, i + delimiter.size(), delimiter, true);
+      const int end =
+          quotedEnd(text, i + delimiter.size(), delimiter, language != "go" || ch != '`');
       add(i, end < 0 ? text.size() : end,
           (language == "json" && end > 0 && text.mid(end).trimmed().startsWith(':'))
               ? SyntaxToken::Property

@@ -13,6 +13,8 @@ struct SyntaxState {
   QString delimiter;
   bool comment = false;
 };
+constexpr int kMaxCodeSyntaxLineLength = 32768;
+QString codeSyntaxLanguage(QString info);
 QList<SyntaxSpan> codeSyntax(const QString& text, const QString& language, SyntaxState& state);
 QColor syntaxColor(SyntaxToken token, bool dark);
 QString highlightedCodeHtml(const QString& text, const QString& language, bool dark = false);

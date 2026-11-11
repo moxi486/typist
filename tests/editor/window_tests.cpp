@@ -1110,7 +1110,7 @@ class WindowTests : public QObject {
     QTemporaryDir directory;
     QFile file(directory.filePath(QStringLiteral("code-tools.md")));
     QVERIFY(file.open(QIODevice::WriteOnly));
-    file.write("Before\n\n```cpp\nfirst\n```\n\nMiddle\n\n```text\n\tother \n```\n\nTail.\n");
+    file.write("Before\n\n```cpp\nfirst\n```\n\nMiddle\n\n```cpp\n\tother \n```\n\nTail.\n");
     file.close();
     typist::MainWindow window;
     window.setBenchMode(true);
@@ -1185,6 +1185,58 @@ class WindowTests : public QObject {
     QCOMPARE(editor->textCursor().block().text(), QStringLiteral("Tail."));
     QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
     QVERIFY(!editor->document()->isUndoAvailable());
+    QVERIFY(activateTool(QStringLiteral("codeContextAutoIndent"), QStringLiteral("代码工具")));
+    QCOMPARE(editor->textCursor().block().text(), QStringLiteral("other "));
+    editor->undo();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+  }
+
+  void codeAutoIndentMenuAndBacktabPreference() {
+    QSettings settings;
+    const auto key = QStringLiteral("editor/autoIndentOnBacktab");
+    const auto prior = settings.value(key);
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] {
+      typist::platform::setLanguagePreference(language);
+      if (prior.isValid())
+        settings.setValue(key, prior);
+      else
+        settings.remove(key);
+    });
+    settings.remove(key);
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QTemporaryDir directory;
+    QFile file(directory.filePath(QStringLiteral("indent.md")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("```json\n{\n\"items\": []\n}\n```\n");
+    file.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.show();
+    QVERIFY(window.openFile(file.fileName()));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* setting = window.findChild<QAction*>(QStringLiteral("autoIndentOnBacktab"));
+    auto* indent = window.findChild<QAction*>(QStringLiteral("autoIndentCode"));
+    QVERIFY(editor && setting && indent);
+    editor->setCodeIndentSize(2);
+    QCOMPARE(indent->text(), QStringLiteral("Auto Indent Code"));
+    QVERIFY(!setting->isChecked());
+    const auto item = editor->document()->find(QStringLiteral("items")).block();
+    editor->setTextCursor(QTextCursor(item));
+    indent->trigger();
+    QCOMPARE(item.text(), QStringLiteral("  \"items\": []"));
+    QTest::keyClick(editor, Qt::Key_Backtab);
+    QCOMPARE(item.text(), QStringLiteral("\"items\": []"));
+    setting->trigger();
+    QVERIFY(settings.value(key).toBool());
+    QTest::keyClick(editor, Qt::Key_Backtab);
+    QCOMPARE(item.text(), QStringLiteral("  \"items\": []"));
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(indent->text(), QStringLiteral("自动缩进代码"));
+    QCOMPARE(setting->text(), QStringLiteral("Shift+Tab 自动缩进代码"));
+    typist::MainWindow reopened;
+    auto* persisted = reopened.findChild<QAction*>(QStringLiteral("autoIndentOnBacktab"));
+    QVERIFY(persisted && persisted->isChecked());
   }
 
   void codeIndentSizeSettingAppliesImmediatelyAndPersists() {
