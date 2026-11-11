@@ -228,9 +228,12 @@ class WindowTests : public QObject {
     menu->findChild<QAction*>(QStringLiteral("browserList"))->trigger();
     menu->findChild<QAction*>(QStringLiteral("browserNatural"))->trigger();
     menu->findChild<QAction*>(QStringLiteral("browserDescending"))->trigger();
+    menu->findChild<QAction*>(QStringLiteral("browserGroupByFolder"))->trigger();
+    menu->findChild<QAction*>(QStringLiteral("browserCreated"))->trigger();
     QCOMPARE(tree->options().view, typist::platform::FileBrowserView::List);
     QCOMPARE(typist::platform::fileBrowserOptions().sort,
-             typist::platform::FileBrowserSort::Natural);
+             typist::platform::FileBrowserSort::Created);
+    QVERIFY(typist::platform::fileBrowserOptions().groupByFolder);
     QVERIFY(typist::platform::fileBrowserOptions().descending);
     QCOMPARE(tree->selectedPath(), QDir(root).filePath(QStringLiteral("Guides/写作指南.MD")));
     const auto output = qEnvironmentVariable("TYPIST_FILE_BROWSER_OUTPUT");
@@ -249,6 +252,17 @@ class WindowTests : public QObject {
       QCOMPARE(menu->findChild<QAction*>(QStringLiteral("browserModified"))->text(),
                language == QLatin1String("en") ? QStringLiteral("Modified Date")
                                                : QStringLiteral("修改时间"));
+      QCOMPARE(menu->findChild<QAction*>(QStringLiteral("browserCreated"))->text(),
+               language == QLatin1String("en") ? QStringLiteral("Created Date")
+                                               : QStringLiteral("创建时间"));
+      QCOMPARE(menu->findChild<QAction*>(QStringLiteral("browserGroupByFolder"))->text(),
+               language == QLatin1String("en") ? QStringLiteral("Group by Folder")
+                                               : QStringLiteral("按文件夹分组"));
+      QCOMPARE(tree->topLevelItem(0)->text(0), language == QLatin1String("en")
+                                                   ? QStringLiteral("Workspace Root")
+                                                   : QStringLiteral("工作区根目录"));
+      QVERIFY(menu->findChild<QAction*>(QStringLiteral("browserGroupByFolder"))->isChecked());
+      QVERIFY(menu->findChild<QAction*>(QStringLiteral("browserCreated"))->isChecked());
       QVERIFY(menu->findChild<QAction*>(QStringLiteral("browserList"))->isChecked());
       QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
       QCOMPARE(editor->document()->availableUndoSteps(), steps);
@@ -276,7 +290,8 @@ class WindowTests : public QObject {
     QCOMPARE(reopened.findChild<typist::ui::FileTree*>()->options().view,
              typist::platform::FileBrowserView::List);
     QCOMPARE(reopened.findChild<typist::ui::FileTree*>()->options().sort,
-             typist::platform::FileBrowserSort::Natural);
+             typist::platform::FileBrowserSort::Created);
+    QVERIFY(reopened.findChild<typist::ui::FileTree*>()->options().groupByFolder);
     QVERIFY(reopened.findChild<typist::ui::FileTree*>()->options().descending);
     window.findChild<QAction*>(QStringLiteral("fileTree"))->trigger();
     QCOMPARE(tree->options().view, typist::platform::FileBrowserView::Tree);

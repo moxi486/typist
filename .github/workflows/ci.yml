@@ -43,13 +43,21 @@ jobs:
       - run: ctest --test-dir build/core --output-on-failure
 
   core-macos:
-    runs-on: macos-14
+    # macOS 14 retired on 2026-11-02: actions/runner-images#13518.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - run: brew install cmark-gfm qt@6
-      - run: export CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" && cmake --preset macos-clang -DCMAKE_BUILD_TYPE=Release
-      - run: cmake --build build/macos-clang
-      - run: ctest --test-dir build/macos-clang --output-on-failure
+      - run: export CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" && cmake --preset macos-clang -DCMAKE_BUILD_TYPE=Release '-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG -g'
+      - run: cmake --build build/macos-clang --parallel 2
+      - id: test
+        run: ctest --test-dir build/macos-clang --output-on-failure
+      - name: Capture EPUB crash diagnostics
+        if: failure() && steps.test.outcome == 'failure'
+        run: |
+          env QT_QPA_PLATFORM=offscreen TYPIST_CORPUS_DIR="$PWD/tests/corpus" \
+            lldb --batch -o 'settings set target.disable-aslr false' -o run -k 'thread backtrace all' \
+            -- build/macos-clang/tests/editor/epub_export_tests coverAndCrossChapterNavigation -nocrashhandler
 
   windows:
     # Verified locally with MSYS2 mingw64: gcc 16.2, CMake 4.4.4, Qt 6.12.0,

@@ -770,6 +770,26 @@
 <context>
     <name>FileTree</name>
     <message>
+        <source>Workspace Root</source>
+        <translation>工作区根目录</translation>
+    </message>
+    <message>
+        <source>Created: %1</source>
+        <translation>创建时间：%1</translation>
+    </message>
+    <message>
+        <source>Creation time unavailable. Modified: %1</source>
+        <translation>创建时间不可用，使用修改时间：%1</translation>
+    </message>
+    <message>
+        <source>Created Date</source>
+        <translation>创建时间</translation>
+    </message>
+    <message>
+        <source>Group by Folder</source>
+        <translation>按文件夹分组</translation>
+    </message>
+    <message>
         <source>New Folder</source>
         <translation>新建文件夹</translation>
     </message>

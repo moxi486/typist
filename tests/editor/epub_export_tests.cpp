@@ -261,6 +261,28 @@ class EpubExportTests : public QObject {
       QCOMPARE(copy.write(bytes), bytes.size());
     }
   }
+  void splitChapterFileNamesWithoutCover() {
+    QTemporaryDir directory;
+    const auto path = directory.filePath(QStringLiteral("chapters.epub"));
+    auto configured = options;
+    configured.splitChapters = true;
+    QString error;
+    for (const auto& preface : {QString(), QStringLiteral("Preface.\n\n")}) {
+      const auto source =
+          preface + QStringLiteral("# One\n\n[Next](#two).\n\n# Two\n\n[Back](#one).\n");
+      QVERIFY2(typist::platform::exportEpub(path, source, configured, &error), qPrintable(error));
+      const auto entries = unzip(read(path));
+      QVERIFY(entries.contains("OEBPS/content.xhtml"));
+      QVERIFY(entries.contains("OEBPS/chapter-2.xhtml"));
+      QCOMPARE(entries.contains("OEBPS/chapter-3.xhtml"), !preface.isEmpty());
+      QVERIFY(!entries.contains("OEBPS/chapter-4.xhtml"));
+      QVERIFY(!entries.contains("OEBPS/cover.xhtml"));
+      QVERIFY(
+          entries.value("OEBPS/content.xhtml").contains(preface.isEmpty() ? "One" : "Preface."));
+      const auto broken = brokenReference(entries);
+      QVERIFY2(broken.isEmpty(), qPrintable(broken));
+    }
+  }
   void coverAndCrossChapterNavigation() {
     QTemporaryDir directory;
     QImage cover(800, 1200, QImage::Format_ARGB32);
