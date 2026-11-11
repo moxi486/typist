@@ -156,6 +156,29 @@ class TableWorkflowTests : public QObject {
     editor.undo();
     QCOMPARE(view.currentMarkdown(), original);
   }
+  void explicitHtmlCopyKeepsOnlyTheSelectedTableCells() {
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    prepare(editor, view,
+            "Before.\n\n| Name | Value | Outside |\n|---|---|---|\n"
+            "| **one** | a<br>b | excluded |\n| two | 2 | excluded |\n\nAfter.\n");
+    auto* table = firstTable(editor.document());
+    QVERIFY(table);
+    select(editor, table, 0, 0, 2, 1);
+    QVERIFY(editor.textCursor().hasComplexSelection());
+    const auto original = view.currentMarkdown();
+    editor.copySelection(ui::Editor::CopyFormat::WithoutTheme);
+    const auto* mime = QApplication::clipboard()->mimeData();
+    const auto html = mime->html();
+    QVERIFY(html.contains(QStringLiteral("<table>")));
+    QVERIFY(html.contains(QStringLiteral("<th>Name</th>")));
+    QVERIFY(html.contains(QStringLiteral("<strong>one</strong>")));
+    QVERIFY(html.contains(QStringLiteral("a<br")));
+    QVERIFY(!html.contains(QStringLiteral("excluded")));
+    QVERIFY(!html.contains(QStringLiteral("Outside")));
+    QCOMPARE(mime->text(), QStringLiteral("Name\tValue\none\t\"a\nb\"\ntwo\t2"));
+    QCOMPARE(view.currentMarkdown(), original);
+  }
   void toolbarCommandsProtectHeaderAndAlignSelectedColumns() {
     ui::Editor editor;
     ui::ViewSwitch view;

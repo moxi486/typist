@@ -26,6 +26,7 @@
 #include <QCheckBox>
 #include <QClipboard>
 #include <QComboBox>
+#include <QContextMenuEvent>
 #include <QDesktopServices>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -1099,6 +1100,118 @@ class WindowTests : public QObject {
     QVERIFY(tree->isVisible());
     QTest::keyClick(filter, Qt::Key_Return);
     QCOMPARE(editor->textCursor().block().text(), QStringLiteral("Newly added heading"));
+  }
+
+  void clipboardFormatsUseTheSelectionAcrossViewsAndLanguages() {
+    const auto language = typist::platform::languagePreference();
+    const auto theme = typist::platform::themePreference();
+    const auto restore = qScopeGuard([&] {
+      typist::platform::setLanguagePreference(language);
+      typist::platform::setThemePreference(theme);
+    });
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QTemporaryDir directory;
+    QFile file(directory.filePath(QStringLiteral("clipboard.md")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(
+        "# Clipboard\n\nA **bold** [link](notes/guide.md).\n\n"
+        "```cpp\nint x = 3 < 4;\n```\n\nOutside selection.\n");
+    file.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.resize(1080, 720);
+    window.show();
+    QVERIFY(window.openFile(file.fileName()));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* htmlCode = window.findChild<QAction*>(QStringLiteral("copyHtmlCode"));
+    auto* semantic = window.findChild<QAction*>(QStringLiteral("copyWithoutTheme"));
+    auto* plain = window.findChild<QAction*>(QStringLiteral("copyPlainText"));
+    auto* markdown = window.findChild<QAction*>(QStringLiteral("copyMarkdown"));
+    QVERIFY(editor && htmlCode && semantic && plain && markdown);
+    auto* clipboard = QApplication::clipboard();
+    clipboard->setText(QStringLiteral("Existing clipboard"));
+    htmlCode->trigger();
+    semantic->trigger();
+    plain->trigger();
+    QCOMPARE(clipboard->text(), QStringLiteral("Existing clipboard"));
+    QTextCursor range(editor->document());
+    const int end = editor->document()->find(QStringLiteral("Outside selection")).selectionStart();
+    QVERIFY(end > 0);
+    range.setPosition(end, QTextCursor::KeepAnchor);
+    editor->setTextCursor(range);
+    const auto original = typist::editor::serializeDocument(editor->document());
+    const int undo = editor->document()->availableUndoSteps();
+    htmlCode->trigger();
+    const auto html = clipboard->text();
+    QVERIFY(html.contains(QStringLiteral("<h1>Clipboard</h1>")));
+    QVERIFY(html.contains(QStringLiteral("<strong>bold</strong>")));
+    QVERIFY(html.contains(QStringLiteral("href=\"notes/guide.md\"")));
+    QVERIFY(html.contains(QStringLiteral("class=\"language-cpp\"")));
+    QVERIFY(html.contains(QStringLiteral("3 &lt; 4")));
+    QVERIFY(!html.contains(QStringLiteral("Outside selection")));
+    QVERIFY(!clipboard->mimeData()->hasHtml());
+    semantic->trigger();
+    QCOMPARE(clipboard->mimeData()->html(), html);
+    QVERIFY(clipboard->text().contains(QStringLiteral("A bold link.")));
+    QVERIFY(!html.contains(QStringLiteral("style=")));
+    plain->trigger();
+    QVERIFY(clipboard->text().contains(QStringLiteral("int x = 3 < 4;")));
+    QVERIFY(!clipboard->mimeData()->hasHtml());
+    markdown->trigger();
+    QVERIFY(clipboard->text().contains(QStringLiteral("**bold**")));
+    QCOMPARE(editor->textCursor().selectionEnd(), end);
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+    QCOMPARE(editor->document()->availableUndoSteps(), undo);
+
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("appearance_dark"))->trigger();
+    QCOMPARE(htmlCode->text(), QStringLiteral("复制为 HTML 源码"));
+    QCOMPARE(semantic->text(), QStringLiteral("复制无主题样式"));
+    QCOMPARE(plain->text(), QStringLiteral("复制为纯文本"));
+    editor->setTextCursor(editor->document()->find(QStringLiteral("old")));
+    editor->ensureCursorVisible();
+    bool activated = false;
+    QTimer::singleShot(0, &window, [&] {
+      auto* popup = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+      if (!popup) return;
+      auto* copyAs = popup->findChild<QMenu*>(QStringLiteral("copyAsContextMenu"));
+      if (copyAs && copyAs->title() == QStringLiteral("复制为")) {
+        for (auto* action : copyAs->actions()) {
+          if (action->text() == QStringLiteral("复制为 HTML 源码")) {
+            action->trigger();
+            activated = true;
+          }
+        }
+      }
+      popup->close();
+    });
+    const QPoint point = editor->cursorRect().center();
+    QContextMenuEvent event(QContextMenuEvent::Mouse, point,
+                            editor->viewport()->mapToGlobal(point));
+    QApplication::sendEvent(editor->viewport(), &event);
+    QVERIFY(activated);
+    QVERIFY(clipboard->text().contains(QStringLiteral("<strong>old</strong>")));
+    QVERIFY(!clipboard->text().contains(QStringLiteral("bold")));
+
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    editor->setTextCursor(editor->document()->find(QStringLiteral("**bold**")));
+    plain->trigger();
+    QCOMPARE(clipboard->text(), QStringLiteral("**bold**"));
+    htmlCode->trigger();
+    QVERIFY(clipboard->text().contains(QStringLiteral("<strong>bold</strong>")));
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    editor->setTextCursor(editor->document()->find(QStringLiteral("bold")));
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(draft);
+    draft->setPlainText(QStringLiteral("Draft **待确认**"));
+    draft->selectAll();
+    semantic->trigger();
+    QVERIFY(clipboard->mimeData()->html().contains(QStringLiteral("<strong>待确认</strong>")));
+    QCOMPARE(clipboard->text(), QStringLiteral("Draft **待确认**"));
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+    editor->finishParagraphSourceEdit(false);
   }
 
   void cancelAndDiscardNeverOverwriteDocument() {

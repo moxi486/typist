@@ -97,6 +97,30 @@ int main(int argc, char** argv) {
   const std::string codeHtml = typist::core::toHtml(readFile(corpus / "code_info.md"));
   check(codeHtml.find("language-c") != std::string::npos, "html fence info becomes class");
 
+  const auto semantic = typist::core::toSemanticHtml(
+      "A **bold** [link](docs/note.md) with <em>literal markup</em>.\n\n"
+      "<div>Literal block</div>\n\n"
+      "| Cell |\n|---|\n| first<BR />second |\n");
+  check(semantic.find("<strong>bold</strong>") != std::string::npos &&
+            semantic.find("href=\"docs/note.md\"") != std::string::npos,
+        "semantic html preserves inline formats and relative links");
+  check(semantic.find("&lt;em&gt;literal markup&lt;/em&gt;") != std::string::npos &&
+            semantic.find("&lt;div&gt;Literal block&lt;/div&gt;") != std::string::npos,
+        "semantic html keeps raw markup literal");
+  check(semantic.find("<table>") != std::string::npos &&
+            semantic.find("first<br") != std::string::npos,
+        "semantic html preserves table line breaks");
+  const auto literalBreaks =
+      typist::core::toSemanticHtml("`<!-- raw HTML omitted -->` and <br class=\"custom\">.\n");
+  check(literalBreaks.find("<br") == std::string::npos &&
+            literalBreaks.find("&lt;!-- raw HTML omitted --&gt;") != std::string::npos &&
+            literalBreaks.find("&lt;br class=") != std::string::npos,
+        "semantic html leaves literal markers and attributed tags as text");
+  const auto localLink = typist::core::toSemanticHtml("[Local file](file:///notes.md)");
+  check(localLink.find("file:") == std::string::npos &&
+            localLink.find("Local file") != std::string::npos,
+        "semantic html uses cmark destination filtering");
+
   const std::string page = typist::core::wrapHtmlDocument(tableHtml, "Doc <title>");
   check(page.find("<meta charset=\"utf-8\">") != std::string::npos, "html page declares charset");
   check(page.find("<title>Doc &lt;title&gt;</title>") != std::string::npos,

@@ -135,6 +135,8 @@ class Editor : public QTextEdit {
   QString paragraphSourceSelection() const;
   void cut();
   void copy();
+  enum class CopyFormat { Markdown, PlainText, HtmlCode, WithoutTheme };
+  void copySelection(CopyFormat format) const;
   void paste();
   void selectAll();
   void insertPlainText(const QString& text);
@@ -210,6 +212,7 @@ class Editor : public QTextEdit {
   }
 
  private:
+  QString selectedPlainText() const;
   void paintCodeBackgrounds() {
     QPainter painter(viewport());
     painter.setPen(Qt::NoPen);
