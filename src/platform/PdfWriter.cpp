@@ -1,5 +1,6 @@
 #include "PdfWriter.h"
 
+#include "DocumentProperties.h"
 #include "SpecialContent.h"
 #include "SyntaxHighlighter.h"
 
@@ -119,6 +120,35 @@ QSize physicalPage(const PdfPageOptions& options) {
   if (options.landscape) size.transpose();
   return size;
 }
+
+void insertSectionBreaks(QTextDocument& document) {
+  bool seenHeading = false, seenContent = false, inFootnotes = false;
+  QTextCursor cursor(&document);
+  cursor.beginEditBlock();
+  for (auto it = document.rootFrame()->begin(); !it.atEnd(); ++it) {
+    if (it.currentFrame()) {
+      seenContent = true;
+      inFootnotes = false;
+      continue;
+    }
+    const auto block = it.currentBlock();
+    if (!block.isValid() || block.text().trimmed().isEmpty()) continue;
+    auto format = block.blockFormat();
+    const bool heading = format.headingLevel() == 1 && !block.textList() &&
+                         !format.hasProperty(render::kQuoteProperty);
+    const bool footnote = format.hasProperty(render::kFootnoteDefinitionProperty);
+    if ((heading && seenHeading) || (footnote && seenContent && !inFootnotes)) {
+      cursor.setPosition(block.position());
+      format.setPageBreakPolicy(format.pageBreakPolicy() | QTextFormat::PageBreak_AlwaysBefore);
+      cursor.setBlockFormat(format);
+    }
+    seenHeading = seenHeading || heading;
+    seenContent = true;
+    inFootnotes = footnote;
+  }
+  cursor.endEditBlock();
+}
+
 bool preparePages(const QTextDocument* document, const PdfPageOptions& options,
                   QPaintDevice* device, PreparedPages& pages, QString* error) {
   const auto fail = [&](const QString& reason) {
@@ -149,8 +179,9 @@ bool preparePages(const QTextDocument* document, const PdfPageOptions& options,
   laidOut.documentLayout()->setPaintDevice(device);
   auto* syntax = typist::render::installSyntaxHighlighter(&laidOut, false);
   syntax->rehighlight();
+  if (options.breakBetweenTopHeadings) insertSectionBreaks(laidOut);
   // Qt's native paged layout splits on text lines and repeats real table headers.
-  constexpr int codeProperty = 0x100001;
+  constexpr auto codeProperty = render::kCodeBlockProperty;
   QSet<QTextTable*> tables;
   for (QTextBlock block = laidOut.begin(); block.isValid(); block = block.next()) {
     if (QTextTable* table = QTextCursor(block).currentTable()) {
@@ -167,11 +198,15 @@ bool preparePages(const QTextDocument* document, const PdfPageOptions& options,
   // Apply keep rules in document order. A heading followed by a code fence is
   // one group; separate forced breaks on both would create nearly empty pages.
   for (QTextBlock block = laidOut.begin(); block.isValid(); block = block.next()) {
+    if (block.blockFormat().pageBreakPolicy().testFlag(QTextFormat::PageBreak_AlwaysBefore))
+      continue;
     const QRectF firstRect = layout->blockBoundingRect(block);
     const double pageBottom = (qFloor(firstRect.top() / contentHeight) + 1) * contentHeight;
     double bottom = firstRect.bottom();
     if (block.blockFormat().headingLevel() > 0 && block.next().isValid()) {
       QTextBlock following = block.next();
+      if (following.blockFormat().pageBreakPolicy().testFlag(QTextFormat::PageBreak_AlwaysBefore))
+        continue;
       const QVariant code = following.blockFormat().property(codeProperty);
       if (code.isValid()) {
         while (following.next().isValid() &&
@@ -206,7 +241,7 @@ bool preparePages(const QTextDocument* document, const PdfPageOptions& options,
     if (height < contentHeight && bottom > pageBottom && offset > 1.0) {
       QTextCursor cursor(block);
       QTextBlockFormat format = block.blockFormat();
-      format.setPageBreakPolicy(QTextFormat::PageBreak_AlwaysBefore);
+      format.setPageBreakPolicy(format.pageBreakPolicy() | QTextFormat::PageBreak_AlwaysBefore);
       cursor.setBlockFormat(format);
       layout->documentSize();
     }

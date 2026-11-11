@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DocumentProperties.h"
 #include "markdown.h"
 
 #include <QString>
@@ -10,16 +11,18 @@
 
 namespace typist::editor {
 
+using render::kCodeBlockProperty;
+using render::kCodeInfoProperty;
+using render::kFootnoteDefinitionProperty;
+using render::kQuoteProperty;
+
 // Structure Qt does not model natively is tagged through QTextFormat custom
 // property ids, which must stay above QTextFormat::UserProperty (0x100000):
 // ids below it fall inside Qt's own property enum ranges. Code and quote blocks
 // carry a group id as the property value so adjacent blocks never merge.
-constexpr uint kCodeBlockProperty = 0x100001;  // value: group id
-constexpr uint kQuoteProperty = 0x100002;      // value: group id
 constexpr uint kRuleProperty = 0x100003;
-constexpr uint kTaskProperty = 0x100004;      // value: bool checked
-constexpr uint kCodeInfoProperty = 0x100005;  // value: fence info string, first block of a group
-constexpr uint kImageProperty = 0x100006;     // value: image target
+constexpr uint kTaskProperty = 0x100004;   // value: bool checked
+constexpr uint kImageProperty = 0x100006;  // value: image target
 constexpr uint kImageAltProperty =
     0x100007;  // value: image alt text        // value: image destination, on an anchored run
 constexpr uint kTaskMarkProperty = 0x100008;  // value: checked state of the rendered checkbox glyph
@@ -32,7 +35,6 @@ constexpr uint kUnderlineProperty = 0x100016;  // explicit Markdown underline, i
 constexpr uint kMathSourceProperty = 0x10000b;
 constexpr uint kSpecialBlockProperty = 0x10000c;  // math, mermaid or toc
 constexpr uint kSpecialSourceProperty = 0x10000d;
-constexpr uint kFootnoteDefinitionProperty = 0x10000e;
 constexpr uint kFootnoteReferenceProperty = 0x10000f;
 constexpr uint kFootnoteLabelProperty = 0x100010;
 constexpr uint kSpecialTypeProperty = 0x100011;

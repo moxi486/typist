@@ -131,37 +131,42 @@ void setLastCodeLanguage(const QString& language) {
 }
 
 QString pdfPaper(const QString& fallback) {
-  const QString value = openSettings().value(QStringLiteral("pdfPaper"), fallback).toString();
+  const QString value = openSettings(QSettings::defaultFormat())
+                            .value(QStringLiteral("pdfPaper"), fallback)
+                            .toString();
   return value == QStringLiteral("letter") ? value : QStringLiteral("a4");
 }
 
 void setPdfPaper(const QString& value) {
-  QSettings store = openSettings();
+  auto store = openSettings(QSettings::defaultFormat());
   store.setValue(QStringLiteral("pdfPaper"), value);
   store.sync();
 }
 
 double pdfMarginMm(double fallback) {
-  const QVariant value = openSettings().value(QStringLiteral("pdfMarginMm"), QVariant(fallback));
+  const auto value =
+      openSettings(QSettings::defaultFormat()).value(QStringLiteral("pdfMarginMm"), fallback);
   bool ok = false;
   const double margin = value.toDouble(&ok);
   return ok && margin >= 5.0 && margin <= 60.0 ? margin : fallback;
 }
 
 void setPdfMarginMm(double value) {
-  QSettings store = openSettings();
+  auto store = openSettings(QSettings::defaultFormat());
   store.setValue(QStringLiteral("pdfMarginMm"), value);
   store.sync();
 }
 
 PdfPageOptions pdfOptions(const QString& title) {
-  const auto settings = openSettings();
+  const auto settings = openSettings(QSettings::defaultFormat());
   PdfPageOptions options;
   options.paper = pdfPaper();
   options.marginMm = pdfMarginMm();
   options.landscape = settings.value(QStringLiteral("pdf/landscape"), false).toBool();
   options.repeatTableHeader =
       settings.value(QStringLiteral("pdf/repeatTableHeader"), true).toBool();
+  options.breakBetweenTopHeadings =
+      settings.value(QStringLiteral("pdf/breakBetweenTopHeadings"), false).toBool();
   options.header =
       settings.value(QStringLiteral("pdf/header"), QStringLiteral("{title}")).toString();
   options.footer =
@@ -172,9 +177,10 @@ PdfPageOptions pdfOptions(const QString& title) {
 void setPdfOptions(const PdfPageOptions& options) {
   setPdfPaper(options.paper);
   setPdfMarginMm(options.marginMm);
-  auto settings = openSettings();
+  auto settings = openSettings(QSettings::defaultFormat());
   settings.setValue(QStringLiteral("pdf/landscape"), options.landscape);
   settings.setValue(QStringLiteral("pdf/repeatTableHeader"), options.repeatTableHeader);
+  settings.setValue(QStringLiteral("pdf/breakBetweenTopHeadings"), options.breakBetweenTopHeadings);
   settings.setValue(QStringLiteral("pdf/header"), options.header);
   settings.setValue(QStringLiteral("pdf/footer"), options.footer);
 }

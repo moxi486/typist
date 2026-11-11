@@ -34,7 +34,7 @@ class PdfExportDialog : public QDialog {
   QComboBox *m_paper, *m_orientation;
   QDoubleSpinBox* m_margin;
   QLineEdit *m_header, *m_footer;
-  QCheckBox* m_repeat;
+  QCheckBox *m_repeat, *m_sectionBreaks;
   QLabel *m_paperLabel, *m_orientationLabel, *m_marginLabel, *m_headerLabel, *m_footerLabel;
   QLabel *m_hint, *m_pageLabel, *m_error;
   QLabel* m_preview = nullptr;

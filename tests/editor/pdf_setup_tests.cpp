@@ -112,6 +112,55 @@ class PdfSetupTests : public QObject {
     QVERIFY(before != after);
   }
 
+  void sectionBreaksAreSharedByPreviewAndExport_data() {
+    QTest::addColumn<QString>("markdown");
+    QTest::addColumn<int>("sectionPages");
+    QTest::newRow("chapters-and-footnotes")
+        << QStringLiteral(
+               "Opening paragraph.\n\n# Chapter One\n\nA paragraph with a note[^one].\n\n"
+               "## A subsection\n\n> # A quoted heading\n\n"
+               "# Chapter Two\n\nThe second chapter has another note[^two].\n\n"
+               "[^one]: First note content.\n\n[^two]: Second note content.\n")
+        << 3;
+    QTest::newRow("consecutive-headings")
+        << QStringLiteral("# First heading\n\n# Second heading\n\n# Third heading\n\nText.\n") << 3;
+    QTest::newRow("footnotes-without-headings")
+        << QStringLiteral("One reference[^note].\n\n[^note]: Note content.\n") << 2;
+    QTest::newRow("footnotes-only")
+        << QStringLiteral("[^one]: First note.\n\n[^two]: Second note.\n") << 1;
+  }
+
+  void sectionBreaksAreSharedByPreviewAndExport() {
+    QFETCH(QString, markdown);
+    QFETCH(int, sectionPages);
+    QTextDocument document;
+    QString error;
+    QVERIFY2(typist::editor::loadMarkdown(markdown, &document, &error), qPrintable(error));
+    const auto before = typist::editor::serializeDocument(&document);
+    const auto undo = document.availableUndoSteps();
+    typist::platform::PdfPageOptions options;
+    options.header = QStringLiteral("Chapter layout");
+    options.footer = QStringLiteral("Page #");
+    int pages = 0;
+    QVERIFY2(!typist::platform::pdfPagePreview(&document, options, 0, &pages, &error).isNull(),
+             qPrintable(error));
+    QCOMPARE(pages, 1);
+
+    options.breakBetweenTopHeadings = true;
+    QVERIFY2(!typist::platform::pdfPagePreview(&document, options, sectionPages - 1, &pages, &error)
+                  .isNull(),
+             qPrintable(error));
+    QCOMPARE(pages, sectionPages);
+    QTemporaryDir directory;
+    const auto output = qEnvironmentVariable("TYPIST_PDF_OUTPUT", directory.path());
+    const auto path =
+        output + '/' + QString::fromLatin1(QTest::currentDataTag()) + QStringLiteral(".pdf");
+    QVERIFY2(typist::platform::exportPdf(path, &document, options, &error), qPrintable(error));
+    QCOMPARE(pageCount(read(path)), pages);
+    QCOMPARE(typist::editor::serializeDocument(&document), before);
+    QCOMPARE(document.availableUndoSteps(), undo);
+  }
+
   void invalidExportPreservesTarget() {
     QTemporaryDir directory;
     const auto path = directory.filePath(QStringLiteral("existing.pdf"));
@@ -140,6 +189,7 @@ class PdfSetupTests : public QObject {
     QTemporaryDir settings;
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settings.path());
+    QVERIFY(!typist::platform::pdfOptions(QString()).breakBetweenTopHeadings);
     typist::platform::PdfPageOptions options;
     options.paper = QStringLiteral("letter");
     options.marginMm = 12.5;
@@ -147,6 +197,7 @@ class PdfSetupTests : public QObject {
     options.header = QStringLiteral("{title}");
     options.footer = QStringLiteral("#");
     options.repeatTableHeader = false;
+    options.breakBetweenTopHeadings = true;
     options.title = QStringLiteral("Old title");
     typist::platform::setPdfOptions(options);
     const auto saved = typist::platform::pdfOptions(QStringLiteral("New title"));
@@ -156,6 +207,7 @@ class PdfSetupTests : public QObject {
     QCOMPARE(saved.header, options.header);
     QCOMPARE(saved.footer, options.footer);
     QVERIFY(!saved.repeatTableHeader);
+    QVERIFY(saved.breakBetweenTopHeadings);
     QCOMPARE(saved.title, QStringLiteral("New title"));
   }
 };
