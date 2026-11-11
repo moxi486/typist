@@ -31,6 +31,15 @@
 #include <vector>
 
 namespace typist::editor {
+QFont codeBlockFont() {
+  QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+  mono.setFamilies(
+      {QStringLiteral("Consolas"), QStringLiteral("Menlo"), QStringLiteral("monospace")});
+  mono.setStyleHint(QFont::TypeWriter);
+  mono.setPointSizeF(10.5);
+  return mono;
+}
+
 namespace {
 
 struct BuildContext {
@@ -207,14 +216,7 @@ void insertTaggedInline(QTextCursor& cursor, const std::vector<typist::core::Inl
 }
 void insertCodeBlock(const std::string& code, const std::string& info, QTextCursor& cursor,
                      BuildContext& ctx) {
-  if (ctx.codeFormat.isEmpty()) {
-    QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    mono.setFamilies(
-        {QStringLiteral("Consolas"), QStringLiteral("Menlo"), QStringLiteral("monospace")});
-    mono.setStyleHint(QFont::TypeWriter);
-    mono.setPointSizeF(10.5);
-    ctx.codeFormat.setFont(mono);
-  }
+  if (ctx.codeFormat.isEmpty()) ctx.codeFormat.setFont(codeBlockFont());
   const QTextCharFormat& codeFormat = ctx.codeFormat;
 
   const QVariant groupId = QVariant(++ctx.groupCounter);

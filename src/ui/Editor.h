@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CodeEditing.h"
 #include "Editing.h"
 #include "ListEditing.h"
 #include "SpecialContent.h"
@@ -30,7 +31,7 @@ class Editor : public QTextEdit {
   explicit Editor(QWidget* parent = nullptr) : QTextEdit(parent) {
     setFrameShape(QFrame::NoFrame);
     setTabChangesFocus(false);
-    setTabStopDistance(32);
+    updateCodeTabStops();
     connect(verticalScrollBar(), &QScrollBar::valueChanged, this, [this] {
       updateDecorations();
       updateParagraphSourceGeometry();
@@ -47,6 +48,7 @@ class Editor : public QTextEdit {
     finishParagraphSourceEdit(false);
     const bool viewChanged = m_rendered != rendered;
     m_rendered = rendered;
+    updateCodeTabStops();
     m_lastInlineBlock = -1;
     m_searchHighlights.clear();
     disconnect(m_documentConnection);
@@ -113,10 +115,12 @@ class Editor : public QTextEdit {
   void zoomDocument(int steps) {
     zoomIn(steps);
     m_zoomSteps += steps;
+    updateCodeTabStops();
   }
   void resetZoom() {
     zoomOut(m_zoomSteps);
     m_zoomSteps = 0;
+    updateCodeTabStops();
   }
   void insertAdvancedContent(const QString& type);
   void setSyntaxHighlight(bool enabled) {
@@ -124,6 +128,8 @@ class Editor : public QTextEdit {
     render::installSyntaxHighlighter(document(), !m_rendered, m_dark, enabled);
   }
   void setCodeLineNumbers(bool enabled);
+  int codeIndentSize() const { return m_codeIndentSize; }
+  void setCodeIndentSize(int columns);
   enum class CodeFenceCreation { Command, Typed };
   void setDefaultCodeLanguageResolver(std::function<QString(CodeFenceCreation)> resolver) {
     m_defaultCodeLanguage = std::move(resolver);
@@ -234,6 +240,7 @@ class Editor : public QTextEdit {
   void clearImageTypingFormat();
   void updateCodeBlockBar(bool reset = false);
   void updateCodeBlockTheme();
+  void updateCodeTabStops();
   QString defaultCodeLanguage(CodeFenceCreation creation) const;
   void updateWritingArea();
   void updateTableBar();
@@ -327,6 +334,7 @@ class Editor : public QTextEdit {
   bool m_autoPair = true;
   bool m_syntaxHighlight = true;
   bool m_codeLineNumbers = false;
+  int m_codeIndentSize = editor::kDefaultCodeIndentSize;
   QString m_lastInlineText;
   int m_lastInlineBlock = -1;
   int m_zoomSteps = 0;

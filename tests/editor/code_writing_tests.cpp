@@ -53,6 +53,85 @@ class CodeWritingTests : public QObject {
   Q_OBJECT
  private slots:
   void initTestCase() { QApplication::setStyle(QStringLiteral("Fusion")); }
+  void customCodeIndentSizeAppliesToWhitespaceCommands() {
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    editor.setCodeIndentSize(2);
+    prepare(editor, view, QStringLiteral("```text\n first\n \tsecond\n```\n"));
+    const auto original = view.currentMarkdown();
+    at(editor, 0, 1);
+    QTest::keyClick(&editor, Qt::Key_Tab);
+    QCOMPARE(code(editor), QStringLiteral("  first\n \tsecond\n"));
+    QTest::keyClick(&editor, Qt::Key_Backspace);
+    QCOMPARE(code(editor), QStringLiteral("first\n \tsecond\n"));
+    at(editor, 1);
+    QTest::keyClick(&editor, Qt::Key_Backtab);
+    QCOMPARE(code(editor), QStringLiteral("first\nsecond\n"));
+    editor.undo();
+    QCOMPARE(code(editor), QStringLiteral("first\n \tsecond\n"));
+
+    prepare(editor, view, original);
+    auto selection = at(editor, 1);
+    selection.movePosition(QTextCursor::EndOfBlock);
+    selection.movePosition(QTextCursor::Start, QTextCursor::KeepAnchor);
+    editor.setTextCursor(selection);
+    editor.changeListIndent(1);
+    QCOMPARE(code(editor), QStringLiteral("   first\n   \tsecond\n"));
+    QVERIFY(editor.textCursor().position() < editor.textCursor().anchor());
+    editor.changeListIndent(-1);
+    QCOMPARE(view.currentMarkdown(), original);
+    editor.undo();
+    QCOMPARE(code(editor), QStringLiteral("   first\n   \tsecond\n"));
+
+    prepare(editor, view, QStringLiteral("```cpp\nif (ready) {}\n```\n"));
+    at(editor, 0, 12);
+    QTest::keyClick(&editor, Qt::Key_Return);
+    QCOMPARE(code(editor), QStringLiteral("if (ready) {\n  \n}\n"));
+    QCOMPARE(editor.textCursor().positionInBlock(), 2);
+    editor.undo();
+    QCOMPARE(code(editor), QStringLiteral("if (ready) {}\n"));
+
+    prepare(editor, view, QStringLiteral("```python\n\t if ready:\n```\n"));
+    editor.moveCursor(QTextCursor::EndOfBlock);
+    QTest::keyClick(&editor, Qt::Key_Return);
+    QCOMPARE(code(editor), QStringLiteral("\t if ready:\n\t   \n"));
+  }
+
+  void codeIndentSizeResizesDisplayedTabsWithoutEditingMarkdown() {
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    const auto source = QStringLiteral("```text\n\tvalue\n```\n");
+    prepare(editor, view, source);
+    const auto original = view.currentMarkdown();
+    const auto tabWidth = [&] {
+      const auto block = editor.document()->find(QStringLiteral("value")).block();
+      QTextCursor before(block), after(block);
+      after.movePosition(QTextCursor::NextCharacter);
+      return editor.cursorRect(after).left() - editor.cursorRect(before).left();
+    };
+    editor.setCodeIndentSize(2);
+    const auto twoColumns = editor.tabStopDistance();
+    const auto twoColumnsDrawn = tabWidth();
+    QVERIFY(twoColumnsDrawn > 0);
+    editor.setCodeIndentSize(8);
+    QCOMPARE(editor.tabStopDistance(), twoColumns * 4);
+    QVERIFY(tabWidth() > twoColumnsDrawn);
+    QCOMPARE(view.currentMarkdown(), original);
+    QVERIFY(!editor.document()->isUndoAvailable());
+
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    const auto sourceTabWidth = tabWidth();
+    editor.setCodeIndentSize(2);
+    QVERIFY(tabWidth() < sourceTabWidth);
+    QCOMPARE(view.currentMarkdown(), source);
+    QVERIFY(!editor.document()->isUndoAvailable());
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    QCOMPARE(editor.tabStopDistance(), twoColumns);
+    QCOMPARE(view.currentMarkdown(), original);
+  }
+
   void defaultsUseTheCreationPathAndKeepUndoAtomic() {
     using Creation = ui::Editor::CodeFenceCreation;
     ui::Editor editor;

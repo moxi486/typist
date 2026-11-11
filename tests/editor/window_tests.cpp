@@ -34,6 +34,7 @@
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileDialog>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -1100,6 +1101,66 @@ class WindowTests : public QObject {
     QVERIFY(tree->isVisible());
     QTest::keyClick(filter, Qt::Key_Return);
     QCOMPARE(editor->textCursor().block().text(), QStringLiteral("Newly added heading"));
+  }
+
+  void codeIndentSizeSettingAppliesImmediatelyAndPersists() {
+    QSettings settings;
+    const auto key = QStringLiteral("editor/codeIndentSize");
+    const auto prior = settings.value(key);
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] {
+      typist::platform::setLanguagePreference(language);
+      if (prior.isValid())
+        settings.setValue(key, prior);
+      else
+        settings.remove(key);
+    });
+    settings.remove(key);
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.show();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* setting = window.findChild<QAction*>(QStringLiteral("codeIndentSize"));
+    auto* fence = window.findChild<QAction*>(QStringLiteral("paragraph_code"));
+    QVERIFY(editor && setting && fence);
+    QCOMPARE(editor->codeIndentSize(), 4);
+    QCOMPARE(setting->text(), QStringLiteral("Code Indent Size"));
+    const auto configure = [&](int size, bool accept) {
+      bool shown = false;
+      QTimer::singleShot(0, &window, [&] {
+        auto* modal = QApplication::activeModalWidget();
+        if (auto* dialog = qobject_cast<QInputDialog*>(modal)) {
+          shown = true;
+          dialog->setIntValue(size);
+          if (accept)
+            dialog->accept();
+          else
+            dialog->reject();
+        } else if (modal) {
+          modal->close();
+        }
+      });
+      setting->trigger();
+      return shown;
+    };
+    QVERIFY(configure(2, true));
+    QCOMPARE(editor->codeIndentSize(), 2);
+    QCOMPARE(settings.value(key).toInt(), 2);
+    fence->trigger();
+    QTest::keyClick(editor, Qt::Key_Tab);
+    QCOMPARE(editor->textCursor().block().text(), QStringLiteral("  "));
+    QVERIFY(configure(8, false));
+    QCOMPARE(editor->codeIndentSize(), 2);
+    QCOMPARE(settings.value(key).toInt(), 2);
+
+    typist::MainWindow reopened;
+    reopened.setBenchMode(true);
+    auto* reopenedEditor = reopened.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(reopenedEditor);
+    QCOMPARE(reopenedEditor->codeIndentSize(), 2);
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(setting->text(), QStringLiteral("代码缩进宽度"));
   }
 
   void defaultCodeLanguageSettingsRememberModeAndExplicitLanguage() {

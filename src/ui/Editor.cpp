@@ -19,6 +19,7 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFontDatabase>
+#include <QFontMetricsF>
 #include <QHelpEvent>
 #include <QInputDialog>
 #include <QInputMethodEvent>
@@ -175,6 +176,20 @@ void Editor::setCodeLineNumbers(bool enabled) {
   updateParagraphSourceGeometry();
   updateCodeBlockBar();
   updateTableBar();
+}
+
+void Editor::setCodeIndentSize(int columns) {
+  m_codeIndentSize = columns >= 1 && columns <= editor::kMaxCodeIndentSize
+                         ? columns
+                         : editor::kDefaultCodeIndentSize;
+  updateCodeTabStops();
+}
+
+void Editor::updateCodeTabStops() {
+  const auto font = m_rendered ? editor::codeBlockFont() : document()->defaultFont();
+  const auto column = QFontMetricsF(font, viewport()).horizontalAdvance(QLatin1Char(' '));
+  const qreal distance = m_codeIndentSize * qMax<qreal>(1, column);
+  if (!qFuzzyCompare(tabStopDistance(), distance)) setTabStopDistance(distance);
 }
 
 void Editor::updateWritingArea() {
@@ -1162,7 +1177,7 @@ void Editor::changeListIndent(int delta) {
   QTextCursor cursor = textCursor();
   if (m_rendered) {
     if (cursor.blockFormat().hasProperty(editor::kCodeBlockProperty))
-      editor::indentCode(cursor, delta < 0);
+      editor::indentCode(cursor, delta < 0, m_codeIndentSize);
     else
       editor::indentList(cursor, delta);
   } else {
@@ -1381,11 +1396,12 @@ void Editor::keyPressEvent(QKeyEvent* event) {
     const bool outdent =
         event->key() == Qt::Key_Backtab || event->modifiers().testFlag(Qt::ShiftModifier);
     if ((event->key() == Qt::Key_Tab || event->key() == Qt::Key_Backtab) &&
-        editor::indentCode(cursor, outdent)) {
+        editor::indentCode(cursor, outdent, m_codeIndentSize)) {
       setTextCursor(cursor);
       return;
     }
-    if (event->key() == Qt::Key_Backspace && editor::backspaceCodeIndent(cursor)) {
+    if (event->key() == Qt::Key_Backspace &&
+        editor::backspaceCodeIndent(cursor, m_codeIndentSize)) {
       setTextCursor(cursor);
       return;
     }
@@ -1400,7 +1416,8 @@ void Editor::keyPressEvent(QKeyEvent* event) {
       setTextCursor(cursor);
       return;
     }
-    if (returnKey && cursor.hasSelection() && editor::insertCodeLine(cursor, outdent)) {
+    if (returnKey && cursor.hasSelection() &&
+        editor::insertCodeLine(cursor, outdent, m_codeIndentSize)) {
       setTextCursor(cursor);
       return;
     }
@@ -1547,7 +1564,7 @@ void Editor::keyPressEvent(QKeyEvent* event) {
           editor::setParagraphStyle(cursor, editor::ParagraphStyle::Body);
           cursor.setCharFormat(QTextCharFormat());
         } else {
-          editor::insertCodeLine(cursor, shift);
+          editor::insertCodeLine(cursor, shift, m_codeIndentSize);
         }
         cursor.endEditBlock();
         setTextCursor(cursor);

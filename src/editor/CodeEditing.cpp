@@ -8,20 +8,21 @@
 
 namespace typist::editor {
 namespace {
-constexpr int tabWidth = 4;
 int leadingSize(const QString& text) {
   int size = 0;
   while (size < text.size() && (text.at(size) == ' ' || text.at(size) == '\t')) ++size;
   return size;
 }
-int columns(const QString& text) {
+int columns(const QString& text, int indentSize) {
   int column = 0;
-  for (const auto ch : text) column += ch == '\t' ? tabWidth - column % tabWidth : 1;
+  for (const auto ch : text) column += ch == '\t' ? indentSize - column % indentSize : 1;
   return column;
 }
-int outdentSize(const QString& text) {
-  if (text.startsWith('\t')) return 1;
-  return qMin(tabWidth, leadingSize(text.left(tabWidth)));
+int outdentSize(const QString& text, int indentSize) {
+  int size = 0;
+  while (size < indentSize && size < text.size() && text.at(size) == ' ') ++size;
+  if (size < indentSize && size < text.size() && text.at(size) == '\t') ++size;
+  return size;
 }
 bool codeSelection(const QTextCursor& cursor) {
   const int group = cursor.document()
@@ -134,11 +135,11 @@ bool setCodeLanguage(QTextCursor& cursor, const QString& identifier) {
   return true;
 }
 
-bool indentCode(QTextCursor& cursor, bool outdent) {
-  if (!codeSelection(cursor)) return false;
+bool indentCode(QTextCursor& cursor, bool outdent, int indentSize) {
+  if (indentSize < 1 || !codeSelection(cursor)) return false;
   if (!outdent && !cursor.hasSelection()) {
-    const int width =
-        tabWidth - columns(cursor.block().text().left(cursor.positionInBlock())) % tabWidth;
+    const int column = columns(cursor.block().text().left(cursor.positionInBlock()), indentSize);
+    const int width = indentSize - column % indentSize;
     cursor.insertText(QString(width, ' '));
     return true;
   }
@@ -151,7 +152,7 @@ bool indentCode(QTextCursor& cursor, bool outdent) {
     blocks.append(block);
   cursor.beginEditBlock();
   for (auto it = blocks.crbegin(); it != blocks.crend(); ++it) {
-    const int position = it->position(), remove = outdent ? outdentSize(it->text()) : 0;
+    const int position = it->position(), remove = outdent ? outdentSize(it->text(), indentSize) : 0;
     QTextCursor line(*it);
     if (outdent) {
       line.setPosition(position + remove, QTextCursor::KeepAnchor);
@@ -162,9 +163,9 @@ bool indentCode(QTextCursor& cursor, bool outdent) {
       start = adjust(start);
       end = adjust(end);
     } else {
-      line.insertText(QString(tabWidth, ' '));
-      if (position < start) start += tabWidth;
-      if (position <= end) end += tabWidth;
+      line.insertText(QString(indentSize, ' '));
+      if (position < start) start += indentSize;
+      if (position <= end) end += indentSize;
     }
   }
   cursor.endEditBlock();
@@ -173,21 +174,22 @@ bool indentCode(QTextCursor& cursor, bool outdent) {
                      selected ? QTextCursor::KeepAnchor : QTextCursor::MoveAnchor);
   return true;
 }
-bool backspaceCodeIndent(QTextCursor& cursor) {
-  if (cursor.hasSelection() || !codeSelection(cursor) || cursor.atBlockStart()) return false;
+bool backspaceCodeIndent(QTextCursor& cursor, int indentSize) {
+  if (indentSize < 1 || cursor.hasSelection() || !codeSelection(cursor) || cursor.atBlockStart())
+    return false;
   const QString prefix = cursor.block().text().left(cursor.positionInBlock());
   if (leadingSize(prefix) != prefix.size()) return false;
-  const int target = ((columns(prefix) - 1) / tabWidth) * tabWidth;
+  const int target = ((columns(prefix, indentSize) - 1) / indentSize) * indentSize;
   int size = int(prefix.size());
-  while (size > 0 && columns(prefix.left(size)) > target) --size;
+  while (size > 0 && columns(prefix.left(size), indentSize) > target) --size;
   const int end = cursor.position();
   cursor.setPosition(cursor.block().position() + size);
   cursor.setPosition(end, QTextCursor::KeepAnchor);
   cursor.removeSelectedText();
   return true;
 }
-bool insertCodeLine(QTextCursor& cursor, bool literal) {
-  if (!codeSelection(cursor)) return false;
+bool insertCodeLine(QTextCursor& cursor, bool literal, int indentSize) {
+  if (indentSize < 1 || !codeSelection(cursor)) return false;
   cursor.beginEditBlock();
   cursor.removeSelectedText();
   const QString text = cursor.block().text();
@@ -199,14 +201,18 @@ bool insertCodeLine(QTextCursor& cursor, bool literal) {
   const bool colon =
       opener == ':' && (language == "python" || language == "py" || language == "python3");
   const bool extra = !literal && (brace || colon) && syntaxAllowsIndent(cursor.block(), prefix);
-  const QString unit = indent.contains('\t') ? QStringLiteral("\t") : QString(tabWidth, ' ');
+  QString innerIndent = indent;
+  if (extra) {
+    const bool alignedTab = indent.contains('\t') && columns(indent, indentSize) % indentSize == 0;
+    innerIndent += alignedTab ? QStringLiteral("\t") : QString(indentSize, ' ');
+  }
   const QChar close = opener == '{' ? QChar('}') : opener == '[' ? QChar(']') : QChar(')');
   const bool pair = extra && brace && text.mid(cursor.positionInBlock()).trimmed() == close;
   if (pair) {
     const int spaces = leadingSize(text.mid(cursor.positionInBlock()));
     for (int i = 0; i < spaces; ++i) cursor.deleteChar();
   }
-  splitLine(cursor, indent + (extra ? unit : QString()));
+  splitLine(cursor, innerIndent);
   if (pair) {
     const int caret = cursor.position();
     splitLine(cursor, indent);
