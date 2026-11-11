@@ -39,6 +39,16 @@ void setFileBrowserOptions(const FileBrowserOptions& options) {
   settings.sync();
 }
 
+bool outlineCollapsible() {
+  return openSettings().value(QStringLiteral("outline/collapsible"), false).toBool();
+}
+
+void setOutlineCollapsible(bool enabled) {
+  auto settings = openSettings();
+  settings.setValue(QStringLiteral("outline/collapsible"), enabled);
+  settings.sync();
+}
+
 QString themePreference(const QString& fallback) {
   return openSettings().value(QStringLiteral("theme"), fallback).toString();
 }

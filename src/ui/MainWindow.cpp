@@ -20,6 +20,7 @@
 #include "LinkEditing.h"
 #include "LinkNavigation.h"
 #include "Localization.h"
+#include "OutlinePanel.h"
 #include "PdfExportDialog.h"
 #include "PdfWriter.h"
 #include "QuickOpenDialog.h"
@@ -27,7 +28,6 @@
 #include "SpecialContent.h"
 #include "SystemTheme.h"
 #include "Theme.h"
-#include "Toc.h"
 #include "ViewSwitch.h"
 #include "WorkspaceSearchPanel.h"
 #include "editor_document.h"
@@ -65,7 +65,6 @@
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
 #include <QLocale>
 #include <QMenu>
 #include <QMenuBar>
@@ -89,7 +88,6 @@
 #include <QTextFragment>
 #include <QTextList>
 #include <QTextTable>
-#include <QTimer>
 #include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -242,9 +240,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_sidebarTabs->setObjectName(QStringLiteral("sidebarTabs"));
   m_sidebarTabs->setDocumentMode(true);
   m_sidebarTabs->addTab(m_tree, tr("Files"));
-  m_outlineList = new QListWidget(sidebar);
-  m_outlineList->setAccessibleName(tr("Outline"));
-  m_sidebarTabs->addTab(m_outlineList, tr("Outline"));
+  m_outlinePanel = new ui::OutlinePanel(m_editor, sidebar);
+  m_outlinePanel->setDocument(m_document);
+  m_sidebarTabs->addTab(m_outlinePanel, tr("Outline"));
   m_workspaceSearch = new ui::WorkspaceSearchPanel(sidebar);
   m_sidebarTabs->addTab(m_workspaceSearch, tr("Search"));
   connect(m_workspaceSearch, &ui::WorkspaceSearchPanel::hitActivated, this,
@@ -254,13 +252,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_sidebarDock->hide();
   addDockWidget(Qt::LeftDockWidgetArea, m_sidebarDock);
   setAcceptDrops(true);
-  connect(m_sidebarTabs, &QTabWidget::currentChanged, this, [this](int index) {
-    if (index == 1) rebuildOutline();
-    updateSearchFocusGuard();
-  });
+  connect(m_sidebarTabs, &QTabWidget::currentChanged, this, [this] { updateSearchFocusGuard(); });
   connect(m_sidebarDock, &QDockWidget::visibilityChanged, this,
           [this] { updateSearchFocusGuard(); });
-  connect(m_outlineList, &QListWidget::itemClicked, this, &MainWindow::openOutlineEntry);
 
   connect(m_tree, &ui::FileTree::entryActivated, this, &MainWindow::openTreeEntry);
   connect(m_tree, &ui::FileTree::fileRenamed, this, &MainWindow::treeFileRenamed);
@@ -468,15 +462,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_detailsLabel->installEventFilter(this);
   statusBar()->addPermanentWidget(m_detailsLabel);
 
-  m_outlineRefresh = new QTimer(this);
-  m_outlineRefresh->setSingleShot(true);
-  m_outlineRefresh->setInterval(150);
-  connect(m_outlineRefresh, &QTimer::timeout, this, &MainWindow::rebuildOutline);
-
   // Keep original labels so live language changes preserve the document and undo history.
   for (QAction* action : findChildren<QAction*>())
     if (!action->property("fileBrowserSource").isValid() &&
-        !action->property("folderLocationAction").isValid())
+        !action->property("folderLocationAction").isValid() && action->parent() != m_outlinePanel)
       action->setProperty("translationSource", action->text());
   m_translator = new ui::AppTranslator(this);
   setLanguage(platform::languagePreference());
@@ -494,8 +483,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
       m_dirty = true;
       // An untitled buffer has no target file, so autosave only runs once a path exists.
       if (!m_benchMode) m_autoSave->notifyChanged();
-      if (doc == m_document && m_sidebarDock->isVisible() && m_sidebarTabs->currentIndex() == 1)
-        m_outlineRefresh->start();
       updateTitleAndStatus();
     });
     connect(doc, &QTextDocument::undoAvailable, this, [this, doc](bool available) {
@@ -872,7 +859,7 @@ void MainWindow::newDocument() {
   m_sourceAction->setText(tr("Source View"));
   m_savedMarkdown.clear();
   markClean();
-  rebuildOutline();
+  m_outlinePanel->setDocument(m_document, true);
   if (m_findBar->isVisible()) refreshMatches();
   m_editor->setFocus();
 }
@@ -1062,7 +1049,7 @@ bool MainWindow::openFile(const QString& path) {
       m_tree->setRoot(QFileInfo(path).absolutePath());
     m_tree->selectPath(path);
   }
-  if (m_sidebarDock->isVisible() && m_sidebarTabs->currentIndex() == 1) rebuildOutline();
+  m_outlinePanel->setDocument(m_document, true);
   m_sidebarRootLabel->setText(!m_tree->rootPath().isEmpty() ? QDir(m_tree->rootPath()).dirName()
                                                             : QFileInfo(path).dir().dirName());
   if (m_sidebarDock->isVisible()) {
@@ -1100,7 +1087,7 @@ bool MainWindow::adoptHtmlImport(const editor::HtmlImportResult& result) {
   if (!m_benchMode) m_autoSave->notifyChanged();
   m_editor->moveCursor(QTextCursor::Start);
   updateTitleAndStatus();
-  rebuildOutline();
+  m_outlinePanel->setDocument(m_document, true);
   if (m_findBar->isVisible()) refreshMatches();
   m_editor->setFocus();
   statusBar()->showMessage(tr("Imported HTML into an unsaved Markdown document"));
@@ -1373,7 +1360,6 @@ void MainWindow::undo() {
   if (static_cast<ui::Editor*>(m_editor)->undoParagraphSource()) return;
   m_document->undo();
   m_dirty = currentMarkdown() != m_savedMarkdown;
-  if (m_sidebarDock->isVisible() && m_sidebarTabs->currentIndex() == 1) rebuildOutline();
   if (m_findBar->isVisible()) refreshMatches();
   updateTitleAndStatus();
 }
@@ -1403,7 +1389,7 @@ void MainWindow::toggleSourceView() {
   m_undoAction->setEnabled(m_document->isUndoAvailable());
   m_redoAction->setEnabled(m_document->isRedoAvailable());
   m_dirty = currentMarkdown() != m_savedMarkdown;
-  if (m_sidebarDock->isVisible() && m_sidebarTabs->currentIndex() == 1) rebuildOutline();
+  m_outlinePanel->setDocument(m_sourceMode ? nullptr : m_document);
   if (m_findBar->isVisible()) refreshMatches();
   updateTitleAndStatus();
 }
@@ -1518,6 +1504,7 @@ void MainWindow::treeFileRemoved(const QString& path) {
   m_view->loadMarkdownIntoBoth(QString(), &error);
   m_document = m_view->active();
   m_view->showActiveIn(m_editor);
+  m_outlinePanel->setDocument(m_document, true);
   m_currentPath.clear();
   m_savedMarkdown.clear();
   markClean();
@@ -1862,46 +1849,14 @@ void MainWindow::writeRecoveryDraft() {
   typist::ui::writeDraft(m_currentPath, currentMarkdown());
 }
 
-void MainWindow::rebuildOutline() {
-  if (!m_outlineList) return;
-  m_outlineList->clear();
-  const QVector<ui::TocEntry> entries = ui::outlineFromDocument(m_document);
-  for (const ui::TocEntry& entry : entries) {
-    QListWidgetItem* item =
-        new QListWidgetItem(QString(entry.level - 1, QLatin1Char(' ')) + entry.text);
-    item->setData(Qt::UserRole, entry.position);
-    m_outlineList->addItem(item);
-  }
-  if (entries.isEmpty()) {
-    QListWidgetItem* placeholder = new QListWidgetItem(tr("No headings"));
-    placeholder->setFlags(Qt::NoItemFlags);
-    m_outlineList->addItem(placeholder);
-  }
-}
-
 void MainWindow::toggleOutline() {
   if (m_sidebarDock->isVisible() && m_sidebarTabs->currentIndex() == 1) {
     m_sidebarDock->hide();
     return;
   }
-  rebuildOutline();
   m_sidebarTabs->setCurrentIndex(1);
   m_sidebarDock->show();
   resizeDocks({m_sidebarDock}, {240}, Qt::Horizontal);
-  statusBar()->showMessage(tr("Outline jumps in rendered view"));
-}
-
-void MainWindow::openOutlineEntry() {
-  const QListWidgetItem* item = m_outlineList->currentItem();
-  if (!item || !(item->flags() & Qt::ItemIsEnabled)) return;
-  if (m_sourceMode) {
-    statusBar()->showMessage(tr("Outline jumps in rendered view"));
-    return;
-  }
-  QTextCursor cursor(m_document);
-  cursor.setPosition(item->data(Qt::UserRole).toInt());
-  m_editor->setTextCursor(cursor);
-  m_editor->ensureCursorVisible();
 }
 
 void MainWindow::pasteAsMarkdown() {
@@ -2129,6 +2084,7 @@ void MainWindow::recoverLatestDraft() {
   m_view->showActiveIn(m_editor);
   m_sourceMode = m_view->isSourceMode();
   // Recovery lands in an untitled buffer: the writer decides where it is saved.
+  m_outlinePanel->setDocument(m_document, true);
   m_currentPath.clear();
   m_savedMarkdown = text;
   m_dirty = true;

@@ -164,14 +164,6 @@
         <translation>磁盘上的文件已变化；保留你未保存的编辑</translation>
     </message>
     <message>
-        <source>No headings</source>
-        <translation>没有标题</translation>
-    </message>
-    <message>
-        <source>Outline jumps in rendered view</source>
-        <translation>大纲跳转仅在渲染视图生效</translation>
-    </message>
-    <message>
         <source>Nothing to paste</source>
         <translation>剪贴板里没有可粘贴的内容</translation>
     </message>
@@ -1713,6 +1705,53 @@
     <message>
         <source>Clear Recent Folders (Keep Pinned)</source>
         <translation>清空最近文件夹（保留固定）</translation>
+    </message>
+</context>
+<context>
+    <name>typist::ui::OutlinePanel</name>
+    <message>
+        <source>Filter headings…</source>
+        <translation>筛选标题…</translation>
+    </message>
+    <message>
+        <source>Filter headings</source>
+        <translation>筛选标题</translation>
+    </message>
+    <message>
+        <source>Document headings</source>
+        <translation>文档标题</translation>
+    </message>
+    <message>
+        <source>Outline Options</source>
+        <translation>大纲选项</translation>
+    </message>
+    <message>
+        <source>Flat Outline</source>
+        <translation>平铺大纲</translation>
+    </message>
+    <message>
+        <source>Collapsible Outline</source>
+        <translation>可折叠大纲</translation>
+    </message>
+    <message>
+        <source>Highlight Current Heading</source>
+        <translation>定位当前标题</translation>
+    </message>
+    <message>
+        <source>Outline is available in rendered view</source>
+        <translation>请切换到渲染视图使用大纲</translation>
+    </message>
+    <message>
+        <source>No headings</source>
+        <translation>没有标题</translation>
+    </message>
+    <message>
+        <source>No matching headings</source>
+        <translation>没有匹配的标题</translation>
+    </message>
+    <message>
+        <source>Current section</source>
+        <translation>当前章节</translation>
     </message>
 </context>
 </TS>

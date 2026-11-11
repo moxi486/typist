@@ -37,6 +37,7 @@
 | 文件侧栏开关 / 打开文件夹 | Ctrl+Shift+L / Ctrl+Shift+O |
 | 工作区全文搜索 | Ctrl+Shift+F；Enter 立即搜索，↓ 进入结果，Enter / 双击打开源码行，Esc 停止 |
 | 大纲面板开关 / 文件树 | Ctrl+Shift+T 或 Ctrl+Shift+1 / Ctrl+Shift+3 |
+| 大纲标题筛选和跳转 | 筛选框 Enter 跳到首个匹配，↓ 进入结果；结果中 ↑ / ↓ 选择、Enter 跳转、← / → 折叠或展开 |
 | 文件列表 / 文件排序 | 视图 → 文件列表；工作区右侧 ⋯ 菜单选择视图、排序和刷新 |
 | 最近 / 固定文件夹 | 工作区右侧文件夹按钮，或文件 → 最近与固定文件夹；Ctrl+P 也可搜索并切换 |
 | 恢复崩溃草稿 | Ctrl+Shift+R（菜单 File > Recover Draft） |

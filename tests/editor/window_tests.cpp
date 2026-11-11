@@ -930,6 +930,177 @@ class WindowTests : public QObject {
     QVERIFY(!editor->document()->isUndoAvailable());
   }
 
+  void outlineFiltersHierarchyAndNavigates() {
+    QSettings settings(QStringLiteral("Typist"), QStringLiteral("Typist"));
+    const auto key = QStringLiteral("outline/collapsible");
+    const auto prior = settings.value(key);
+    const auto restore = qScopeGuard([&] {
+      if (prior.isValid())
+        settings.setValue(key, prior);
+      else
+        settings.remove(key);
+      settings.sync();
+    });
+    settings.remove(key);
+    settings.sync();
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QTemporaryDir directory;
+    QFile file(directory.filePath(QStringLiteral("outline.md")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QStringLiteral("Preface\n\n# Plan\n\n### 第一阶段\n\n#### **Review** today\n\n"
+                              "## Archive\n\n# Other\n\n## Review today\n\nMore notes.\n")
+                   .toUtf8());
+    file.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.resize(1100, 760);
+    window.show();
+    QVERIFY(window.openFile(file.fileName()));
+    auto* editor = window.findChild<QTextEdit*>(QStringLiteral("writingEditor"));
+    auto* tree = window.findChild<QTreeWidget*>(QStringLiteral("outlineHeadings"));
+    auto* filter = window.findChild<QLineEdit*>(QStringLiteral("outlineFilter"));
+    auto* flat = window.findChild<QAction*>(QStringLiteral("outlineFlat"));
+    auto* hierarchy = window.findChild<QAction*>(QStringLiteral("outlineCollapsible"));
+    auto* reveal = window.findChild<QAction*>(QStringLiteral("outlineReveal"));
+    QVERIFY(editor && tree && filter && flat && hierarchy && reveal);
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleOutline", Qt::DirectConnection));
+    QTRY_VERIFY(tree->isVisible());
+    QVERIFY(flat->isChecked());
+    QCOMPARE(tree->topLevelItemCount(), 6);
+    hierarchy->trigger();
+    QCOMPARE(tree->topLevelItemCount(), 2);
+    QCOMPARE(tree->topLevelItem(0)->child(0)->text(0), QStringLiteral("第一阶段"));
+    QCOMPARE(tree->topLevelItem(0)->child(0)->child(0)->text(0), QStringLiteral("Review today"));
+    tree->topLevelItem(0)->setExpanded(false);
+
+    filter->setText(QStringLiteral("rEvIeW"));
+    QVERIFY(tree->topLevelItem(0)->isExpanded());
+    QCOMPARE(tree->topLevelItem(0)->childCount(), 1);
+    QTest::keyClick(filter, Qt::Key_Return);
+    QCOMPARE(editor->textCursor().blockFormat().headingLevel(), 4);
+    QCOMPARE(editor->textCursor().block().text(), QStringLiteral("Review today"));
+    const auto second = tree->topLevelItem(1)->child(0);
+    tree->scrollToItem(second);
+    QTRY_VERIFY(!tree->visualItemRect(second).isEmpty());
+    QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier,
+                      tree->visualItemRect(second).center());
+    QCOMPARE(editor->textCursor().blockFormat().headingLevel(), 2);
+    QTest::keyClick(filter, Qt::Key_Down);
+    QCOMPARE(tree->currentItem(), tree->topLevelItem(0)->child(0)->child(0));
+    QTest::keyClick(tree, Qt::Key_Return);
+    QCOMPARE(editor->textCursor().blockFormat().headingLevel(), 4);
+    filter->clear();
+    QVERIFY(!tree->topLevelItem(0)->isExpanded());
+    QVERIFY(tree->topLevelItem(0)->font(0).bold());
+    const int position = editor->textCursor().position();
+    reveal->trigger();
+    QVERIFY(tree->topLevelItem(0)->isExpanded());
+    QCOMPARE(tree->currentItem(), tree->topLevelItem(0)->child(0)->child(0));
+    QCOMPARE(editor->textCursor().position(), position);
+    const auto output = qEnvironmentVariable("TYPIST_OUTLINE_OUTPUT");
+    if (!output.isEmpty()) {
+      QTest::qWait(60);
+      QVERIFY(window.grab().save(output + QStringLiteral("/outline-hierarchy.png")));
+    }
+
+    tree->topLevelItem(0)->setExpanded(false);
+    editor->moveCursor(QTextCursor::Start);
+    editor->insertPlainText(QStringLiteral("Updated "));
+    editor->setTextCursor(editor->document()->find(QStringLiteral("today")));
+    editor->insertPlainText(QStringLiteral("draft"));
+    QTRY_COMPARE(tree->topLevelItem(0)->child(0)->child(0)->text(0),
+                 QStringLiteral("Review draft"));
+    QVERIFY(!tree->topLevelItem(0)->isExpanded());
+    flat->trigger();
+    QCOMPARE(tree->topLevelItemCount(), 6);
+    hierarchy->trigger();
+    QVERIFY(!tree->topLevelItem(0)->isExpanded());
+    typist::MainWindow reopened;
+    reopened.setBenchMode(true);
+    QVERIFY(reopened.findChild<QAction*>(QStringLiteral("outlineCollapsible"))->isChecked());
+  }
+
+  void outlineFollowsScrollingAndKeepsEditsThroughLanguageChanges() {
+    const auto language = typist::platform::languagePreference();
+    const auto theme = typist::platform::themePreference();
+    const auto restore = qScopeGuard([&] {
+      typist::platform::setLanguagePreference(language);
+      typist::platform::setThemePreference(theme);
+    });
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QTemporaryDir directory;
+    QFile file(directory.filePath(QStringLiteral("chapters.md")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("# First chapter\n\nA short introduction.\n\n# Last chapter\n\n");
+    for (int i = 1; i <= 70; ++i)
+      file.write(QStringLiteral("Paragraph %1 of the final section.\n\n").arg(i).toUtf8());
+    file.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.resize(1050, 660);
+    window.show();
+    QVERIFY(window.openFile(file.fileName()));
+    auto* editor = window.findChild<QTextEdit*>(QStringLiteral("writingEditor"));
+    auto* tree = window.findChild<QTreeWidget*>(QStringLiteral("outlineHeadings"));
+    auto* filter = window.findChild<QLineEdit*>(QStringLiteral("outlineFilter"));
+    auto* empty = window.findChild<QLabel*>(QStringLiteral("outlineEmpty"));
+    auto* reveal = window.findChild<QAction*>(QStringLiteral("outlineReveal"));
+    QVERIFY(editor && tree && filter && empty && reveal);
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleOutline", Qt::DirectConnection));
+    auto* scrollbar = editor->verticalScrollBar();
+    QTRY_VERIFY(scrollbar->maximum() > 0);
+    editor->setTextCursor(editor->document()->find(QStringLiteral("short introduction")));
+    editor->insertPlainText(QStringLiteral("revised introduction"));
+    QTRY_VERIFY(tree->topLevelItem(0)->font(0).bold());
+    const int position = editor->textCursor().position();
+    const auto markdown = typist::editor::serializeDocument(editor->document());
+    const auto undo = editor->document()->availableUndoSteps();
+    scrollbar->setValue(scrollbar->maximum());
+    QTRY_VERIFY(tree->topLevelItem(1)->font(0).bold());
+    QVERIFY(!tree->topLevelItem(0)->font(0).bold());
+    QCOMPARE(editor->textCursor().position(), position);
+    filter->setText(QStringLiteral("no result"));
+    QVERIFY(empty->isVisible());
+    QCOMPARE(empty->text(), QStringLiteral("No matching headings"));
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("appearance_dark"))->trigger();
+    QTRY_COMPARE(empty->text(), QStringLiteral("没有匹配的标题"));
+    QCOMPARE(filter->placeholderText(), QStringLiteral("筛选标题…"));
+    QCOMPARE(reveal->text(), QStringLiteral("定位当前标题"));
+    reveal->trigger();
+    QCOMPARE(filter->text(), QString());
+    QCOMPARE(tree->currentItem(), tree->topLevelItem(1));
+    QCOMPARE(editor->textCursor().position(), position);
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), markdown);
+    QCOMPARE(editor->document()->availableUndoSteps(), undo);
+
+    const auto output = qEnvironmentVariable("TYPIST_OUTLINE_OUTPUT");
+    if (!output.isEmpty()) {
+      QTest::qWait(60);
+      QVERIFY(window.grab().save(output + QStringLiteral("/outline-zh-dark.png")));
+      window.findChild<QAction*>(QStringLiteral("language_en"))->trigger();
+      window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();
+      filter->setText(QStringLiteral("chapter"));
+      QTest::qWait(60);
+      QVERIFY(window.grab().save(output + QStringLiteral("/outline-en-light.png")));
+      filter->clear();
+      window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    }
+
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    QVERIFY(!filter->isEnabled());
+    QVERIFY(empty->isVisible());
+    QCOMPARE(empty->text(), QStringLiteral("请切换到渲染视图使用大纲"));
+    editor->moveCursor(QTextCursor::End);
+    editor->insertPlainText(QStringLiteral("\n\n## Newly added heading\n"));
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    QVERIFY(filter->isEnabled());
+    filter->setText(QStringLiteral("newly added"));
+    QVERIFY(tree->isVisible());
+    QTest::keyClick(filter, Qt::Key_Return);
+    QCOMPARE(editor->textCursor().block().text(), QStringLiteral("Newly added heading"));
+  }
+
   void cancelAndDiscardNeverOverwriteDocument() {
     QTemporaryDir directory;
     const QString path = directory.path() + QStringLiteral("/original.md");

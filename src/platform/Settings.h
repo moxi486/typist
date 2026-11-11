@@ -47,5 +47,7 @@ struct FileBrowserOptions {
 };
 FileBrowserOptions fileBrowserOptions();
 void setFileBrowserOptions(const FileBrowserOptions& options);
+bool outlineCollapsible();
+void setOutlineCollapsible(bool enabled);
 
 }  // namespace typist::platform
