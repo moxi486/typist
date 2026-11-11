@@ -1197,6 +1197,68 @@ class WindowTests : public QObject {
     editor->finishParagraphSourceEdit(false);
   }
 
+  void deleteRangeShortcutUsesTheActiveEditorAndKeepsTheDraftOpen() {
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] { typist::platform::setLanguagePreference(language); });
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QTemporaryDir directory;
+    QFile file(directory.filePath(QStringLiteral("deletion.md")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("First sentence. Delete this sentence! Final sentence.\n");
+    file.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.resize(1040, 640);
+    window.show();
+    window.activateWindow();
+    QVERIFY(window.openFile(file.fileName()));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* menu = window.findChild<QMenu*>(QStringLiteral("deleteRangeMenu"));
+    auto* sentence = window.findChild<QAction*>(QStringLiteral("deleteSentence"));
+    QVERIFY(editor && menu && sentence);
+    QCOMPARE(menu->title(), QStringLiteral("Delete Range"));
+    const auto original = typist::editor::serializeDocument(editor->document());
+    auto cursor = editor->document()->find(QStringLiteral("Delete"));
+    QVERIFY(!cursor.isNull());
+    cursor.clearSelection();
+    editor->setTextCursor(cursor);
+    editor->setFocus();
+    QTRY_VERIFY(editor->hasFocus());
+    QTest::keyClick(editor, Qt::Key_Backspace, Qt::ControlModifier | Qt::ShiftModifier);
+    QVERIFY(editor->toPlainText().contains(QStringLiteral("First sentence. Final sentence.")));
+    QVERIFY(QMetaObject::invokeMethod(&window, "undo", Qt::DirectConnection));
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleFindBar", Qt::DirectConnection));
+    auto* find = window.findChild<QLineEdit*>(QStringLiteral("findPattern"));
+    QVERIFY(find && find->isVisible());
+    find->setFocus();
+    QTRY_VERIFY(find->hasFocus());
+    QTest::keyClick(find, Qt::Key_Backspace, Qt::ControlModifier | Qt::ShiftModifier);
+    QVERIFY(find->hasFocus());
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleFindBar", Qt::DirectConnection));
+
+    editor->setTextCursor(editor->document()->find(QStringLiteral("First")));
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(draft);
+    draft->setPlainText(QStringLiteral("Keep **draft**.\n删除此行\nEnd."));
+    draft->setTextCursor(draft->document()->find(QStringLiteral("删除")));
+    draft->moveCursor(QTextCursor::EndOfBlock);
+    QTRY_VERIFY(draft->hasFocus());
+    QTest::keyClick(draft, Qt::Key_Backspace, Qt::ControlModifier | Qt::ShiftModifier);
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Keep **draft**.\nEnd."));
+    QVERIFY(editor->paragraphSourceActive());
+    QVERIFY(QMetaObject::invokeMethod(&window, "undo", Qt::DirectConnection));
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Keep **draft**.\n删除此行\nEnd."));
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(menu->title(), QStringLiteral("删除范围"));
+    QCOMPARE(sentence->text(), QStringLiteral("删除行／句子"));
+    editor->finishParagraphSourceEdit(false);
+  }
+
   void clipboardFormatsUseTheSelectionAcrossViewsAndLanguages() {
     const auto language = typist::platform::languagePreference();
     const auto theme = typist::platform::themePreference();

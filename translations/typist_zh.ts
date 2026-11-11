@@ -500,6 +500,30 @@
         <translation>选择范围</translation>
     </message>
     <message>
+        <source>Delete Range</source>
+        <translation>删除范围</translation>
+    </message>
+    <message>
+        <source>Delete Word</source>
+        <translation>删除单词</translation>
+    </message>
+    <message>
+        <source>Delete Line / Sentence</source>
+        <translation>删除行／句子</translation>
+    </message>
+    <message>
+        <source>Delete Paragraph / Block</source>
+        <translation>删除段落／块</translation>
+    </message>
+    <message>
+        <source>Delete Styled Scope / Table Cell</source>
+        <translation>删除样式范围／清空单元格</translation>
+    </message>
+    <message>
+        <source>Keep the table header and at least one body row</source>
+        <translation>表格须保留表头和至少一行正文</translation>
+    </message>
+    <message>
         <source>Select Word</source>
         <translation>选择单词</translation>
     </message>

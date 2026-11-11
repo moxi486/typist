@@ -183,6 +183,193 @@ void selectRange(QTextCursor& cursor, SelectionRange range, bool rendered) {
   cursor.setPosition(contentStart + end, QTextCursor::KeepAnchor);
 }
 
+namespace {
+bool eraseSelection(QTextCursor& cursor) {
+  if (!cursor.hasSelection()) return false;
+  cursor.beginEditBlock();
+  cursor.removeSelectedText();
+  cursor.endEditBlock();
+  return true;
+}
+
+bool atomicBlock(const QTextBlock& block) {
+  return block.blockFormat().hasProperty(kSpecialBlockProperty) ||
+         block.blockFormat().hasProperty(kRuleProperty);
+}
+
+bool eraseBlocks(QTextCursor& cursor, const QTextBlock& first, const QTextBlock& last,
+                 bool rendered) {
+  const auto* document = cursor.document();
+  int start = first.position(), end = last.position() + last.length() - 1;
+  bool keepBlock = false;
+  // Delete a paragraph separator when available, leaving table frame markers alone.
+  if (end < document->characterCount() - 1 &&
+      document->characterAt(end) == QChar::ParagraphSeparator) {
+    ++end;
+  } else if (start > 0 && document->characterAt(start - 1) == QChar::ParagraphSeparator) {
+    --start;
+  } else {
+    keepBlock = true;
+  }
+  const auto format = first.blockFormat();
+  const bool reset =
+      rendered && keepBlock &&
+      (start < end || first.textList() || format.headingLevel() ||
+       format.hasProperty(kCodeBlockProperty) || format.hasProperty(kQuoteProperty) ||
+       format.hasProperty(kFootnoteDefinitionProperty) || atomicBlock(first));
+  if (start == end && !reset) return false;
+  cursor.beginEditBlock();
+  cursor.setPosition(start);
+  cursor.setPosition(end, QTextCursor::KeepAnchor);
+  cursor.removeSelectedText();
+  if (reset) setParagraphStyle(cursor, ParagraphStyle::Body);
+  if (rendered) cursor.setPosition(qMax(cursor.position(), listContentStart(cursor.block())));
+  cursor.endEditBlock();
+  return true;
+}
+
+QTextBlock listSubtreeEnd(const QTextBlock& first) {
+  auto last = first;
+  if (const auto* list = first.textList()) {
+    const int level = list->format().indent();
+    for (auto child = first.next();
+         child.isValid() && child.textList() && child.textList()->format().indent() > level;
+         child = child.next())
+      last = child;
+  }
+  return last;
+}
+
+bool eraseParagraph(QTextCursor& cursor) {
+  const auto code = codeRange(cursor);
+  if (code.valid()) return eraseBlocks(cursor, code.first, code.last, true);
+  const auto first = cursor.block();
+  return eraseBlocks(cursor, first, listSubtreeEnd(first), true);
+}
+
+bool eraseLine(QTextCursor& cursor, bool rendered) {
+  const auto block = cursor.block();
+  const auto code = rendered ? codeRange(cursor) : CodeRange();
+  selectRange(cursor, SelectionRange::LineOrSentence, false);
+  const int start = cursor.selectionStart(), end = cursor.selectionEnd();
+  if (cursor.document()->characterAt(end) == QChar::LineSeparator) {
+    cursor.setPosition(start);
+    cursor.setPosition(end + 1, QTextCursor::KeepAnchor);
+    return eraseSelection(cursor);
+  }
+  if (start > block.position() &&
+      cursor.document()->characterAt(start - 1) == QChar::LineSeparator) {
+    cursor.setPosition(start - 1);
+    cursor.setPosition(end, QTextCursor::KeepAnchor);
+    return eraseSelection(cursor);
+  }
+  if (!code.valid()) return eraseBlocks(cursor, block, block, rendered);
+  if (code.first == code.last) {
+    if (!cursor.hasSelection()) return eraseBlocks(cursor, block, block, true);
+    cursor.beginEditBlock();
+    cursor.removeSelectedText();
+    auto format = cursor.blockFormat();
+    format.setProperty(kEmptyCodeFenceProperty, true);
+    cursor.setBlockFormat(format);
+    cursor.endEditBlock();
+    return true;
+  }
+  QTextCursor boundary;
+  QTextBlockFormat spacing;
+  if (block == code.first) {
+    boundary = QTextCursor(block.next());
+    spacing = boundary.blockFormat();
+    spacing.setTopMargin(block.blockFormat().topMargin());
+    spacing.setProperty(kCodeInfoProperty, code.language());
+  } else if (block == code.last) {
+    boundary = QTextCursor(block.previous());
+    spacing = boundary.blockFormat();
+    spacing.setBottomMargin(block.blockFormat().bottomMargin());
+  }
+  cursor.beginEditBlock();
+  const bool changed = eraseBlocks(cursor, block, block, true);
+  if (changed && !boundary.isNull()) boundary.setBlockFormat(spacing);
+  cursor.endEditBlock();
+  return changed;
+}
+
+bool horizontalSpace(QChar ch) { return ch.isSpace() && ch != QChar::LineSeparator; }
+
+void includeSentenceSpaces(QTextCursor& cursor, const QTextBlock& block) {
+  const auto text = block.text();
+  int start = cursor.selectionStart() - block.position();
+  int end = cursor.selectionEnd() - block.position();
+  while (end < text.size() && horizontalSpace(text.at(end))) ++end;
+  if (end == text.size()) {
+    const int first = listContentStart(block) - block.position();
+    while (start > first && horizontalSpace(text.at(start - 1))) --start;
+  }
+  cursor.setPosition(block.position() + start);
+  cursor.setPosition(block.position() + end, QTextCursor::KeepAnchor);
+}
+
+void includeStyledEdgeSpaces(QTextCursor& cursor, const QTextBlock& block) {
+  const auto* document = cursor.document();
+  int start = cursor.selectionStart(), end = cursor.selectionEnd();
+  // A remaining emphasis run must not start or end with a space at the cut.
+  if (start > listContentStart(block) && horizontalSpace(document->characterAt(start - 1))) {
+    QTextCursor left(block);
+    left.setPosition(start - 1);
+    if (selectInlineScope(left) && left.selectionEnd() <= end) {
+      while (start > left.selectionStart() && horizontalSpace(document->characterAt(start - 1)))
+        --start;
+    }
+  }
+  if (end < block.position() + block.length() - 1 && horizontalSpace(document->characterAt(end))) {
+    QTextCursor right(block);
+    right.setPosition(end);
+    if (selectInlineScope(right) && right.selectionStart() >= start) {
+      while (end < right.selectionEnd() && horizontalSpace(document->characterAt(end))) ++end;
+    }
+  }
+  cursor.setPosition(start);
+  cursor.setPosition(end, QTextCursor::KeepAnchor);
+}
+}  // namespace
+
+bool deleteRange(QTextCursor& cursor, SelectionRange range, bool rendered) {
+  if (cursor.isNull()) return false;
+  const auto block = cursor.block();
+  auto* table = rendered ? cursor.currentTable() : nullptr;
+  const bool cells = table && cursor.hasComplexSelection();
+  if (table && range == SelectionRange::LineOrSentence && (!cursor.hasSelection() || cells))
+    return editTable(cursor, TableCommand::DeleteRow);
+  if (cells) return clearTableCells(cursor);
+  if (cursor.hasSelection()) {
+    if (rendered && atomicBlock(block) && cursor.selectionStart() == block.position() &&
+        cursor.selectionEnd() == block.position() + block.length() - 1)
+      return eraseBlocks(cursor, block, block, true);
+    return eraseSelection(cursor);
+  }
+  if (range == SelectionRange::Paragraph) {
+    if (table) return editTable(cursor, TableCommand::DeleteTable);
+    return rendered ? eraseParagraph(cursor) : eraseLine(cursor, false);
+  }
+  if (range == SelectionRange::LineOrSentence) {
+    if (!rendered || block.blockFormat().hasProperty(kCodeBlockProperty))
+      return eraseLine(cursor, rendered);
+    if (atomicBlock(block)) return eraseBlocks(cursor, block, block, true);
+  }
+  if (range == SelectionRange::StyledScope && rendered &&
+      block.blockFormat().hasProperty(kCodeBlockProperty))
+    return eraseParagraph(cursor);
+  selectRange(cursor, range, rendered);
+  if (range == SelectionRange::LineOrSentence && !cursor.hasSelection())
+    return listSubtreeEnd(block) == block && eraseBlocks(cursor, block, block, true);
+  const int start = cursor.selectionStart();
+  if (rendered && cursor.hasSelection() && !block.blockFormat().hasProperty(kCodeBlockProperty) &&
+      (range == SelectionRange::Word || range == SelectionRange::LineOrSentence))
+    includeStyledEdgeSpaces(cursor, block);
+  if (range == SelectionRange::LineOrSentence && cursor.selectionStart() == start)
+    includeSentenceSpaces(cursor, block);
+  return eraseSelection(cursor);
+}
+
 bool setParagraphStyle(QTextCursor& cursor, ParagraphStyle style, int heading) {
   if (cursor.currentTable()) return false;
   if (style == ParagraphStyle::BulletList || style == ParagraphStyle::OrderedList ||
@@ -332,6 +519,8 @@ bool editTable(QTextCursor& cursor, TableCommand command) {
   if ((command == TableCommand::ColumnBefore || command == TableCommand::ColumnAfter) &&
       table->columns() >= kMaxTableColumns)
     return false;
+  if (command == TableCommand::DeleteRow && (row == 0 || table->rows() - cells.rows < 2))
+    return false;
   cursor.beginEditBlock();
   switch (command) {
     case TableCommand::RowAbove:
@@ -341,10 +530,6 @@ bool editTable(QTextCursor& cursor, TableCommand command) {
       table->insertRows(row + cells.rows, 1);
       break;
     case TableCommand::DeleteRow:
-      if (row == 0 || table->rows() - cells.rows < 2) {
-        cursor.endEditBlock();
-        return false;
-      }
       table->removeRows(row, cells.rows);
       break;
     case TableCommand::ColumnBefore:

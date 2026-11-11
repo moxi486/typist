@@ -207,6 +207,150 @@ class EditingTests : public QObject {
     QVERIFY(!editor.textCursor().hasSelection());
   }
 
+  void deleteTextRangesRespectSentenceSpacingAndExplicitSelection() {
+    using Range = typist::editor::SelectionRange;
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    prepare(editor, view,
+            QStringLiteral("First sentence. **Middle phrase!** Last sentence?\n\n"
+                           "第一句。第二句！第三句？\n\n"
+                           "**Bold first. Bold second.** Next text.\n"));
+    const auto original = markdown(editor);
+    const auto at = [&](const QString& text) {
+      auto cursor = editor.document()->find(text);
+      QVERIFY(!cursor.isNull());
+      cursor.setPosition(cursor.selectionStart() + 1);
+      editor.setTextCursor(cursor);
+    };
+    at(QStringLiteral("Middle"));
+    QVERIFY(editor.deleteRange(Range::LineOrSentence));
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("First sentence. Last sentence?")));
+    editor.undo();
+    QCOMPARE(markdown(editor), original);
+    at(QStringLiteral("Last"));
+    QVERIFY(editor.deleteRange(Range::LineOrSentence));
+    QVERIFY(editor.toPlainText().contains(QStringLiteral("Middle phrase!\n")));
+    editor.undo();
+    QCOMPARE(markdown(editor), original);
+    at(QStringLiteral("第二句"));
+    QVERIFY(editor.deleteRange(Range::LineOrSentence));
+    QVERIFY(markdown(editor).contains(QStringLiteral("第一句。第三句？")));
+    editor.undo();
+    QCOMPARE(markdown(editor), original);
+    at(QStringLiteral("Bold second"));
+    QVERIFY(editor.deleteRange(Range::LineOrSentence));
+    QVERIFY(markdown(editor).contains(QStringLiteral("**Bold first.** Next text.")));
+    editor.undo();
+    QCOMPARE(markdown(editor), original);
+    at(QStringLiteral("Middle"));
+    QVERIFY(editor.deleteRange(Range::StyledScope));
+    QVERIFY(!markdown(editor).contains(QStringLiteral("Middle phrase")));
+    editor.undo();
+    QCOMPARE(markdown(editor), original);
+    at(QStringLiteral("Middle"));
+    QVERIFY(editor.deleteRange(Range::Word));
+    QVERIFY2(markdown(editor).contains(QStringLiteral("**phrase\\!**")),
+             qPrintable(markdown(editor)));
+    QVERIFY(!markdown(editor).contains(QStringLiteral("Middle")));
+    editor.undo();
+    QCOMPARE(markdown(editor), original);
+
+    auto part = editor.document()->find(QStringLiteral("iddle"));
+    QVERIFY(!part.isNull());
+    const int start = part.selectionStart(), end = part.selectionEnd();
+    part.setPosition(end);
+    part.setPosition(start, QTextCursor::KeepAnchor);
+    editor.setTextCursor(part);
+    QVERIFY(editor.deleteRange(Range::Paragraph));
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("First sentence. **M phrase\\!**")));
+    editor.undo();
+    QCOMPARE(markdown(editor), original);
+  }
+
+  void deletingBlocksKeepsHeadingListAndTableBoundaries() {
+    using Range = typist::editor::SelectionRange;
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    prepare(editor, view,
+            QStringLiteral("# Remove heading\n\n## **Keep heading**\n\n"
+                           "- [x] Parent item\n  - Child item\n    - Deep item\n"
+                           "- [ ] Keep item\n\n"
+                           "Before table.\n\n| Key | Value |\n|---|---|\n| a | b |\n\n"
+                           "## After table\n"));
+    const auto original = markdown(editor);
+    const auto remove = [&](const QString& label) {
+      auto cursor = editor.document()->find(label);
+      if (cursor.isNull()) return false;
+      cursor.clearSelection();
+      editor.setTextCursor(cursor);
+      return editor.deleteRange(Range::Paragraph);
+    };
+    QVERIFY(remove(QStringLiteral("Remove heading")));
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("## **Keep heading**")));
+    editor.undo();
+    QCOMPARE(markdown(editor), original);
+    QVERIFY(remove(QStringLiteral("Parent item")));
+    QVERIFY(!markdown(editor).contains(QStringLiteral("Child item")));
+    QVERIFY(!markdown(editor).contains(QStringLiteral("Deep item")));
+    QVERIFY(markdown(editor).contains(QStringLiteral("- [ ] Keep item")));
+    editor.undo();
+    QCOMPARE(markdown(editor), original);
+    QVERIFY(remove(QStringLiteral("Before table.")));
+    QVERIFY(markdown(editor).contains(QStringLiteral("| a | b |")));
+    QVERIFY(markdown(editor).endsWith(QStringLiteral("## After table\n\n")));
+    editor.undo();
+    QCOMPARE(markdown(editor), original);
+    QVERIFY(remove(QStringLiteral("After table")));
+    QVERIFY(markdown(editor).contains(QStringLiteral("| a | b |")));
+    QVERIFY(!markdown(editor).contains(QStringLiteral("After table")));
+    editor.undo();
+    QCOMPARE(markdown(editor), original);
+  }
+
+  void deletingCodeAndSourceLinesPreservesTheFenceAndNextBlock() {
+    using Range = typist::editor::SelectionRange;
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    prepare(editor, view,
+            QStringLiteral("Before.\n\n```cpp\n  first();\n  middle();\n  last();\n```\n\n"
+                           "## After\n"));
+    const auto original = markdown(editor);
+    const auto removeLine = [&](const QString& text) {
+      auto cursor = editor.document()->find(text);
+      if (cursor.isNull()) return false;
+      cursor.clearSelection();
+      editor.setTextCursor(cursor);
+      return editor.deleteRange(Range::LineOrSentence);
+    };
+    QVERIFY(removeLine(QStringLiteral("first()")));
+    QVERIFY(markdown(editor).contains(QStringLiteral("```cpp\n  middle();\n  last();\n```")));
+    QVERIFY(removeLine(QStringLiteral("last()")));
+    QVERIFY(markdown(editor).contains(QStringLiteral("```cpp\n  middle();\n```")));
+    const auto oneLine = markdown(editor);
+    QVERIFY(removeLine(QStringLiteral("middle()")));
+    QVERIFY(markdown(editor).contains(QStringLiteral("```cpp\n```")));
+    QVERIFY(markdown(editor).endsWith(QStringLiteral("## After\n\n")));
+    const auto emptyFence = markdown(editor);
+    QVERIFY(editor.deleteRange(Range::LineOrSentence));
+    QVERIFY(!markdown(editor).contains(QStringLiteral("```")));
+    QVERIFY(markdown(editor).endsWith(QStringLiteral("## After\n\n")));
+    editor.undo();
+    QCOMPARE(markdown(editor), emptyFence);
+    editor.undo();
+    QCOMPARE(markdown(editor), oneLine);
+    editor.undo();
+    editor.undo();
+    QCOMPARE(markdown(editor), original);
+
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    const auto source = editor.toPlainText();
+    QVERIFY(removeLine(QStringLiteral("middle()")));
+    QVERIFY(editor.toPlainText().contains(QStringLiteral("  first();\n  last();")));
+    editor.undo();
+    QCOMPARE(editor.toPlainText(), source);
+  }
+
   void tableOperationsRoundTripAndUndo() {
     typist::ui::ViewSwitch view;
     typist::ui::Editor editor;

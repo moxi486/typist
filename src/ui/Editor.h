@@ -140,6 +140,7 @@ class Editor : public QTextEdit {
   void paste();
   void selectAll();
   void selectRange(editor::SelectionRange range);
+  bool deleteRange(editor::SelectionRange range);
   void moveCaret(QTextCursor::MoveOperation operation);
   void revealSelection();
   void insertPlainText(const QString& text);

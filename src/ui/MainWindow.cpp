@@ -569,6 +569,22 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   command(selectMenu, QStringLiteral("selectStyle"), tr("Select Styled Scope / Table Cell"),
           QStringLiteral("Ctrl+E"),
           [editor] { editor->selectRange(editor::SelectionRange::StyledScope); });
+  auto* deleteMenu = edit->addMenu(tr("Delete Range"));
+  deleteMenu->setObjectName(QStringLiteral("deleteRangeMenu"));
+  command(deleteMenu, QStringLiteral("deleteWord"), tr("Delete Word"), QString(),
+          [editor] { editor->deleteRange(editor::SelectionRange::Word); });
+  command(deleteMenu, QStringLiteral("deleteSentence"), tr("Delete Line / Sentence"),
+          QStringLiteral("Ctrl+Shift+Backspace"), [this, editor] {
+            const auto cursor = editor->textCursor();
+            const bool deletingRows =
+                cursor.currentTable() && (!cursor.hasSelection() || cursor.hasComplexSelection());
+            if (!editor->deleteRange(editor::SelectionRange::LineOrSentence) && deletingRows)
+              statusBar()->showMessage(tr("Keep the table header and at least one body row"), 2500);
+          });
+  command(deleteMenu, QStringLiteral("deleteParagraph"), tr("Delete Paragraph / Block"), QString(),
+          [editor] { editor->deleteRange(editor::SelectionRange::Paragraph); });
+  command(deleteMenu, QStringLiteral("deleteStyle"), tr("Delete Styled Scope / Table Cell"),
+          QString(), [editor] { editor->deleteRange(editor::SelectionRange::StyledScope); });
   command(edit, QStringLiteral("copyMarkdown"), tr("Copy as Markdown"),
           QStringLiteral("Ctrl+Shift+C"),
           [editor] { editor->copySelection(ui::Editor::CopyFormat::Markdown); });
@@ -803,7 +819,7 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
           [editor] { editor->moveCaret(QTextCursor::StartOfLine); });
   command(jumpMenu, QStringLiteral("jumpLineEnd"), tr("Jump to Line End"), QString(),
           [editor] { editor->moveCaret(QTextCursor::EndOfLine); });
-  for (auto* menu : {selectMenu, jumpMenu}) {
+  for (auto* menu : {selectMenu, deleteMenu, jumpMenu}) {
     for (auto* action : menu->actions()) {
       action->setShortcutContext(Qt::WidgetWithChildrenShortcut);
       editor->addAction(action);

@@ -30,5 +30,6 @@ bool editTable(QTextCursor& cursor, TableCommand command);
 bool renderInlineMarkdown(QTextCursor& cursor);
 QString selectedMarkdown(const QTextCursor& cursor);
 void selectRange(QTextCursor& cursor, SelectionRange range, bool rendered);
+bool deleteRange(QTextCursor& cursor, SelectionRange range, bool rendered);
 
 }  // namespace typist::editor
