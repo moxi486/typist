@@ -72,6 +72,10 @@ PdfExportDialog::PdfExportDialog(const QTextDocument* document,
   m_repeat->setObjectName(QStringLiteral("pdfRepeatHeader"));
   m_repeat->setChecked(initial.repeatTableHeader);
   form->addRow(m_repeat);
+  m_sectionBreaks = new QCheckBox(controls);
+  m_sectionBreaks->setObjectName(QStringLiteral("pdfBreakBetweenTopHeadings"));
+  m_sectionBreaks->setChecked(initial.breakBetweenTopHeadings);
+  form->addRow(m_sectionBreaks);
   row->addWidget(controls, 0, Qt::AlignTop);
   auto* previewColumn = new QVBoxLayout;
   m_preview = new QLabel(this);
@@ -132,6 +136,7 @@ PdfExportDialog::PdfExportDialog(const QTextDocument* document,
   connect(m_header, &QLineEdit::textChanged, this, update);
   connect(m_footer, &QLineEdit::textChanged, this, update);
   connect(m_repeat, &QCheckBox::toggled, this, update);
+  connect(m_sectionBreaks, &QCheckBox::toggled, this, update);
   connect(m_previous, &QPushButton::clicked, this, [this] {
     if (m_page > 0) {
       --m_page;
@@ -157,6 +162,7 @@ platform::PdfPageOptions PdfExportDialog::options() const {
   result.header = m_header->text();
   result.footer = m_footer->text();
   result.repeatTableHeader = m_repeat->isChecked();
+  result.breakBetweenTopHeadings = m_sectionBreaks->isChecked();
   result.title = m_title;
   return result;
 }
@@ -197,6 +203,9 @@ void PdfExportDialog::retranslate() {
   m_footer->setPlaceholderText(tr("Leave empty to hide"));
   m_hint->setText(tr("{title} inserts the document name. # inserts the page number."));
   m_repeat->setText(tr("Repeat table headers"));
+  m_sectionBreaks->setText(tr("Break between level 1 headings"));
+  m_sectionBreaks->setToolTip(
+      tr("Start each later level 1 heading and the footnotes on a new page"));
   m_previous->setText(tr("Previous"));
   m_next->setText(tr("Next"));
   m_export->setText(tr("Export"));

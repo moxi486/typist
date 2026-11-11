@@ -3310,6 +3310,12 @@ class WindowTests : public QObject {
                                                                      : QStringLiteral("导出 PDF"));
       QCOMPARE(exportButton->text(),
                language == QLatin1String("en") ? QStringLiteral("Export") : QStringLiteral("导出"));
+      auto* sectionBreaks =
+          dialog.findChild<QCheckBox*>(QStringLiteral("pdfBreakBetweenTopHeadings"));
+      QVERIFY(sectionBreaks);
+      QCOMPARE(sectionBreaks->text(), language == QLatin1String("en")
+                                          ? QStringLiteral("Break between level 1 headings")
+                                          : QStringLiteral("一级标题之间分页"));
       if (!output.isEmpty())
         QVERIFY(dialog.grab().save(output + QStringLiteral("/setup-") + language +
                                    QStringLiteral(".png")));
@@ -3318,6 +3324,35 @@ class WindowTests : public QObject {
       QCOMPARE(typist::editor::serializeDocument(&document), before);
     }
   }
+  void pdfDialogSectionBreaksRefreshPreview() {
+    QTextDocument document;
+    QVERIFY(typist::editor::loadMarkdown(
+        QStringLiteral("# One\n\nFirst chapter.\n\n# Two\n\nSecond chapter[^note].\n\n"
+                       "[^note]: A note.\n"),
+        &document, nullptr));
+    typist::ui::PdfExportDialog dialog(&document, {});
+    dialog.show();
+    auto* sectionBreaks =
+        dialog.findChild<QCheckBox*>(QStringLiteral("pdfBreakBetweenTopHeadings"));
+    auto* exportButton = dialog.findChild<QPushButton*>(QStringLiteral("confirmPdfExport"));
+    auto* previous = dialog.findChild<QPushButton*>(QStringLiteral("pdfPreviousPage"));
+    auto* next = dialog.findChild<QPushButton*>(QStringLiteral("pdfNextPage"));
+    QVERIFY(sectionBreaks && exportButton && previous && next);
+    QTRY_VERIFY(exportButton->isEnabled());
+    QVERIFY(!sectionBreaks->isChecked() && !next->isEnabled());
+    sectionBreaks->setChecked(true);
+    QTRY_VERIFY(next->isEnabled());
+    QVERIFY(dialog.options().breakBetweenTopHeadings);
+    next->click();
+    QVERIFY(previous->isEnabled() && next->isEnabled());
+    next->click();
+    QVERIFY(!next->isEnabled());
+    sectionBreaks->setChecked(false);
+    QTRY_VERIFY(exportButton->isEnabled());
+    QVERIFY(!previous->isEnabled() && !next->isEnabled());
+    QVERIFY(!dialog.options().breakBetweenTopHeadings);
+  }
+
   void pdfMenuPersistsOnlyAfterSuccessfulSave() {
     QTemporaryDir directory;
     typist::MainWindow window;
@@ -3326,15 +3361,20 @@ class WindowTests : public QObject {
     editor->insertPlainText(QStringLiteral("A document to export."));
     const auto before = typist::editor::serializeDocument(editor->document());
     const auto old = typist::platform::pdfOptions(QStringLiteral("Old"));
+    const auto restoreOptions = qScopeGuard([&] { typist::platform::setPdfOptions(old); });
     QTimer::singleShot(0, &window, [&] {
       if (auto* dialog =
               qobject_cast<typist::ui::PdfExportDialog*>(QApplication::activeModalWidget())) {
         dialog->findChild<QComboBox*>(QStringLiteral("pdfPaper"))->setCurrentIndex(1);
+        dialog->findChild<QCheckBox*>(QStringLiteral("pdfBreakBetweenTopHeadings"))
+            ->setChecked(!old.breakBetweenTopHeadings);
         dialog->reject();
       }
     });
     QVERIFY(QMetaObject::invokeMethod(&window, "exportPdf", Qt::DirectConnection));
     QCOMPARE(typist::platform::pdfOptions(QStringLiteral("Old")).paper, old.paper);
+    QCOMPARE(typist::platform::pdfOptions(QStringLiteral("Old")).breakBetweenTopHeadings,
+             old.breakBetweenTopHeadings);
     const bool previous = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
     bool configured = false, setupAccepted = false, fileAccepted = false, cancelDestination = true;
@@ -3350,6 +3390,8 @@ class WindowTests : public QObject {
           dialog->findChild<QLineEdit*>(QStringLiteral("pdfHeader"))
               ->setText(QStringLiteral("Header #"));
           dialog->findChild<QCheckBox*>(QStringLiteral("pdfRepeatHeader"))->setChecked(false);
+          dialog->findChild<QCheckBox*>(QStringLiteral("pdfBreakBetweenTopHeadings"))
+              ->setChecked(!old.breakBetweenTopHeadings);
           configured = true;
         }
         auto* button = dialog->findChild<QPushButton*>(QStringLiteral("confirmPdfExport"));
@@ -3389,6 +3431,7 @@ class WindowTests : public QObject {
     QVERIFY(cancelled);
     QCOMPARE(afterCancel.header, old.header);
     QCOMPARE(afterCancel.paper, old.paper);
+    QCOMPARE(afterCancel.breakBetweenTopHeadings, old.breakBetweenTopHeadings);
     QFile pdf(directory.filePath(QStringLiteral("menu-pdf.pdf")));
     QVERIFY(pdf.open(QIODevice::ReadOnly));
     QVERIFY(pdf.readAll().startsWith("%PDF-"));
@@ -3398,8 +3441,8 @@ class WindowTests : public QObject {
     QCOMPARE(saved.marginMm, 12.5);
     QCOMPARE(saved.header, QStringLiteral("Header #"));
     QVERIFY(!saved.repeatTableHeader);
+    QCOMPARE(saved.breakBetweenTopHeadings, !old.breakBetweenTopHeadings);
     QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
-    typist::platform::setPdfOptions(old);
   }
   void pdfUsesParagraphSnapshotWithoutApplying() {
     QTemporaryDir directory;

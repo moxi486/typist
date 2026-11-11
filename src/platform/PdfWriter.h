@@ -20,6 +20,7 @@ struct PdfPageOptions {
   bool repeatTableHeader = true;  // continuation pages redraw the first row of a split table
   bool landscape = false;
   QString title;  // substitutes {title} in header/footer templates; not persisted
+  bool breakBetweenTopHeadings = false;
 };
 
 // Renders the document to a PDF file. Printing lays out the whole document, so callers

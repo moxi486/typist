@@ -1670,6 +1670,14 @@
         <translation>跨页重复表头</translation>
     </message>
     <message>
+        <source>Break between level 1 headings</source>
+        <translation>一级标题之间分页</translation>
+    </message>
+    <message>
+        <source>Start each later level 1 heading and the footnotes on a new page</source>
+        <translation>后续一级标题和脚注区从新页开始</translation>
+    </message>
+    <message>
         <source>Previous</source>
         <translation>上一页</translation>
     </message>

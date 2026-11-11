@@ -1,5 +1,7 @@
 #include "SyntaxHighlighter.h"
 
+#include "DocumentProperties.h"
+
 #include <QRegularExpression>
 #include <QSet>
 #include <QTextBlock>
@@ -26,8 +28,6 @@ QString codeSyntaxLanguage(QString language) {
   return language;
 }
 namespace {
-constexpr int codeGroupProperty = 0x100001;
-constexpr int codeLanguageProperty = 0x100005;
 struct Data : QTextBlockUserData {
   SyntaxState lexical;
   QString language, fence;
@@ -298,9 +298,9 @@ void SyntaxHighlighter::highlightBlock(const QString& text) {
   QList<SyntaxSpan> spans;
   if (m_enabled) {
     if (!m_markdownSource) {
-      data->group = currentBlock().blockFormat().intProperty(codeGroupProperty);
+      data->group = currentBlock().blockFormat().intProperty(kCodeBlockProperty);
       if (data->group) {
-        data->language = currentBlock().blockFormat().property(codeLanguageProperty).toString();
+        data->language = currentBlock().blockFormat().property(kCodeInfoProperty).toString();
         if (previous && previous->group == data->group) {
           data->lexical = previous->lexical;
           if (data->language.isEmpty()) data->language = previous->language;
