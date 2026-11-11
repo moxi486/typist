@@ -66,10 +66,11 @@ target_link_libraries(typist_ui_conflict PUBLIC Qt6::Core)
 target_compile_options(typist_ui_conflict PRIVATE ${TYPIST_WARNING_OPTIONS})
 
 
-add_library(typist_ui_toc STATIC Toc.h Toc.cpp)
+add_library(typist_ui_toc STATIC Toc.h Toc.cpp OutlinePanel.h OutlinePanel.cpp)
 add_library(typist::ui_toc ALIAS typist_ui_toc)
 target_include_directories(typist_ui_toc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(typist_ui_toc PUBLIC Qt6::Gui)
+set_target_properties(typist_ui_toc PROPERTIES AUTOMOC ON)
+target_link_libraries(typist_ui_toc PUBLIC typist::platform Qt6::Widgets)
 target_compile_options(typist_ui_toc PRIVATE ${TYPIST_WARNING_OPTIONS})
 
 qt_add_executable(typist main.cpp MainWindow.h MainWindow.cpp)

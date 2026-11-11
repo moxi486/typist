@@ -17,7 +17,6 @@ class QCloseEvent;
 class QDragEnterEvent;
 class QDockWidget;
 class QDropEvent;
-class QListWidget;
 class QLabel;
 class QToolButton;
 class QTabWidget;
@@ -28,7 +27,6 @@ class QNetworkAccessManager;
 class QNetworkReply;
 class QTextDocument;
 class QTextEdit;
-class QTimer;
 namespace typist::editor {
 struct HtmlImportResult;
 }
@@ -41,6 +39,7 @@ class ViewSwitch;
 class AppTranslator;
 class WorkspaceSearchPanel;
 class FolderLocationsMenu;
+class OutlinePanel;
 }  // namespace typist::ui
 
 namespace typist {
@@ -114,9 +113,7 @@ class MainWindow : public QMainWindow {
   void refreshMatches();
   void searchInFolder();
   void rebuildRecentMenu();
-  void rebuildOutline();
   void toggleOutline();
-  void openOutlineEntry();
   void openRecentEntry(QAction* action);
   void checkCurrentFileConflict();
   void writeRecoveryDraft();
@@ -186,7 +183,7 @@ class MainWindow : public QMainWindow {
   QAction* m_folderAction = nullptr;
   ui::AutoSave* m_autoSave = nullptr;
   QMenu* m_recentMenu = nullptr;
-  QListWidget* m_outlineList = nullptr;
+  ui::OutlinePanel* m_outlinePanel = nullptr;
   QTabWidget* m_sidebarTabs = nullptr;
   QLabel* m_sidebarRootLabel = nullptr;
   QToolButton* m_fileOptionsButton = nullptr;
@@ -197,7 +194,6 @@ class MainWindow : public QMainWindow {
   QAction* m_updateAction = nullptr;
   QLabel* m_detailsLabel = nullptr;
   ui::AppTranslator* m_translator = nullptr;
-  QTimer* m_outlineRefresh = nullptr;
   bool m_autoSaveEnabled = true;
 #ifdef TYPIST_HAS_NETWORK
   QNetworkAccessManager* m_network = nullptr;
