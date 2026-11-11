@@ -627,6 +627,17 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
     action->setProperty("translationNumber", level);
   }
   paragraph->addSeparator();
+  auto* promote = command(paragraph, QStringLiteral("promoteHeading"), tr("Increase Heading Level"),
+                          QStringLiteral("Ctrl+="), [editor] { editor->shiftHeadingLevels(-1); });
+  auto* demote = command(paragraph, QStringLiteral("demoteHeading"), tr("Decrease Heading Level"),
+                         QStringLiteral("Ctrl+-"), [editor] { editor->shiftHeadingLevels(1); });
+  for (auto* action : {promote, demote}) {
+    action->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    action->setEnabled(editor->renderedEditingAvailable());
+    editor->addAction(action);
+    connect(editor, &ui::Editor::renderedEditingAvailableChanged, action, &QAction::setEnabled);
+  }
+  paragraph->addSeparator();
   command(paragraph, QStringLiteral("paragraph_bullet"), tr("Unordered List"),
           QStringLiteral("Ctrl+Shift+]"),
           [editor] { editor->formatParagraph(editor::ParagraphStyle::BulletList); });

@@ -148,6 +148,61 @@ class EditingTests : public QObject {
     QVERIFY(markdown(editor).startsWith(QStringLiteral("###")));
   }
 
+  void headingLevelChangesPreserveRichTextAndReverseSelection() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    prepare(editor, view,
+            QStringLiteral("# Title\n\n### **Bold** and *italic* with `code` and [link](#title)\n\n"
+                           "Body text.\n\n- [x] Task\n\n```md\n# literal\n```\n\n"
+                           "#### 小节\n\n## Outside\n"));
+    const auto original = markdown(editor);
+    const auto plain = editor.toPlainText();
+    const int start = editor.document()->find(QStringLiteral("Title")).selectionStart() + 1;
+    const int end = editor.document()->find(QStringLiteral("Outside")).block().position();
+    QTextCursor cursor(editor.document());
+    cursor.setPosition(end);
+    cursor.setPosition(start, QTextCursor::KeepAnchor);
+    editor.setTextCursor(cursor);
+
+    QVERIFY(editor.shiftHeadingLevels(-1));
+    QCOMPARE(editor.textCursor().position(), start);
+    QCOMPARE(editor.textCursor().anchor(), end);
+    QCOMPARE(editor.toPlainText(), plain);
+    QString expected = original;
+    expected.replace(QStringLiteral("\n### **Bold**"), QStringLiteral("\n## **Bold**"));
+    expected.replace(QStringLiteral("\n#### 小节"), QStringLiteral("\n### 小节"));
+    QCOMPARE(markdown(editor), expected);
+    const auto heading = editor.document()->find(QStringLiteral("Bold")).block();
+    QCOMPARE(heading.begin().fragment().charFormat().fontPointSize(), 22.0);
+    editor.undo();
+    QCOMPARE(markdown(editor), original);
+    QVERIFY(!editor.document()->isUndoAvailable());
+    editor.redo();
+    QCOMPARE(markdown(editor), expected);
+  }
+
+  void headingLevelLimitsLeaveTheUndoHistoryUntouched() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    prepare(editor, view, QStringLiteral("# Top\n\n###### Bottom\n\nBody\n"));
+    const auto original = markdown(editor);
+    editor.setTextCursor(editor.document()->find(QStringLiteral("Top")));
+    QVERIFY(!editor.shiftHeadingLevels(-1));
+    editor.setTextCursor(editor.document()->find(QStringLiteral("Bottom")));
+    QVERIFY(!editor.shiftHeadingLevels(1));
+    editor.setTextCursor(editor.document()->find(QStringLiteral("Body")));
+    QVERIFY(!editor.shiftHeadingLevels(-1));
+    QCOMPARE(markdown(editor), original);
+    QVERIFY(!editor.document()->isUndoAvailable());
+
+    editor.moveCursor(QTextCursor::End);
+    editor.formatParagraph(typist::editor::ParagraphStyle::Heading, 3);
+    QVERIFY(editor.shiftHeadingLevels(1));
+    QTest::keyClicks(&editor, " continues");
+    QVERIFY(markdown(editor).contains(QStringLiteral("#### Body continues")));
+    QCOMPARE(editor.textCursor().charFormat().fontPointSize(), 15.0);
+  }
+
   void rangeSelectionUsesSentenceStyleAndCodeBoundaries() {
     using Range = typist::editor::SelectionRange;
     typist::ui::ViewSwitch view;

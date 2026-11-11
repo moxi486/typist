@@ -22,6 +22,7 @@ enum class TableCommand {
 };
 
 bool setParagraphStyle(QTextCursor& cursor, ParagraphStyle style, int heading = 0);
+bool shiftHeadingLevels(QTextCursor& cursor, int delta);
 void toggleInlineStyle(QTextCursor& cursor, InlineStyle style);
 void setLink(QTextCursor& cursor, const QString& destination, const QString& label = QString());
 bool indentList(QTextCursor& cursor, int delta);

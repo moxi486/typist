@@ -384,6 +384,14 @@
         <translation>%1 级标题</translation>
     </message>
     <message>
+        <source>Increase Heading Level</source>
+        <translation>提升标题级别</translation>
+    </message>
+    <message>
+        <source>Decrease Heading Level</source>
+        <translation>降低标题级别</translation>
+    </message>
+    <message>
         <source>Horizontal Rule</source>
         <translation>分隔线</translation>
     </message>

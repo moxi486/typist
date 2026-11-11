@@ -103,6 +103,7 @@ bool Editor::startParagraphSourceEdit() {
   auto caret = m_paragraphPanel->input()->textCursor();
   caret.movePosition(QTextCursor::End);
   m_paragraphPanel->input()->setTextCursor(caret);
+  emit renderedEditingAvailableChanged(false);
   return true;
 }
 bool Editor::setParagraphSourceFocusCommitEnabled(bool enabled) {
@@ -171,6 +172,7 @@ bool Editor::flushParagraphSourceEdit(bool keepOpen) {
       setCurrentCharFormat(typing);
     }
     if (focused) setFocus();
+    emit renderedEditingAvailableChanged(renderedEditingAvailable());
     emit paragraphSourceClosed();
   } else
     updateParagraphSourceGeometry();
@@ -187,6 +189,7 @@ void Editor::finishParagraphSourceEdit(bool apply) {
   m_paragraphPanel->hide();
   m_paragraphDocument.clear();
   if (focused) setFocus();
+  emit renderedEditingAvailableChanged(renderedEditingAvailable());
   emit paragraphSourceClosed();
 }
 bool Editor::undoParagraphSource(bool redo) {
@@ -903,6 +906,16 @@ void Editor::formatParagraph(editor::ParagraphStyle style, int heading) {
   setTextCursor(cursor);
   setFocus();
   updateDecorations();
+}
+
+bool Editor::shiftHeadingLevels(int delta) {
+  if (!renderedEditingAvailable() || isReadOnly()) return false;
+  auto cursor = textCursor();
+  if (!editor::shiftHeadingLevels(cursor, delta)) return false;
+  m_lastInlineBlock = -1;
+  setTextCursor(cursor);
+  revealSelection();
+  return true;
 }
 
 void Editor::insertLink(const QString& target, const QString& label) {
