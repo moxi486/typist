@@ -680,6 +680,14 @@
         <translation>代码块行号</translation>
     </message>
     <message>
+        <source>Code Indent Size</source>
+        <translation>代码缩进宽度</translation>
+    </message>
+    <message>
+        <source>Columns per indentation level</source>
+        <translation>每级缩进的列数</translation>
+    </message>
+    <message>
         <source>Copy Code Block</source>
         <translation>复制代码块</translation>
     </message>

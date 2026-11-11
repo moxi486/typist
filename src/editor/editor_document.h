@@ -57,6 +57,7 @@ QString serializeDocument(const QTextDocument* document, int paragraphPosition =
                           const QString& paragraphSource = QString());
 QString inlineMarkdown(const QTextBlock& block);
 bool isInlineCodeFormat(const QTextCharFormat& format);
+QFont codeBlockFont();
 void setExplicitUnderline(QTextCharFormat& format, bool enabled);
 
 // Parses Markdown and inserts the blocks at the cursor, on one undo step. The cursor

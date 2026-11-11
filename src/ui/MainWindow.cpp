@@ -872,6 +872,23 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
     editor->setCodeLineNumbers(enabled);
     QSettings().setValue(lineNumberSetting, enabled);
   });
+  const auto codeIndentSetting = QStringLiteral("editor/codeIndentSize");
+  editor->setCodeIndentSize(
+      QSettings().value(codeIndentSetting, editor::kDefaultCodeIndentSize).toInt());
+  command(settings, QStringLiteral("codeIndentSize"), tr("Code Indent Size"), QString(),
+          [this, editor, codeIndentSetting] {
+            const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+            const auto restore = qScopeGuard([editor, focusCommit] {
+              editor->setParagraphSourceFocusCommitEnabled(focusCommit);
+            });
+            bool ok = false;
+            const int columns = QInputDialog::getInt(
+                this, tr("Code Indent Size"), tr("Columns per indentation level"),
+                editor->codeIndentSize(), 1, editor::kMaxCodeIndentSize, 1, &ok);
+            if (!ok) return;
+            editor->setCodeIndentSize(columns);
+            QSettings().setValue(codeIndentSetting, columns);
+          });
   command(settings, QStringLiteral("defaultCodeLanguage"), tr("Default Code Language"), QString(),
           [this] { configureCodeFences(); });
   editor->setDefaultCodeLanguageResolver([](ui::Editor::CodeFenceCreation creation) {
