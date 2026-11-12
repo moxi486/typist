@@ -2,6 +2,7 @@
 
 #include "PdfWriter.h"
 
+#include <QFlags>
 #include <QString>
 #include <QStringList>
 
@@ -36,10 +37,19 @@ StartupTarget startupTarget(const QStringList& arguments, bool benchmark = false
                             const QString& benchmarkFile = {});
 
 enum class ExportFolderMode { DocumentFolder, LastExportFolder, CustomFolder };
+enum class ExportFormat {
+  Html = 1 << 0,
+  PlainHtml = 1 << 1,
+  Png = 1 << 2,
+  Pdf = 1 << 3,
+  Docx = 1 << 4,
+  Epub = 1 << 5
+};
 struct ExportPreferences {
   ExportFolderMode folderMode = ExportFolderMode::DocumentFolder;
   QString customFolder;
   bool openFolderOnSuccess = false;
+  QFlags<ExportFormat> openFileOnSuccess{};
 };
 ExportPreferences exportPreferences();
 void setExportPreferences(const ExportPreferences& preferences);

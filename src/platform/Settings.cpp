@@ -141,16 +141,18 @@ ExportPreferences exportPreferences() {
               ? Mode(mode)
               : Mode::DocumentFolder,
           values.value(QStringLiteral("customFolder")).toString(),
-          values.value(QStringLiteral("openFolderOnSuccess")).toBool()};
+          values.value(QStringLiteral("openFolderOnSuccess")).toBool(),
+          QFlags<ExportFormat>::fromInt(values.value(QStringLiteral("openFileOnSuccess")).toInt())};
 }
 
 void setExportPreferences(const ExportPreferences& preferences) {
   openSettings(QSettings::defaultFormat())
-      .setValue(
-          exportPreferencesKey,
-          QVariantMap{{QStringLiteral("folderMode"), int(preferences.folderMode)},
-                      {QStringLiteral("customFolder"), preferences.customFolder},
-                      {QStringLiteral("openFolderOnSuccess"), preferences.openFolderOnSuccess}});
+      .setValue(exportPreferencesKey,
+                QVariantMap{
+                    {QStringLiteral("folderMode"), int(preferences.folderMode)},
+                    {QStringLiteral("customFolder"), preferences.customFolder},
+                    {QStringLiteral("openFolderOnSuccess"), preferences.openFolderOnSuccess},
+                    {QStringLiteral("openFileOnSuccess"), preferences.openFileOnSuccess.toInt()}});
 }
 
 QString exportDirectory(const QString& documentPath) {

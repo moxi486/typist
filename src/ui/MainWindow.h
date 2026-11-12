@@ -34,6 +34,7 @@ struct HtmlImportResult;
 }
 
 namespace typist::platform {
+enum class ExportFormat;
 struct ImageExportOptions;
 struct StartupTarget;
 }  // namespace typist::platform
@@ -206,7 +207,8 @@ class MainWindow : public QMainWindow {
   QString chooseExportFile(const QString& title, const QString& suggested, const QString& filter,
                            const QString& suffix, const QString& objectName = {});
   QString completeExportPath(const QString& path, const ExportReplacement* replacement);
-  void finishExport(const QString& path, const QString& status, ExportReplay repeat);
+  void finishExport(const QString& path, platform::ExportFormat format, const QString& status,
+                    ExportReplay repeat);
   void runPreviousExport(const ExportReplacement* replacement);
   void resetPreviousExport();
   void insertLinkDialog();
