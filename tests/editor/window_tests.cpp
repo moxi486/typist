@@ -119,8 +119,12 @@ class LinkReceiver : public QObject {
   Q_OBJECT
  public:
   QUrl last;
+  QList<QUrl> urls;
  public slots:
-  void capture(const QUrl& url) { last = url; }
+  void capture(const QUrl& url) {
+    last = url;
+    urls.append(url);
+  }
 };
 
 class WindowTests : public QObject {
@@ -3887,19 +3891,27 @@ class WindowTests : public QObject {
     QTest::addColumn<QString>("command");
     QTest::addColumn<QString>("extension");
     QTest::addColumn<bool>("setupRequired");
-    QTest::newRow("HTML") << QStringLiteral("Export HTML") << QStringLiteral("html") << false;
+    QTest::addColumn<QString>("openFileAction");
+    QTest::newRow("HTML") << QStringLiteral("Export HTML") << QStringLiteral("html") << false
+                          << QStringLiteral("openExportedHtml");
     QTest::newRow("plain HTML") << QStringLiteral("Export HTML (without styles)")
-                                << QStringLiteral("html") << false;
-    QTest::newRow("PNG") << QStringLiteral("Export Image") << QStringLiteral("png") << true;
-    QTest::newRow("PDF") << QStringLiteral("Export PDF") << QStringLiteral("pdf") << true;
-    QTest::newRow("DOCX") << QStringLiteral("Export DOCX") << QStringLiteral("docx") << false;
-    QTest::newRow("EPUB") << QStringLiteral("Export EPUB") << QStringLiteral("epub") << true;
+                                << QStringLiteral("html") << false
+                                << QStringLiteral("openExportedPlainHtml");
+    QTest::newRow("PNG") << QStringLiteral("Export Image") << QStringLiteral("png") << true
+                         << QStringLiteral("openExportedPng");
+    QTest::newRow("PDF") << QStringLiteral("Export PDF") << QStringLiteral("pdf") << true
+                         << QStringLiteral("openExportedPdf");
+    QTest::newRow("DOCX") << QStringLiteral("Export DOCX") << QStringLiteral("docx") << false
+                          << QStringLiteral("openExportedDocx");
+    QTest::newRow("EPUB") << QStringLiteral("Export EPUB") << QStringLiteral("epub") << true
+                          << QStringLiteral("openExportedEpub");
   }
 
   void repeatExportUsesSuccessfulOptionsAndCurrentDraft() {
     QFETCH(QString, command);
     QFETCH(QString, extension);
     QFETCH(bool, setupRequired);
+    QFETCH(QString, openFileAction);
     QSettings settings;
     QMap<QString, QVariant> oldValues;
     const auto contentKey = QStringLiteral("export/htmlContent");
@@ -3956,9 +3968,14 @@ class WindowTests : public QObject {
     auto* original = actionBySource(window, command);
     auto* repeat = window.findChild<QAction*>(QStringLiteral("repeatExport"));
     auto* overwrite = window.findChild<QAction*>(QStringLiteral("overwritePreviousExport"));
+    auto* openFile = window.findChild<QAction*>(openFileAction);
     auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
-    QVERIFY(original && repeat && overwrite && editor);
-    QVERIFY(!repeat->isEnabled() && !overwrite->isEnabled());
+    QVERIFY(original && repeat && overwrite && editor && openFile);
+    QVERIFY(!repeat->isEnabled() && !overwrite->isEnabled() && !openFile->isChecked());
+    LinkReceiver receiver;
+    QDesktopServices::setUrlHandler(QStringLiteral("file"), &receiver, "capture");
+    const auto resetHandler =
+        qScopeGuard([] { QDesktopServices::unsetUrlHandler(QStringLiteral("file")); });
 
     const auto run = [&](QAction* action, bool expectSetup, const QString& path) {
       bool setupSeen = false, matched = false;
@@ -4017,6 +4034,7 @@ class WindowTests : public QObject {
     const auto initialPath = directory.filePath(QStringLiteral("initial.") + extension);
     const auto repeatedPath = directory.filePath(QStringLiteral("repeat.") + extension);
     QVERIFY(run(original, setupRequired, initialPath));
+    QVERIFY(receiver.urls.isEmpty());
     QFile initial(initialPath);
     QVERIFY(initial.open(QIODevice::ReadOnly));
     const auto initialBytes = initial.readAll();
@@ -4028,6 +4046,8 @@ class WindowTests : public QObject {
     }
     initial.close();
     QVERIFY(repeat->isEnabled() && overwrite->isEnabled());
+    openFile->trigger();
+    QVERIFY(openFile->isChecked());
 
     // Change global defaults to distinguish the replay from a new export.
     settings.setValue(QStringLiteral("export/htmlOutline"), false);
@@ -4046,13 +4066,18 @@ class WindowTests : public QObject {
         QStringLiteral("A longer paragraph wraps across more lines. ").repeated(14));
     const auto before = typist::editor::serializeDocument(editor->document());
     QVERIFY(run(repeat, false, {}));
+    QVERIFY(receiver.urls.isEmpty());
     QVERIFY(repeat->isEnabled() && editor->paragraphSourceActive());
     if (extension == QLatin1String("png")) {
       QVERIFY(run(repeat, false, directory.filePath(QStringLiteral("rejected.jpg"))));
       QVERIFY(!QFileInfo::exists(directory.filePath(QStringLiteral("rejected.jpg"))));
       QVERIFY(repeat->isEnabled());
+      QVERIFY(receiver.urls.isEmpty());
     }
     QVERIFY(run(repeat, false, repeatedPath));
+    QCOMPARE(receiver.urls.size(), 1);
+    QCOMPARE(QFileInfo(receiver.last.toLocalFile()).canonicalFilePath(),
+             QFileInfo(repeatedPath).canonicalFilePath());
     QVERIFY(editor->paragraphSourceActive());
     QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
     QFile repeated(repeatedPath);
@@ -4106,6 +4131,9 @@ class WindowTests : public QObject {
     draft->setPlainText(QStringLiteral("Updated overwrite contents. ") +
                         QStringLiteral("More lines for the replacement file. ").repeated(55));
     QVERIFY(runOverwrite());
+    QCOMPARE(receiver.urls.size(), 2);
+    QCOMPARE(QFileInfo(receiver.last.toLocalFile()).canonicalFilePath(),
+             QFileInfo(repeatedPath).canonicalFilePath());
     QVERIFY(editor->paragraphSourceActive());
     QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
     QVERIFY(repeated.open(QIODevice::ReadOnly));
@@ -4134,6 +4162,7 @@ class WindowTests : public QObject {
       QVERIFY(overwritten.contains("OEBPS/cover.xhtml"));
       QVERIFY(QFile::remove(coverPath));
       QVERIFY(runOverwrite(true));
+      QCOMPARE(receiver.urls.size(), 2);
       QVERIFY(repeated.open(QIODevice::ReadOnly));
       QCOMPARE(repeated.readAll(), overwritten);
       repeated.close();
@@ -4148,12 +4177,14 @@ class WindowTests : public QObject {
       repeated.close();
       QVERIFY(runOverwrite());
       QVERIFY(window.statusBar()->currentMessage().contains(QStringLiteral("has changed")));
+      QCOMPARE(receiver.urls.size(), 2);
       QVERIFY(repeated.open(QIODevice::ReadOnly));
       QCOMPARE(repeated.readAll(), modified);
       repeated.close();
       QVERIFY(repeated.remove());
       QVERIFY(runOverwrite());
       QVERIFY(!repeated.exists());
+      QCOMPARE(receiver.urls.size(), 2);
       QVERIFY(repeat->isEnabled());
       QVERIFY(run(repeat, false, repeatedPath));
       QVERIFY(runOverwrite());
@@ -4216,8 +4247,12 @@ class WindowTests : public QObject {
     auto* custom = window.findChild<QAction*>(QStringLiteral("exportFolderCustom"));
     auto* fromDocument = window.findChild<QAction*>(QStringLiteral("exportFolderDocument"));
     auto* reveal = window.findChild<QAction*>(QStringLiteral("openFolderAfterExport"));
-    QVERIFY(last && custom && fromDocument && reveal);
+    auto* openFileMenu = window.findChild<QMenu*>(QStringLiteral("openFileAfterExport"));
+    auto* openHtml = window.findChild<QAction*>(QStringLiteral("openExportedHtml"));
+    auto* openPlain = window.findChild<QAction*>(QStringLiteral("openExportedPlainHtml"));
+    QVERIFY(last && custom && fromDocument && reveal && openFileMenu && openHtml && openPlain);
     QVERIFY(fromDocument->isChecked() && !reveal->isChecked());
+    QVERIFY(!openHtml->isChecked() && !openPlain->isChecked());
     last->trigger();
     QCOMPARE(exportPreferences().folderMode, ExportFolderMode::LastExportFolder);
     QCOMPARE(canonical(exportDirectory(document.fileName())), canonical(documentFolder));
@@ -4273,32 +4308,62 @@ class WindowTests : public QObject {
         qScopeGuard([] { QDesktopServices::unsetUrlHandler(QStringLiteral("file")); });
     reveal->trigger();
     QVERIFY(exportPreferences().openFolderOnSuccess);
+    openHtml->trigger();
+    QVERIFY(exportPreferences().openFileOnSuccess.testFlag(ExportFormat::Html));
+    QVERIFY(!openPlain->isChecked());
     for (const auto& name : {"Export HTML", "Export HTML (without styles)", "Export Image",
                              "Export PDF", "Export DOCX", "Export EPUB"}) {
       QVERIFY2(drive(actionBySource(window, QString::fromLatin1(name)), customFolder, {}), name);
     }
-    QVERIFY(receiver.last.isEmpty());
+    QVERIFY(receiver.urls.isEmpty());
     QVERIFY(!settings.contains(lastKey));
 
     auto* html = window.findChild<QAction*>(QStringLiteral("exportHtml"));
-    const auto output = QDir(actualFolder).filePath(QStringLiteral("report.html"));
+    const auto output = QDir(actualFolder).filePath(QStringLiteral("report #1 中文.HTM"));
     QVERIFY(drive(html, customFolder, output));
     QVERIFY(QFileInfo(output).isFile());
-    QCOMPARE(canonical(receiver.last.toLocalFile()), canonical(actualFolder));
+    QCOMPARE(receiver.urls.size(), 2);
+    QCOMPARE(canonical(receiver.urls.first().toLocalFile()), canonical(actualFolder));
+    QCOMPARE(canonical(receiver.urls.last().toLocalFile()), canonical(output));
     QCOMPARE(canonical(settings.value(lastKey).toString()), canonical(actualFolder));
     last->trigger();
     QCOMPARE(canonical(exportDirectory(document.fileName())), canonical(actualFolder));
-    receiver.last = QUrl();
+    QVERIFY(exportPreferences().openFileOnSuccess.testFlag(ExportFormat::Html));
+
+    receiver.urls.clear();
+    auto* plain = window.findChild<QAction*>(QStringLiteral("exportPlainHtml"));
+    QVERIFY(drive(plain, actualFolder, QDir(actualFolder).filePath(QStringLiteral("plain.html"))));
+    QCOMPARE(receiver.urls.size(), 1);
+    QCOMPARE(canonical(receiver.urls.first().toLocalFile()), canonical(actualFolder));
+    receiver.urls.clear();
+    const auto wrongSuffix = QDir(actualFolder).filePath(QStringLiteral("other.txt"));
+    QVERIFY(drive(html, actualFolder, wrongSuffix));
+    QVERIFY(QFileInfo(wrongSuffix).isFile());
+    QCOMPARE(receiver.urls.size(), 1);
+    QCOMPARE(canonical(receiver.urls.first().toLocalFile()), canonical(actualFolder));
+    QCOMPARE(window.statusBar()->currentMessage(),
+             QStringLiteral("Export saved, but the file could not be opened"));
+    receiver.urls.clear();
     const auto blocked = QDir(customFolder).filePath(QStringLiteral("blocked.html"));
     QVERIFY(drive(html, actualFolder, blocked, false, true));
     QVERIFY(QFileInfo(blocked).isDir());
-    QVERIFY(receiver.last.isEmpty());
+    QVERIFY(receiver.urls.isEmpty());
     QCOMPARE(canonical(settings.value(lastKey).toString()), canonical(actualFolder));
 
+    {
+      typist::MainWindow other(nullptr, true);
+      auto* otherHtml = other.findChild<QAction*>(QStringLiteral("openExportedHtml"));
+      QVERIFY(otherHtml && otherHtml->isChecked());
+      otherHtml->trigger();
+      QVERIFY(QMetaObject::invokeMethod(openFileMenu, "aboutToShow", Qt::DirectConnection));
+      QVERIFY(!openHtml->isChecked());
+    }
     auto* chinese = window.findChild<QAction*>(QStringLiteral("language_zh"));
     QVERIFY(chinese);
     chinese->trigger();
     QCOMPARE(reveal->text(), QStringLiteral("导出后打开文件夹"));
+    QCOMPARE(openFileMenu->title(), QStringLiteral("导出后打开文件"));
+    QCOMPARE(openPlain->text(), QStringLiteral("HTML（无样式）"));
     QCOMPARE(last->text(), QStringLiteral("使用上次导出的文件夹"));
     setExportPreferences({ExportFolderMode::CustomFolder,
                           directory.filePath(QStringLiteral("missing folder")), false});

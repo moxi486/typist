@@ -620,6 +620,22 @@
         <translation>导出后打开文件夹</translation>
     </message>
     <message>
+        <source>Open File After Export</source>
+        <translation>导出后打开文件</translation>
+    </message>
+    <message>
+        <source>HTML (without styles)</source>
+        <translation>HTML（无样式）</translation>
+    </message>
+    <message>
+        <source>Export saved, but the file could not be opened</source>
+        <translation>导出已保存，无法打开文件</translation>
+    </message>
+    <message>
+        <source>Export saved, but the file and folder could not be opened</source>
+        <translation>导出已保存，无法打开文件和所在文件夹</translation>
+    </message>
+    <message>
         <source>Export saved, but the folder could not be opened</source>
         <translation>导出已保存，无法打开所在文件夹</translation>
     </message>

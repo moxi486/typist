@@ -110,6 +110,36 @@ namespace {
 const auto htmlOutlineSetting = QStringLiteral("export/htmlOutline");
 const auto htmlContentSetting = QStringLiteral("export/htmlContent");
 
+QUrl exportedFileUrl(const QString& path, platform::ExportFormat format) {
+  const QFileInfo file(path);
+  if (!file.isFile() || file.isSymLink()) return {};
+#ifdef Q_OS_WIN
+  if (file.fileName().contains(u':')) return {};
+#endif
+  // The shell dispatches by filename, so only open files with the exported format's suffix.
+  const auto suffix = file.suffix().toLower();
+  using Format = platform::ExportFormat;
+  switch (format) {
+    case Format::Html:
+    case Format::PlainHtml:
+      if (suffix != QLatin1String("html") && suffix != QLatin1String("htm")) return {};
+      break;
+    case Format::Png:
+      if (suffix != QLatin1String("png")) return {};
+      break;
+    case Format::Pdf:
+      if (suffix != QLatin1String("pdf")) return {};
+      break;
+    case Format::Docx:
+      if (suffix != QLatin1String("docx")) return {};
+      break;
+    case Format::Epub:
+      if (suffix != QLatin1String("epub")) return {};
+      break;
+  }
+  return QUrl::fromLocalFile(file.absoluteFilePath());
+}
+
 bool systemPrefersDark() {
   const typist::platform::DarkHint hint = typist::platform::nativeDarkHint();
   if (hint == typist::platform::DarkHint::Dark) return true;
@@ -1089,6 +1119,35 @@ void MainWindow::createExportMenu(QMenu* settings) {
     preferences.openFolderOnSuccess = enabled;
     platform::setExportPreferences(preferences);
   });
+  using Format = platform::ExportFormat;
+  auto* openFileMenu = menu->addMenu(tr("Open File After Export"));
+  openFileMenu->setObjectName(QStringLiteral("openFileAfterExport"));
+  const auto addFileFormat = [openFileMenu](Format format, const QString& label,
+                                            const QString& id) {
+    auto* action = openFileMenu->addAction(label);
+    action->setObjectName(id);
+    action->setData(int(format));
+    action->setCheckable(true);
+    QObject::connect(action, &QAction::triggered, openFileMenu, [format](bool enabled) {
+      auto preferences = platform::exportPreferences();
+      preferences.openFileOnSuccess.setFlag(format, enabled);
+      platform::setExportPreferences(preferences);
+    });
+  };
+  addFileFormat(Format::Html, QStringLiteral("HTML"), QStringLiteral("openExportedHtml"));
+  addFileFormat(Format::PlainHtml, tr("HTML (without styles)"),
+                QStringLiteral("openExportedPlainHtml"));
+  addFileFormat(Format::Png, QStringLiteral("PNG"), QStringLiteral("openExportedPng"));
+  addFileFormat(Format::Pdf, QStringLiteral("PDF"), QStringLiteral("openExportedPdf"));
+  addFileFormat(Format::Docx, QStringLiteral("DOCX"), QStringLiteral("openExportedDocx"));
+  addFileFormat(Format::Epub, QStringLiteral("EPUB"), QStringLiteral("openExportedEpub"));
+  const auto syncFiles = [openFileMenu] {
+    const auto formats = platform::exportPreferences().openFileOnSuccess;
+    for (auto* action : openFileMenu->actions())
+      action->setChecked(formats.testFlag(Format(action->data().toInt())));
+  };
+  syncFiles();
+  connect(openFileMenu, &QMenu::aboutToShow, openFileMenu, syncFiles);
   menu->addSeparator();
   auto* htmlContent = menu->addAction(tr("Additional HTML Content…"));
   htmlContent->setObjectName(QStringLiteral("htmlExportContent"));
@@ -1660,7 +1719,8 @@ QString MainWindow::completeExportPath(const QString& path, const ExportReplacem
   return {};
 }
 
-void MainWindow::finishExport(const QString& path, const QString& status, ExportReplay repeat) {
+void MainWindow::finishExport(const QString& path, platform::ExportFormat format,
+                              const QString& status, ExportReplay repeat) {
   m_previousExport = std::move(repeat);
   m_previousExportFile = platform::ExportedFile::capture(path);
   m_repeatExportAction->setEnabled(true);
@@ -1668,9 +1728,21 @@ void MainWindow::finishExport(const QString& path, const QString& status, Export
   m_overwriteExportAction->setStatusTip(m_previousExportFile.path);
   platform::rememberExportDirectory(path);
   statusBar()->showMessage(status);
-  if (!platform::exportPreferences().openFolderOnSuccess) return;
-  const auto folder = platform::containingDirectoryUrl(path);
-  if (folder.isEmpty() || !QDesktopServices::openUrl(folder))
+  const auto preferences = platform::exportPreferences();
+  bool folderFailed = false, fileFailed = false;
+  if (preferences.openFolderOnSuccess) {
+    const auto folder = platform::containingDirectoryUrl(path);
+    folderFailed = folder.isEmpty() || !QDesktopServices::openUrl(folder);
+  }
+  if (preferences.openFileOnSuccess.testFlag(format)) {
+    const auto file = exportedFileUrl(path, format);
+    fileFailed = file.isEmpty() || !QDesktopServices::openUrl(file);
+  }
+  if (fileFailed && folderFailed)
+    statusBar()->showMessage(tr("Export saved, but the file and folder could not be opened"), 5000);
+  else if (fileFailed)
+    statusBar()->showMessage(tr("Export saved, but the file could not be opened"), 5000);
+  else if (folderFailed)
     statusBar()->showMessage(tr("Export saved, but the folder could not be opened"), 5000);
 }
 
@@ -1765,9 +1837,11 @@ void MainWindow::exportHtmlDocument(const HtmlExportSettings& options,
   }
   const auto savedPath = completeExportPath(path, replacement);
   if (savedPath.isEmpty()) return;
-  finishExport(savedPath, tr("Exported HTML"), [this, options](const ExportReplacement* target) {
-    exportHtmlDocument(options, target);
-  });
+  const auto format =
+      options.styled ? platform::ExportFormat::Html : platform::ExportFormat::PlainHtml;
+  finishExport(
+      savedPath, format, tr("Exported HTML"),
+      [this, options](const ExportReplacement* target) { exportHtmlDocument(options, target); });
 }
 
 void MainWindow::exportImage() { exportImageDocument(); }
@@ -1850,7 +1924,7 @@ void MainWindow::exportImageDocument(const platform::ImageExportOptions* previou
                                      {QStringLiteral("scale"), options.scale},
                                      {QStringLiteral("theme"), int(options.theme)}});
   finishExport(
-      savedPath, tr("Exported PNG image"),
+      savedPath, platform::ExportFormat::Png, tr("Exported PNG image"),
       [this, options](const ExportReplacement* target) { exportImageDocument(&options, target); });
 }
 
@@ -1891,9 +1965,9 @@ void MainWindow::exportPdfDocument(const platform::PdfPageOptions* previous,
   const auto savedPath = completeExportPath(path, replacement);
   if (savedPath.isEmpty()) return;
   platform::setPdfOptions(options);
-  finishExport(savedPath, tr("Exported PDF"), [this, options](const ExportReplacement* target) {
-    exportPdfDocument(&options, target);
-  });
+  finishExport(
+      savedPath, platform::ExportFormat::Pdf, tr("Exported PDF"),
+      [this, options](const ExportReplacement* target) { exportPdfDocument(&options, target); });
 }
 
 void MainWindow::exportDocx() { exportDocxDocument(nullptr); }
@@ -1917,7 +1991,7 @@ void MainWindow::exportDocxDocument(const ExportReplacement* replacement) {
   }
   const auto savedPath = completeExportPath(path, replacement);
   if (savedPath.isEmpty()) return;
-  finishExport(savedPath, tr("Exported DOCX"),
+  finishExport(savedPath, platform::ExportFormat::Docx, tr("Exported DOCX"),
                [this](const ExportReplacement* target) { exportDocxDocument(target); });
 }
 
@@ -1974,9 +2048,9 @@ void MainWindow::exportEpubDocument(const platform::EpubOptions* previous,
     message.setDetailedText(notices.join('\n'));
     message.exec();
   }
-  finishExport(savedPath, tr("Exported EPUB"), [this, options](const ExportReplacement* target) {
-    exportEpubDocument(&options, target);
-  });
+  finishExport(
+      savedPath, platform::ExportFormat::Epub, tr("Exported EPUB"),
+      [this, options](const ExportReplacement* target) { exportEpubDocument(&options, target); });
 }
 
 void MainWindow::autoSaveNow() {
