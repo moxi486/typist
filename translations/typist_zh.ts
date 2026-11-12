@@ -44,6 +44,22 @@
         <translation>按上次设置导出</translation>
     </message>
     <message>
+        <source>Export and Overwrite with Previous Settings</source>
+        <translation>按上次设置覆盖导出</translation>
+    </message>
+    <message>
+        <source>The previous export has changed or is unavailable.</source>
+        <translation>上次导出的文件已更改或无法访问。</translation>
+    </message>
+    <message>
+        <source>The previous export is the current Markdown document.</source>
+        <translation>上次导出的文件就是当前 Markdown 文档。</translation>
+    </message>
+    <message>
+        <source>Could not replace the previous export.</source>
+        <translation>无法替换上次导出的文件。</translation>
+    </message>
+    <message>
         <source>Include Outline in HTML Export</source>
         <translation>HTML 导出包含大纲</translation>
     </message>

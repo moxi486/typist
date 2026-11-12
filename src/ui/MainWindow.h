@@ -2,6 +2,7 @@
 
 #include "Conflict.h"
 #include "EpubWriter.h"
+#include "FileWriter.h"
 #include "FolderSearchRunner.h"
 #include "PdfWriter.h"
 #include "RecoveryStore.h"
@@ -114,6 +115,7 @@ class MainWindow : public QMainWindow {
   void exportDocx();
   void exportEpub();
   void repeatExport();
+  void overwritePreviousExport();
   void cycleTheme();
   void autoSaveNow();
   void toggleFindBar();
@@ -182,13 +184,27 @@ class MainWindow : public QMainWindow {
     bool includeOutline;
     bool collapsible;
   };
+  struct ExportReplacement {
+    const platform::ExportedFile& destination;
+    QString stagedPath;
+  };
+  using ExportReplay = std::function<void(const ExportReplacement*)>;
   void exportHtmlDocument(bool styled);
-  void exportHtmlDocument(const HtmlExportSettings& options);
-  void exportImageDocument(const platform::ImageExportOptions* previous = nullptr);
-  void exportPdfDocument(const platform::PdfPageOptions* previous = nullptr);
-  void exportEpubDocument(const platform::EpubOptions* previous = nullptr);
+  void exportHtmlDocument(const HtmlExportSettings& options,
+                          const ExportReplacement* replacement = nullptr);
+  void exportImageDocument(const platform::ImageExportOptions* previous = nullptr,
+                           const ExportReplacement* replacement = nullptr);
+  void exportPdfDocument(const platform::PdfPageOptions* previous = nullptr,
+                         const ExportReplacement* replacement = nullptr);
+  void exportDocxDocument(const ExportReplacement* replacement);
+  void exportEpubDocument(const platform::EpubOptions* previous = nullptr,
+                          const ExportReplacement* replacement = nullptr);
   QString suggestedExportPath(const QString& suffix) const;
-  void finishExport(const QString& path, const QString& status, std::function<void()> repeat);
+  QString chooseExportFile(const QString& title, const QString& suggested, const QString& filter,
+                           const QString& suffix, const QString& objectName = {});
+  QString completeExportPath(const QString& path, const ExportReplacement* replacement);
+  void finishExport(const QString& path, const QString& status, ExportReplay repeat);
+  void runPreviousExport(const ExportReplacement* replacement);
   void resetPreviousExport();
   void insertLinkDialog();
   void showDocumentStatistics();
@@ -214,7 +230,9 @@ class MainWindow : public QMainWindow {
   QAction* m_sidebarAction = nullptr;
   QAction* m_folderAction = nullptr;
   QAction* m_repeatExportAction = nullptr;
-  std::function<void()> m_previousExport;
+  QAction* m_overwriteExportAction = nullptr;
+  ExportReplay m_previousExport;
+  platform::ExportedFile m_previousExportFile;
   ui::AutoSave* m_autoSave = nullptr;
   QMenu* m_recentMenu = nullptr;
   ui::OutlinePanel* m_outlinePanel = nullptr;
