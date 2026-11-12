@@ -353,6 +353,74 @@ class EpubExportTests : public QObject {
     QVERIFY(brokenReference(unzip(read(path))).isEmpty());
     saveSpecimen(QStringLiteral("cover-only"), read(path));
   }
+  void readerTocDepthAndHierarchy() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto path = directory.filePath(QStringLiteral("toc.epub"));
+    const auto source = QStringLiteral(
+        "[TOC]\n\n### Intro\n\n# First\n\n### Detail\n\n###### Hidden\n\n"
+        "## Middle\n\n### Detail\n\n# Second\n\n#### Deep\n\n###### Deepest\n\n"
+        "[See the hidden heading](#hidden).\n\n> ## Quoted\n");
+    auto configured = options;
+    configured.splitChapters = true;
+    QCOMPARE(configured.tocDepth, 3);
+    QString error;
+    using Link = QPair<int, QString>;
+    for (const int depth : {1, 3, 6}) {
+      configured.tocDepth = depth;
+      QVERIFY2(typist::platform::exportEpub(path, source, configured, &error), qPrintable(error));
+      const auto bytes = read(path);
+      const auto entries = unzip(bytes);
+      const auto broken = brokenReference(entries);
+      QVERIFY2(broken.isEmpty(), qPrintable(broken));
+      QXmlStreamReader reader(entries.value("OEBPS/nav.xhtml"));
+      QList<Link> links;
+      int listDepth = 0;
+      while (!reader.atEnd()) {
+        reader.readNext();
+        if (reader.isStartElement() && reader.name() == QLatin1String("ol")) ++listDepth;
+        if (reader.isEndElement() && reader.name() == QLatin1String("ol")) --listDepth;
+        if (reader.isStartElement() && reader.name() == QLatin1String("a"))
+          links.append({listDepth, reader.attributes().value(QStringLiteral("href")).toString()});
+      }
+      QVERIFY(!reader.hasError());
+      QCOMPARE(listDepth, 0);
+      QList<Link> expected;
+      if (depth >= 3) expected.append({1, QStringLiteral("content.xhtml#intro")});
+      expected.append({1, QStringLiteral("chapter-2.xhtml#first")});
+      if (depth >= 3) {
+        expected.append({2, QStringLiteral("chapter-2.xhtml#detail")});
+        if (depth == 6) expected.append({3, QStringLiteral("chapter-2.xhtml#hidden")});
+        expected.append({2, QStringLiteral("chapter-2.xhtml#middle")});
+        expected.append({3, QStringLiteral("chapter-2.xhtml#detail-1")});
+      }
+      expected.append({1, QStringLiteral("chapter-3.xhtml#second")});
+      if (depth == 6) {
+        expected.append({2, QStringLiteral("chapter-3.xhtml#deep")});
+        expected.append({3, QStringLiteral("chapter-3.xhtml#deepest")});
+      }
+      QCOMPARE(links, expected);
+      QVERIFY(entries.value("OEBPS/content.xhtml").contains("href=\"chapter-2.xhtml#hidden\""));
+      QVERIFY(entries.value("OEBPS/chapter-3.xhtml")
+                  .contains("href=\"chapter-2.xhtml#hidden\">See the hidden heading"));
+      saveSpecimen(QStringLiteral("reader-toc-%1").arg(depth), bytes);
+    }
+    configured.tocDepth = 1;
+    QVERIFY(
+        typist::platform::exportEpub(path, QStringLiteral("#### Hidden\n"), configured, &error));
+    const auto fallback = read(path);
+    const auto nav = unzip(fallback).value("OEBPS/nav.xhtml");
+    QVERIFY(nav.contains("href=\"content.xhtml\""));
+    QVERIFY(!nav.contains("#hidden"));
+    saveSpecimen(QStringLiteral("reader-toc-fallback"), fallback);
+    for (const int invalid : {0, 7}) {
+      configured.tocDepth = invalid;
+      QVERIFY(!typist::platform::exportEpub(path, source, configured, &error));
+      QVERIFY(error.contains(QStringLiteral("1 to 6")));
+      QCOMPARE(read(path), fallback);
+    }
+  }
+
   void splitBoundariesAndInvalidCoverPreserveTarget() {
     QTemporaryDir directory;
     QString error;

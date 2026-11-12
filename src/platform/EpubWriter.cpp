@@ -164,22 +164,48 @@ QString runs(const std::vector<core::InlineRun>& spans, const QString& fallback,
   }
   return out;
 }
-QString toc(Context& context, bool navigation) {
+QString headingLink(const Heading& heading, const Context& context, bool navigation) {
+  const auto title =
+      heading.title.trimmed().isEmpty()
+          ? (context.chinese() ? QStringLiteral("无标题章节") : QStringLiteral("Untitled section"))
+          : heading.title;
+  return QStringLiteral("<a href=\"%1#%2\">%3</a>")
+      .arg(navigation ? QStringLiteral("content.xhtml") : QString(), xml(heading.id), xml(title));
+}
+
+QString navigationItems(const Context& context, qsizetype& next, int parentLevel) {
+  QString items;
+  while (next < context.headings.size()) {
+    const auto& heading = context.headings.at(next);
+    if (heading.level <= parentLevel) break;
+    ++next;
+    if (heading.level > context.options.tocDepth) continue;
+    items += "<li>" + headingLink(heading, context, true);
+    const auto children = navigationItems(context, next, heading.level);
+    if (!children.isEmpty()) items += "<ol>" + children + "</ol>";
+    items += "</li>";
+  }
+  return items;
+}
+
+QString toc(const Context& context, bool navigation) {
   QString out =
       navigation ? QStringLiteral("<nav epub:type=\"toc\" id=\"toc\">") : QStringLiteral("<nav>");
   out += "<h1>" + QString(context.chinese() ? QStringLiteral("目录") : QStringLiteral("Contents")) +
          "</h1><ol>";
-  if (context.headings.isEmpty())
-    out += "<li><a href=\"content.xhtml\">" + xml(context.options.title) + "</a></li>";
-  for (const auto& heading : context.headings)
-    out += QStringLiteral("<li style=\"margin-left:%1em\"><a href=\"%2#%3\">%4</a></li>")
-               .arg(heading.level - 1)
-               .arg(navigation ? QStringLiteral("content.xhtml") : QString(), xml(heading.id),
-                    xml(heading.title.trimmed().isEmpty()
-                            ? (context.chinese() ? QStringLiteral("无标题章节")
-                                                 : QStringLiteral("Untitled section"))
-                            : heading.title));
-  return out + "</ol></nav>";
+  QString items;
+  if (navigation) {
+    qsizetype next = 0;
+    items = navigationItems(context, next, 0);
+  } else {
+    for (const auto& heading : context.headings)
+      items += QStringLiteral("<li style=\"margin-left:%1em\">%2</li>")
+                   .arg(heading.level - 1)
+                   .arg(headingLink(heading, context, false));
+  }
+  if (items.isEmpty())
+    items = "<li><a href=\"content.xhtml\">" + xml(context.options.title) + "</a></li>";
+  return out + items + "</ol></nav>";
 }
 QString blocks(const std::vector<Block>& nodes, Context& context, bool root) {
   QString out;
@@ -362,6 +388,8 @@ bool exportEpub(const QString& path, const QString& markdown, const EpubOptions&
   static const QRegularExpression language(QStringLiteral("^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$"));
   if (options.title.trimmed().isEmpty() || !language.match(options.language).hasMatch())
     return fail(text("Enter a book title and a valid language tag"));
+  if (options.tocDepth < 1 || options.tocDepth > EpubOptions::maxTocDepth)
+    return fail(text("Choose a table of contents depth from 1 to 6"));
   if (markdown.toUtf8().size() > 16 * 1024 * 1024)
     return fail(text("EPUB source exceeds the 16 MiB limit"));
   const auto parsed = core::parseMarkdown(markdown.toStdString());

@@ -4,6 +4,7 @@ class QLineEdit;
 class QLabel;
 class QPushButton;
 class QCheckBox;
+class QSpinBox;
 namespace typist::ui {
 class EpubDialog : public QDialog {
   Q_OBJECT
@@ -16,6 +17,8 @@ class EpubDialog : public QDialog {
   QString coverImage() const;
   bool splitChapters() const;
   void setSplitChapters(bool enabled);
+  int tocDepth() const;
+  void setTocDepth(int depth);
 
  protected:
   void changeEvent(QEvent* event) override;
@@ -31,6 +34,8 @@ class EpubDialog : public QDialog {
   QLabel *m_coverCaption, *m_coverPreview, *m_coverHint;
   QPushButton *m_browseCover, *m_clearCover;
   QCheckBox* m_split;
+  QLabel* m_tocDepthCaption;
+  QSpinBox* m_tocDepth;
   bool m_coverValid = true;
 };
 }  // namespace typist::ui

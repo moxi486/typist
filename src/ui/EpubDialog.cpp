@@ -1,5 +1,6 @@
 #include "EpubDialog.h"
 
+#include "EpubWriter.h"
 #include "ImageResources.h"
 
 #include <QCheckBox>
@@ -14,6 +15,7 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QSpinBox>
 
 namespace typist::ui {
 EpubDialog::EpubDialog(const QString& title, const QString& author, const QString& language,
@@ -59,6 +61,13 @@ EpubDialog::EpubDialog(const QString& title, const QString& author, const QStrin
   coverDetails->addWidget(m_coverPreview);
   coverDetails->addWidget(m_coverHint, 1);
   form->addRow(coverDetails);
+  m_tocDepthCaption = new QLabel(this);
+  m_tocDepth = new QSpinBox(this);
+  m_tocDepth->setObjectName(QStringLiteral("epubTocDepth"));
+  m_tocDepth->setRange(1, platform::EpubOptions::maxTocDepth);
+  m_tocDepth->setValue(platform::EpubOptions::defaultTocDepth);
+  m_tocDepthCaption->setBuddy(m_tocDepth);
+  form->addRow(m_tocDepthCaption, m_tocDepth);
   m_split = new QCheckBox(this);
   m_split->setObjectName(QStringLiteral("epubSplitChapters"));
   form->addRow(m_split);
@@ -96,6 +105,12 @@ QString EpubDialog::language() const { return m_language->text().trimmed(); }
 QString EpubDialog::coverImage() const { return m_cover->text().trimmed(); }
 bool EpubDialog::splitChapters() const { return m_split->isChecked(); }
 void EpubDialog::setSplitChapters(bool enabled) { m_split->setChecked(enabled); }
+int EpubDialog::tocDepth() const { return m_tocDepth->value(); }
+void EpubDialog::setTocDepth(int depth) {
+  m_tocDepth->setValue(depth >= m_tocDepth->minimum() && depth <= m_tocDepth->maximum()
+                           ? depth
+                           : platform::EpubOptions::defaultTocDepth);
+}
 void EpubDialog::updateCover() {
   m_coverPreview->clear();
   m_clearCover->setEnabled(!coverImage().isEmpty());
@@ -130,6 +145,8 @@ void EpubDialog::retranslate() {
   m_browseCover->setText(tr("Browse..."));
   m_clearCover->setText(tr("Clear"));
   m_coverPreview->setAccessibleName(tr("Cover preview"));
+  m_tocDepthCaption->setText(tr("Table of contents depth"));
+  m_tocDepth->setAccessibleName(m_tocDepthCaption->text());
   m_split->setText(tr("Split chapters at level-one headings"));
   m_hint->setText(tr(
       "Use a language tag such as zh-CN or en. Headings become the reader's table of contents."));
