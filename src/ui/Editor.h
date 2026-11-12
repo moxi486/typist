@@ -179,6 +179,7 @@ class Editor : public QTextEdit {
   void tablePasteRejected(const QString& error);
   void linkActivated(const QString& target);
   void editLinkRequested();
+  void imageFileStatus(const QString& message);
 
  protected:
   void keyPressEvent(QKeyEvent* event) override;
@@ -211,6 +212,8 @@ class Editor : public QTextEdit {
   void paintEvent(QPaintEvent* event) override;
 
  private:
+  void addImageFileActions(QMenu* menu, const QContextMenuEvent& event);
+  void saveImageResource(QTextCursor image, bool relink);
   QString selectedPlainText() const;
   bool copyCodeBlock(const QTextCursor& cursor);
   bool autoIndentCode(QTextCursor cursor);

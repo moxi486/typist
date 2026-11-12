@@ -3,6 +3,8 @@
 #include "CodeBlockBar.h"
 #include "CodeEditing.h"
 #include "CodeLineNumberGutter.h"
+#include "ImageAssets.h"
+#include "ImageResources.h"
 #include "LinkEditing.h"
 #include "LinkNavigation.h"
 #include "ParagraphSourcePanel.h"
@@ -10,14 +12,18 @@
 #include "TableEditing.h"
 #include "markdown.h"
 
+#include <QAbstractTextDocumentLayout>
 #include <QApplication>
 #include <QClipboard>
 #include <QContextMenuEvent>
 #include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFontDatabase>
 #include <QFontMetricsF>
 #include <QHelpEvent>
@@ -33,6 +39,7 @@
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QSplitter>
+#include <QStandardPaths>
 #include <QTextDocumentFragment>
 #include <QTextList>
 #include <QTextTable>
@@ -42,6 +49,15 @@
 
 namespace {
 QString editorText(const char* text) { return QCoreApplication::translate("Editor", text); }
+
+QTextCursor imageCharacter(QTextDocument* document, int position) {
+  if (position < 0 || document->characterAt(position) != QChar::ObjectReplacementCharacter)
+    return {};
+  QTextCursor image(document);
+  image.setPosition(position);
+  image.setPosition(position + 1, QTextCursor::KeepAnchor);
+  return image.charFormat().isImageFormat() ? image : QTextCursor();
+}
 
 bool toggleUnderlineTags(QTextCursor& cursor) {
   const QString selected = cursor.selectedText();
@@ -1017,8 +1033,110 @@ bool Editor::viewportEvent(QEvent* event) {
   }
   return QTextEdit::viewportEvent(event);
 }
+
+void Editor::addImageFileActions(QMenu* menu, const QContextMenuEvent& event) {
+  if (!renderedEditingAvailable()) return;
+  QTextCursor image;
+  if (event.reason() == QContextMenuEvent::Keyboard) {
+    const auto caret = textCursor();
+    if (caret.selectionEnd() - caret.selectionStart() > 1) return;
+    image = imageCharacter(document(), caret.selectionStart());
+    if (image.isNull() && !caret.hasSelection() && caret.position() > caret.block().position())
+      image = imageCharacter(document(), caret.position() - 1);
+  } else {
+    // QTextEdit receives viewport coordinates. ExactHit resolves the character
+    // under the mouse even when the nearest caret is on its trailing edge.
+    const auto* horizontal = horizontalScrollBar();
+    const int x =
+        isRightToLeft() ? horizontal->maximum() - horizontal->value() : horizontal->value();
+    const QPoint position = event.pos() + QPoint(x, verticalScrollBar()->value());
+    image =
+        imageCharacter(document(), document()->documentLayout()->hitTest(position, Qt::ExactHit));
+  }
+  if (image.isNull()) return;
+  const auto format = image.charFormat();
+  const auto target = format.property(editor::kImageProperty).toString();
+  const bool local = !target.isEmpty() &&
+                     QFileInfo(render::localImagePath(target, document()->baseUrl())).isFile();
+  const bool rendered = format.hasProperty(editor::kMathSourceProperty) ||
+                        format.hasProperty(editor::kSpecialSourceProperty);
+  if (!local && !rendered) return;
+
+  menu->addSeparator();
+  auto* save = menu->addAction(tr("Save Image As…"));
+  save->setObjectName(QStringLiteral("saveImageAsContext"));
+  connect(save, &QAction::triggered, this, [this, image] { saveImageResource(image, false); });
+  if (local && !isReadOnly()) {
+    auto* copy = menu->addAction(tr("Copy Image to…"));
+    copy->setObjectName(QStringLiteral("copyImageToContext"));
+    connect(copy, &QAction::triggered, this, [this, image] { saveImageResource(image, true); });
+  }
+}
+
+void Editor::saveImageResource(QTextCursor image, bool relink) {
+  const auto format = image.charFormat().toImageFormat();
+  const auto base = document()->baseUrl();
+  const auto source =
+      render::localImagePath(format.property(editor::kImageProperty).toString(), base);
+  const bool generated = source.isEmpty();
+  const auto resource = document()->resource(QTextDocument::ImageResource, QUrl(format.name()));
+  const QFileInfo original(source);
+  const QString suffix = generated ? QStringLiteral("png") : original.suffix();
+  QString directory = base.isLocalFile() ? base.toLocalFile() : QDir::homePath();
+  QString suggested = QStringLiteral("formula.png");
+  if (!generated) {
+    directory = relink ? original.absolutePath()
+                       : QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    suggested = original.fileName();
+    if (relink) {
+      suggested = original.completeBaseName() + QStringLiteral("-copy");
+      if (!suffix.isEmpty()) suggested += QLatin1Char('.') + suffix;
+    }
+  } else if (image.blockFormat().property(editor::kSpecialBlockProperty) ==
+             QLatin1String("mermaid")) {
+    suggested = QStringLiteral("diagram.png");
+  }
+  const QString title = relink ? tr("Copy Image to…") : tr("Save Image As…");
+  QFileDialog dialog(this, title, directory);
+  dialog.setObjectName(QStringLiteral("imageResourceDestination"));
+  dialog.setAcceptMode(QFileDialog::AcceptSave);
+  if (generated) dialog.setNameFilter(tr("PNG image (*.png)"));
+  dialog.setDefaultSuffix(suffix);
+  dialog.selectFile(suggested);
+  if (dialog.exec() != QDialog::Accepted) return;
+  const auto path = dialog.selectedFiles().value(0);
+  if (path.isEmpty()) return;
+  if (image.document() != document() || !renderedEditingAvailable() ||
+      image.selectedText() != QString(QChar::ObjectReplacementCharacter) ||
+      image.charFormat() != format || document()->baseUrl() != base || (relink && isReadOnly())) {
+    emit imageFileStatus(tr("The image has changed. Open its menu again."));
+    return;
+  }
+  if (generated && QFileInfo(path).suffix().compare(QLatin1String("png"), Qt::CaseInsensitive)) {
+    emit imageFileStatus(tr("Choose a filename ending in .png."));
+    return;
+  }
+  QString error;
+  const bool saved = generated ? platform::saveImagePng(resource.value<QImage>(), path, &error)
+                               : platform::copyImageFile(source, path, &error);
+  if (!saved) {
+    emit imageFileStatus(error);
+    return;
+  }
+  if (relink) {
+    auto replacement = format;
+    const QUrl url = QUrl::fromLocalFile(path);
+    document()->addResource(QTextDocument::ImageResource, url, resource);
+    replacement.setName(url.toString());
+    replacement.setProperty(editor::kImageProperty, platform::imageTarget(path, base));
+    image.setCharFormat(replacement);
+  }
+  emit imageFileStatus(relink ? tr("Image copied and link updated") : tr("Image saved"));
+}
+
 void Editor::contextMenuEvent(QContextMenuEvent* event) {
   auto* menu = createStandardContextMenu();
+  addImageFileActions(menu, *event);
   if (textCursor().hasSelection()) {
     auto* copyAs = menu->addMenu(tr("Copy As"));
     copyAs->setObjectName(QStringLiteral("copyAsContextMenu"));

@@ -189,6 +189,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
           &MainWindow::followLink);
   connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::editLinkRequested, this,
           &MainWindow::insertLinkDialog);
+  connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::imageFileStatus, this,
+          [this](const QString& message) { statusBar()->showMessage(message, 5000); });
   m_findBar = new ui::FindBar(this);
 
   auto* central = new QWidget(this);
