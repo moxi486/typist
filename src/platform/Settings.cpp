@@ -134,7 +134,8 @@ QString pdfPaper(const QString& fallback) {
   const QString value = openSettings(QSettings::defaultFormat())
                             .value(QStringLiteral("pdfPaper"), fallback)
                             .toString();
-  return value == QStringLiteral("letter") ? value : QStringLiteral("a4");
+  const auto id = pdfPaperId(value);
+  return id == QPageSize::Custom ? QStringLiteral("custom") : QPageSize::key(id).toLower();
 }
 
 void setPdfPaper(const QString& value) {
@@ -161,6 +162,8 @@ PdfPageOptions pdfOptions(const QString& title) {
   const auto settings = openSettings(QSettings::defaultFormat());
   PdfPageOptions options;
   options.paper = pdfPaper();
+  const auto customSize = settings.value(QStringLiteral("pdf/customSizeMm")).toSizeF();
+  if (validPdfCustomSize(customSize)) options.customSizeMm = customSize;
   options.marginMm = pdfMarginMm();
   options.landscape = settings.value(QStringLiteral("pdf/landscape"), false).toBool();
   options.repeatTableHeader =
@@ -178,6 +181,8 @@ void setPdfOptions(const PdfPageOptions& options) {
   setPdfPaper(options.paper);
   setPdfMarginMm(options.marginMm);
   auto settings = openSettings(QSettings::defaultFormat());
+  if (validPdfCustomSize(options.customSizeMm))
+    settings.setValue(QStringLiteral("pdf/customSizeMm"), options.customSizeMm);
   settings.setValue(QStringLiteral("pdf/landscape"), options.landscape);
   settings.setValue(QStringLiteral("pdf/repeatTableHeader"), options.repeatTableHeader);
   settings.setValue(QStringLiteral("pdf/breakBetweenTopHeadings"), options.breakBetweenTopHeadings);

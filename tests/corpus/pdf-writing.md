@@ -8,9 +8,9 @@
 
 > 预览与导出使用同一份当前编辑内容。
 
-- 设置 A4 或 Letter
-- 在页眉使用 `{title}`
-- 在页脚使用 `Page #`
+- 选择 A4、Letter、A3、A5、Legal 或自定义尺寸
+- 在页眉使用 `${title}`
+- 在页脚使用 `Page ${pageNo} / ${pageCount}`
 - 翻页检查长表格
 
 ## 可阅读的代码

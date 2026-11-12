@@ -3310,6 +3310,11 @@ class WindowTests : public QObject {
                                                                      : QStringLiteral("导出 PDF"));
       QCOMPARE(exportButton->text(),
                language == QLatin1String("en") ? QStringLiteral("Export") : QStringLiteral("导出"));
+      auto* paper = dialog.findChild<QComboBox*>(QStringLiteral("pdfPaper"));
+      QVERIFY(paper);
+      QCOMPARE(
+          paper->itemText(paper->findData(QStringLiteral("custom"))),
+          language == QLatin1String("en") ? QStringLiteral("Custom") : QStringLiteral("自定义"));
       auto* sectionBreaks =
           dialog.findChild<QCheckBox*>(QStringLiteral("pdfBreakBetweenTopHeadings"));
       QVERIFY(sectionBreaks);
@@ -3406,6 +3411,38 @@ class WindowTests : public QObject {
     QVERIFY(!dialog.options().breakBetweenTopHeadings);
   }
 
+  void pdfCustomPaperControlsRevalidatePreview() {
+    QTextDocument document;
+    document.setPlainText(QStringLiteral("Preview content"));
+    typist::ui::PdfExportDialog dialog(&document, {});
+    dialog.show();
+    auto* paper = dialog.findChild<QComboBox*>(QStringLiteral("pdfPaper"));
+    auto* width = dialog.findChild<QDoubleSpinBox*>(QStringLiteral("pdfPaperWidth"));
+    auto* height = dialog.findChild<QDoubleSpinBox*>(QStringLiteral("pdfPaperHeight"));
+    auto* margin = dialog.findChild<QDoubleSpinBox*>(QStringLiteral("pdfMargin"));
+    auto* error = dialog.findChild<QLabel*>(QStringLiteral("pdfPreviewError"));
+    auto* exportButton = dialog.findChild<QPushButton*>(QStringLiteral("confirmPdfExport"));
+    QVERIFY(paper && width && height && margin && error && exportButton);
+    QTRY_VERIFY(exportButton->isEnabled());
+    QVERIFY(!width->isVisible() && !height->isVisible());
+    paper->setCurrentIndex(paper->findData(QStringLiteral("custom")));
+    QVERIFY(width->isVisible() && height->isVisible());
+    width->setValue(50);
+    height->setValue(50);
+    margin->setValue(30);
+    QTRY_VERIFY(!error->text().isEmpty());
+    QVERIFY(!exportButton->isEnabled());
+    width->setValue(173.5);
+    height->setValue(244.2);
+    QTRY_VERIFY(exportButton->isEnabled());
+    QVERIFY(error->text().isEmpty());
+    QCOMPARE(dialog.options().customSizeMm, QSizeF(173.5, 244.2));
+    paper->setCurrentIndex(paper->findData(QStringLiteral("a5")));
+    QVERIFY(!width->isVisible() && !height->isVisible());
+    QTRY_VERIFY(exportButton->isEnabled());
+    QCOMPARE(dialog.options().paper, QStringLiteral("a5"));
+  }
+
   void pdfMenuPersistsOnlyAfterSuccessfulSave() {
     QTemporaryDir directory;
     typist::MainWindow window;
@@ -3437,7 +3474,10 @@ class WindowTests : public QObject {
       if (auto* dialog =
               qobject_cast<typist::ui::PdfExportDialog*>(QApplication::activeModalWidget())) {
         if (!configured) {
-          dialog->findChild<QComboBox*>(QStringLiteral("pdfPaper"))->setCurrentIndex(1);
+          auto* paper = dialog->findChild<QComboBox*>(QStringLiteral("pdfPaper"));
+          paper->setCurrentIndex(paper->findData(QStringLiteral("custom")));
+          dialog->findChild<QDoubleSpinBox*>(QStringLiteral("pdfPaperWidth"))->setValue(173.5);
+          dialog->findChild<QDoubleSpinBox*>(QStringLiteral("pdfPaperHeight"))->setValue(244.2);
           dialog->findChild<QComboBox*>(QStringLiteral("pdfOrientation"))->setCurrentIndex(1);
           dialog->findChild<QDoubleSpinBox*>(QStringLiteral("pdfMargin"))->setValue(12.5);
           dialog->findChild<QLineEdit*>(QStringLiteral("pdfHeader"))
@@ -3484,13 +3524,15 @@ class WindowTests : public QObject {
     QVERIFY(cancelled);
     QCOMPARE(afterCancel.header, old.header);
     QCOMPARE(afterCancel.paper, old.paper);
+    QCOMPARE(afterCancel.customSizeMm, old.customSizeMm);
     QCOMPARE(afterCancel.breakBetweenTopHeadings, old.breakBetweenTopHeadings);
     QFile pdf(directory.filePath(QStringLiteral("menu-pdf.pdf")));
     QVERIFY(pdf.open(QIODevice::ReadOnly));
     QVERIFY(pdf.readAll().startsWith("%PDF-"));
     const auto saved = typist::platform::pdfOptions(QStringLiteral("New"));
     QVERIFY(saved.landscape);
-    QCOMPARE(saved.paper, QStringLiteral("letter"));
+    QCOMPARE(saved.paper, QStringLiteral("custom"));
+    QCOMPARE(saved.customSizeMm, QSizeF(173.5, 244.2));
     QCOMPARE(saved.marginMm, 12.5);
     QCOMPARE(saved.header, QStringLiteral("Header #"));
     QVERIFY(!saved.repeatTableHeader);

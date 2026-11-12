@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QImage>
+#include <QPageSize>
 #include <QPair>
 #include <QRectF>
 #include <QString>
@@ -11,16 +12,24 @@ class QTextDocument;
 
 namespace typist::platform {
 
+inline constexpr QPageSize::PageSizeId kPdfPaperPresets[] = {
+    QPageSize::A4, QPageSize::Letter, QPageSize::A3, QPageSize::A5, QPageSize::Legal};
+inline constexpr double kMinPdfPaperSideMm = 50.0;
+inline constexpr double kMaxPdfPaperSideMm = 1000.0;
+QPageSize::PageSizeId pdfPaperId(const QString& key);
+bool validPdfCustomSize(const QSizeF& size);
+
 // Page controls for the PDF writer: paper size, margins and header/footer bands.
 struct PdfPageOptions {
-  QString paper = QStringLiteral("a4");  // a4 or letter
+  QString paper = QStringLiteral("a4");  // preset key or "custom"
   double marginMm = 20.0;
-  QString header;                 // empty leaves no header band
-  QString footer;                 // a # in the template is replaced by the page number
+  QString header;  // empty leaves no header band
+  QString footer;
   bool repeatTableHeader = true;  // continuation pages redraw the first row of a split table
   bool landscape = false;
-  QString title;  // substitutes {title} in header/footer templates; not persisted
+  QString title;  // document title for metadata and header/footer templates
   bool breakBetweenTopHeadings = false;
+  QSizeF customSizeMm{210.0, 297.0};  // before applying landscape orientation
 };
 
 // Renders the document to a PDF file. Printing lays out the whole document, so callers

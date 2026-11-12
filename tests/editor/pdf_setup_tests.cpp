@@ -46,14 +46,21 @@ class PdfSetupTests : public QObject {
   void previewMatchesExport_data() {
     QTest::addColumn<QString>("paper");
     QTest::addColumn<bool>("landscape");
-    QTest::newRow("a4-portrait") << QStringLiteral("a4") << false;
-    QTest::newRow("a4-landscape") << QStringLiteral("a4") << true;
-    QTest::newRow("letter-portrait") << QStringLiteral("letter") << false;
-    QTest::newRow("letter-landscape") << QStringLiteral("letter") << true;
+    QTest::addColumn<int>("paperId");
+    QTest::newRow("a4-portrait") << QStringLiteral("a4") << false << int(QPageSize::A4);
+    QTest::newRow("a4-landscape") << QStringLiteral("a4") << true << int(QPageSize::A4);
+    QTest::newRow("letter-portrait") << QStringLiteral("letter") << false << int(QPageSize::Letter);
+    QTest::newRow("letter-landscape") << QStringLiteral("letter") << true << int(QPageSize::Letter);
+    QTest::newRow("a3-portrait") << QStringLiteral("a3") << false << int(QPageSize::A3);
+    QTest::newRow("a5-landscape") << QStringLiteral("a5") << true << int(QPageSize::A5);
+    QTest::newRow("legal-portrait") << QStringLiteral("legal") << false << int(QPageSize::Legal);
+    QTest::newRow("custom-portrait") << QStringLiteral("custom") << false << int(QPageSize::Custom);
+    QTest::newRow("custom-landscape") << QStringLiteral("custom") << true << int(QPageSize::Custom);
   }
   void previewMatchesExport() {
     QFETCH(QString, paper);
     QFETCH(bool, landscape);
+    QFETCH(int, paperId);
     QTextDocument document;
     QString error;
     QVERIFY(typist::editor::loadMarkdown(specimen(), &document, &error));
@@ -64,6 +71,7 @@ class PdfSetupTests : public QObject {
     typist::platform::PdfPageOptions options;
     options.paper = paper;
     options.landscape = landscape;
+    options.customSizeMm = QSizeF(173.5, 244.2);
     options.header = QStringLiteral("{title} - #");
     options.footer = QStringLiteral("Page #");
     options.title = QStringLiteral("Preview / 预览");
@@ -71,16 +79,30 @@ class PdfSetupTests : public QObject {
     int count = 0;
     const auto preview = typist::platform::pdfPagePreview(&document, options, 0, &count, &error);
     QVERIFY2(!preview.isNull(), qPrintable(error));
-    QVERIFY(count >= 3);
-    auto expected =
-        QPageSize(paper == QLatin1String("a4") ? QPageSize::A4 : QPageSize::Letter).sizePixels(96);
-    if (landscape) expected.transpose();
-    QCOMPARE(preview.size(), expected);
+    QVERIFY(count >= 2);
+    const auto expectedPaper =
+        paperId == QPageSize::Custom
+            ? QPageSize(options.customSizeMm, QPageSize::Millimeter, {}, QPageSize::ExactMatch)
+            : QPageSize(QPageSize::PageSizeId(paperId));
+    auto expectedSize = expectedPaper.sizePixels(96);
+    auto expectedPoints = expectedPaper.sizePoints();
+    if (landscape) {
+      expectedSize.transpose();
+      expectedPoints.transpose();
+    }
+    QCOMPARE(preview.size(), expectedSize);
     QCOMPARE(preview.pixelColor(0, 0), QColor(Qt::white));
     QTemporaryDir directory;
     const auto path = directory.filePath(QStringLiteral("document.pdf"));
     QVERIFY2(typist::platform::exportPdf(path, &document, options, &error), qPrintable(error));
-    QCOMPARE(pageCount(read(path)), count);
+    const auto bytes = read(path);
+    QCOMPARE(pageCount(bytes), count);
+    const QRegularExpression box(QStringLiteral(
+        R"(/MediaBox\s*\[\s*0(?:\.0+)?\s+0(?:\.0+)?\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s*\])"));
+    const auto mediaBox = box.match(QString::fromLatin1(bytes));
+    QVERIFY(mediaBox.hasMatch());
+    QVERIFY(qAbs(mediaBox.captured(1).toDouble() - expectedPoints.width()) <= 1.0);
+    QVERIFY(qAbs(mediaBox.captured(2).toDouble() - expectedPoints.height()) <= 1.0);
     const auto last =
         typist::platform::pdfPagePreview(&document, options, count - 1, nullptr, &error);
     const auto clamped =
@@ -95,11 +117,39 @@ class PdfSetupTests : public QObject {
           paper + (landscape ? QStringLiteral("-landscape") : QStringLiteral("-portrait"));
       QFile copy(output + '/' + stem + QStringLiteral(".pdf"));
       QVERIFY(copy.open(QIODevice::WriteOnly));
-      const auto bytes = read(path);
       QCOMPARE(copy.write(bytes), bytes.size());
       QVERIFY(preview.save(output + '/' + stem + QStringLiteral("-preview.png")));
       QVERIFY(last.save(output + '/' + stem + QStringLiteral("-last-preview.png")));
     }
+  }
+
+  void templatesUseTheFinalPageCount() {
+    QTextDocument document;
+    QVERIFY(typist::editor::loadMarkdown(
+        QStringLiteral("# Chapter One\n\nFirst page.\n\n# Chapter Two\n\nSecond page.\n"),
+        &document, nullptr));
+    typist::platform::PdfPageOptions options;
+    options.paper = QStringLiteral("custom");
+    options.customSizeMm = QSizeF(173.5, 244.2);
+    options.title = QStringLiteral("PDF # ${pageCount}");
+    options.header = QStringLiteral("Edition ${title}");
+    options.footer = QStringLiteral("Page ${pageNo} / ${pageCount} [${totalPages}, #]");
+    options.breakBetweenTopHeadings = true;
+    int count = 0;
+    QString error;
+    const auto preview = typist::platform::pdfPagePreview(&document, options, 1, &count, &error);
+    QVERIFY2(!preview.isNull(), qPrintable(error));
+    QCOMPARE(count, 2);
+    auto expected = options;
+    expected.header = QStringLiteral("Edition {title}");
+    expected.footer = QStringLiteral("Page 2 / 2 [2, 2]");
+    QCOMPARE(preview, typist::platform::pdfPagePreview(&document, expected, 1, nullptr, nullptr));
+
+    QTemporaryDir directory;
+    const auto output = qEnvironmentVariable("TYPIST_PDF_OUTPUT", directory.path());
+    const auto path = output + QStringLiteral("/page-count-template.pdf");
+    QVERIFY2(typist::platform::exportPdf(path, &document, options, &error), qPrintable(error));
+    QCOMPARE(pageCount(read(path)), count);
   }
   void previewDrawsUnderline() {
     QTextDocument plain, marked;
@@ -215,6 +265,23 @@ class PdfSetupTests : public QObject {
       QCOMPARE(pages, 0);
       QCOMPARE(read(path), QByteArray("existing PDF"));
     }
+    options.paper = QStringLiteral("custom");
+    options.marginMm = 20;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    for (const auto& size : {QSizeF(49, 200), QSizeF(200, 1001), QSizeF(nan, 200)}) {
+      options.customSizeMm = size;
+      QVERIFY(!typist::platform::exportPdf(path, &document, options, &error));
+      int pages = 9;
+      QVERIFY(typist::platform::pdfPagePreview(&document, options, 0, &pages, &error).isNull());
+      QCOMPARE(pages, 0);
+      QCOMPARE(read(path), QByteArray("existing PDF"));
+    }
+    options.customSizeMm = QSizeF(50, 50);
+    options.header = QStringLiteral("Header");
+    options.footer = QStringLiteral("Footer");
+    QVERIFY(!typist::platform::exportPdf(path, &document, options, &error));
+    QVERIFY(typist::platform::pdfPagePreview(&document, options, 0, nullptr, &error).isNull());
+    QCOMPARE(read(path), QByteArray("existing PDF"));
     QVERIFY(!typist::platform::exportPdf(path, nullptr, &error));
     QCOMPARE(read(path), QByteArray("existing PDF"));
     QVERIFY(!typist::platform::exportPdf(directory.filePath(QStringLiteral("missing/document.pdf")),
@@ -226,7 +293,8 @@ class PdfSetupTests : public QObject {
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settings.path());
     QVERIFY(!typist::platform::pdfOptions(QString()).breakBetweenTopHeadings);
     typist::platform::PdfPageOptions options;
-    options.paper = QStringLiteral("letter");
+    options.paper = QStringLiteral("custom");
+    options.customSizeMm = QSizeF(173.5, 244.2);
     options.marginMm = 12.5;
     options.landscape = true;
     options.header = QStringLiteral("{title}");
@@ -237,6 +305,7 @@ class PdfSetupTests : public QObject {
     typist::platform::setPdfOptions(options);
     const auto saved = typist::platform::pdfOptions(QStringLiteral("New title"));
     QCOMPARE(saved.paper, options.paper);
+    QCOMPARE(saved.customSizeMm, options.customSizeMm);
     QCOMPARE(saved.marginMm, 12.5);
     QVERIFY(saved.landscape);
     QCOMPARE(saved.header, options.header);
