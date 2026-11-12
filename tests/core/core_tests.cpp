@@ -166,6 +166,19 @@ int main(int argc, char** argv) {
   check(page.find("<meta charset=\"utf-8\">") != std::string::npos, "html page declares charset");
   check(page.find("<title>Doc &lt;title&gt;</title>") != std::string::npos,
         "html page escapes title");
+  const auto customPage =
+      typist::core::wrapHtmlDocument("<p>正文</p>", "Doc", "p{color:blue}",
+                                     "<style>p{color:red}</style>", "<footer>附录</footer>");
+  check(customPage.find("<style>p{color:blue}</style>\n<style>p{color:red}</style>\n</head>") !=
+            std::string::npos,
+        "custom head markup follows the built-in stylesheet");
+  check(customPage.find("<p>正文</p>\n<footer>附录</footer>\n</body>") != std::string::npos,
+        "custom body markup follows rendered content");
+  const auto plainPage =
+      typist::core::wrapHtmlDocument("<p>Text</p>", "Doc", {}, {}, "<footer>Appendix</footer>");
+  check(plainPage.find("<style>") == std::string::npos &&
+            plainPage.find("<footer>Appendix</footer>\n</body>") != std::string::npos,
+        "plain html can append a footer without adding a stylesheet");
 
   std::cout << (g_failures == 0 ? "all tests passed\n"
                                 : "failed: " + std::to_string(g_failures) + "\n");

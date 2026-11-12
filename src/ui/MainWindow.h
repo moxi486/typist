@@ -178,11 +178,14 @@ class MainWindow : public QMainWindow {
   void insertTableDialog();
   void configureCodeFences();
   void configureWritingArea();
+  void configureHtmlExportContent();
   struct HtmlExportSettings {
     bool styled;
     bool dark;
     bool includeOutline;
     bool collapsible;
+    QString extraHead;
+    QString extraBody;
   };
   struct ExportReplacement {
     const platform::ExportedFile& destination;

@@ -580,6 +580,26 @@
         <translation>导出设置</translation>
     </message>
     <message>
+        <source>Additional HTML Content…</source>
+        <translation>附加 HTML 内容…</translation>
+    </message>
+    <message>
+        <source>Additional HTML Content</source>
+        <translation>附加 HTML 内容</translation>
+    </message>
+    <message>
+        <source>Append to &lt;head&gt;</source>
+        <translation>追加到 &lt;head&gt;</translation>
+    </message>
+    <message>
+        <source>Append to &lt;body&gt;</source>
+        <translation>追加到 &lt;body&gt;</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
         <source>Use Document Folder</source>
         <translation>使用文档所在文件夹</translation>
     </message>
