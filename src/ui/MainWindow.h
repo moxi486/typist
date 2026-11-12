@@ -160,6 +160,8 @@ class MainWindow : public QMainWindow {
   void updateSearchFocusGuard();
   void createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMenu* settings);
   void createLaunchMenu(QMenu* settings);
+  void createExportMenu(QMenu* settings);
+  QString chooseDirectory(const QString& title, const QString& initial);
   bool maybeSaveBeforeNavigate();
   bool openFileReplacingCurrent(const QString& path, bool rememberCurrent);
   void clearRecentHistory();
@@ -172,6 +174,8 @@ class MainWindow : public QMainWindow {
   void configureCodeFences();
   void configureWritingArea();
   void exportHtmlDocument(bool styled);
+  QString suggestedExportPath(const QString& suffix) const;
+  void finishExport(const QString& path, const QString& status);
   void insertLinkDialog();
   void showDocumentStatistics();
   void replaceOne();

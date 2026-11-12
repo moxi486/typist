@@ -1,5 +1,6 @@
 #include "Settings.h"
 
+#include <QDir>
 #include <QFileInfo>
 #include <QSettings>
 #include <algorithm>
@@ -16,6 +17,8 @@ const auto launchOptionsKey = QStringLiteral("startup/options");
 const auto lastClosedKey = QStringLiteral("startup/lastClosed");
 const auto closedFilesKey = QStringLiteral("history/closedFiles");
 const auto recentFilesKey = QStringLiteral("recentFiles");
+const auto exportPreferencesKey = QStringLiteral("export/preferences");
+const auto lastExportDirectoryKey = QStringLiteral("export/lastDirectory");
 constexpr int fileHistoryLimit = 8;
 #ifdef Q_OS_WIN
 constexpr auto pathCase = Qt::CaseInsensitive;
@@ -127,6 +130,48 @@ StartupTarget startupTarget(const QStringList& arguments, bool benchmark,
   if (mode == LaunchMode::LastFolder || !QFileInfo(target.file).isFile()) target.file.clear();
   if (!QFileInfo(target.folder).isDir()) target.folder.clear();
   return target;
+}
+
+ExportPreferences exportPreferences() {
+  const auto settings = openSettings(QSettings::defaultFormat());
+  const auto values = settings.value(exportPreferencesKey).toMap();
+  using Mode = ExportFolderMode;
+  const auto mode = values.value(QStringLiteral("folderMode")).toInt();
+  return {mode >= int(Mode::DocumentFolder) && mode <= int(Mode::CustomFolder)
+              ? Mode(mode)
+              : Mode::DocumentFolder,
+          values.value(QStringLiteral("customFolder")).toString(),
+          values.value(QStringLiteral("openFolderOnSuccess")).toBool()};
+}
+
+void setExportPreferences(const ExportPreferences& preferences) {
+  openSettings(QSettings::defaultFormat())
+      .setValue(
+          exportPreferencesKey,
+          QVariantMap{{QStringLiteral("folderMode"), int(preferences.folderMode)},
+                      {QStringLiteral("customFolder"), preferences.customFolder},
+                      {QStringLiteral("openFolderOnSuccess"), preferences.openFolderOnSuccess}});
+}
+
+QString exportDirectory(const QString& documentPath) {
+  const auto preferences = exportPreferences();
+  QString preferred;
+  if (preferences.folderMode == ExportFolderMode::CustomFolder)
+    preferred = preferences.customFolder;
+  else if (preferences.folderMode == ExportFolderMode::LastExportFolder)
+    preferred = openSettings(QSettings::defaultFormat()).value(lastExportDirectoryKey).toString();
+  const QFileInfo folder(preferred);
+  if (folder.isDir()) return folder.absoluteFilePath();
+  if (!documentPath.isEmpty()) {
+    const auto parent = QFileInfo(documentPath).absolutePath();
+    if (QFileInfo(parent).isDir()) return parent;
+  }
+  return QDir::homePath();
+}
+
+void rememberExportDirectory(const QString& outputPath) {
+  openSettings(QSettings::defaultFormat())
+      .setValue(lastExportDirectoryKey, QFileInfo(outputPath).absolutePath());
 }
 
 WritingAreaWidths writingAreaWidths() {

@@ -3814,6 +3814,141 @@ class WindowTests : public QObject {
     QCOMPARE(dialog.options().paper, QStringLiteral("a5"));
   }
 
+  void exportPreferencesApplyToAllSaveDialogsAndOnlyRememberSuccessfulWrites() {
+    using namespace typist::platform;
+    QSettings settings;
+    const auto preferencesKey = QStringLiteral("export/preferences");
+    const auto lastKey = QStringLiteral("export/lastDirectory");
+    const auto previousPreferences = settings.value(preferencesKey);
+    const auto previousDirectory = settings.value(lastKey);
+    const auto language = languagePreference();
+    const bool native = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+    const auto restore = qScopeGuard([&] {
+      for (const auto& entry : {qMakePair(preferencesKey, previousPreferences),
+                                qMakePair(lastKey, previousDirectory)}) {
+        if (entry.second.isValid())
+          settings.setValue(entry.first, entry.second);
+        else
+          settings.remove(entry.first);
+      }
+      setLanguagePreference(language);
+      QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native);
+    });
+    settings.remove(preferencesKey);
+    settings.remove(lastKey);
+    setLanguagePreference(QStringLiteral("en"));
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto documentFolder = directory.filePath(QStringLiteral("documents"));
+    const auto customFolder = directory.filePath(QStringLiteral("导出 目录"));
+    const auto actualFolder = directory.filePath(QStringLiteral("actual output"));
+    for (const auto& folder : {documentFolder, customFolder, actualFolder})
+      QVERIFY(QDir().mkpath(folder));
+    QFile document(QDir(documentFolder).filePath(QStringLiteral("note.md")));
+    QVERIFY(document.open(QIODevice::WriteOnly));
+    QVERIFY(document.write("# Export specimen\n\nA short paragraph.\n") > 0);
+    document.close();
+    const auto canonical = [](const QString& path) { return QFileInfo(path).canonicalFilePath(); };
+    QCOMPARE(exportDirectory({}), QDir::homePath());
+    QCOMPARE(canonical(exportDirectory(document.fileName())), canonical(documentFolder));
+
+    typist::MainWindow window(nullptr, true);
+    QVERIFY(window.openFile(document.fileName()));
+    window.show();
+    auto* last = window.findChild<QAction*>(QStringLiteral("exportFolderLast"));
+    auto* custom = window.findChild<QAction*>(QStringLiteral("exportFolderCustom"));
+    auto* fromDocument = window.findChild<QAction*>(QStringLiteral("exportFolderDocument"));
+    auto* reveal = window.findChild<QAction*>(QStringLiteral("openFolderAfterExport"));
+    QVERIFY(last && custom && fromDocument && reveal);
+    QVERIFY(fromDocument->isChecked() && !reveal->isChecked());
+    last->trigger();
+    QCOMPARE(exportPreferences().folderMode, ExportFolderMode::LastExportFolder);
+    QCOMPARE(canonical(exportDirectory(document.fileName())), canonical(documentFolder));
+
+    const auto drive = [&](QAction* action, const QString& expectedFolder, const QString& path,
+                           bool chooseFolder = false, bool blockWrite = false) {
+      if (!action) return false;
+      bool verified = false;
+      QTimer automation, safety;
+      automation.setInterval(10);
+      connect(&automation, &QTimer::timeout, &window, [&] {
+        auto* modal = QApplication::activeModalWidget();
+        if (auto* file = qobject_cast<QFileDialog*>(modal)) {
+          automation.stop();
+          auto* input = file->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
+          verified = input &&
+                     canonical(file->directory().absolutePath()) == canonical(expectedFolder) &&
+                     (chooseFolder ? file->fileMode() == QFileDialog::Directory
+                                   : file->acceptMode() == QFileDialog::AcceptSave);
+          if (!verified || path.isEmpty()) {
+            file->reject();
+            return;
+          }
+          input->setText(path);
+          QMetaObject::invokeMethod(file, "accept", Qt::DirectConnection);
+          verified = file->result() == QDialog::Accepted;
+          if (verified && blockWrite) verified = QDir().mkpath(path);
+        } else if (qobject_cast<typist::ui::PdfExportDialog*>(modal) ||
+                   qobject_cast<typist::ui::ImageExportDialog*>(modal) ||
+                   qobject_cast<typist::ui::EpubDialog*>(modal)) {
+          qobject_cast<QDialog*>(modal)->accept();
+        }
+      });
+      safety.setSingleShot(true);
+      connect(&safety, &QTimer::timeout, &window, [] {
+        if (auto* modal = QApplication::activeModalWidget()) modal->close();
+      });
+      automation.start();
+      safety.start(3000);
+      action->trigger();
+      return verified;
+    };
+    QVERIFY(drive(custom, documentFolder, {}, true));
+    QVERIFY(last->isChecked());
+    QCOMPARE(exportPreferences().folderMode, ExportFolderMode::LastExportFolder);
+    QVERIFY(drive(custom, documentFolder, customFolder, true));
+    QVERIFY(custom->isChecked());
+    QCOMPARE(canonical(exportDirectory(document.fileName())), canonical(customFolder));
+
+    LinkReceiver receiver;
+    QDesktopServices::setUrlHandler(QStringLiteral("file"), &receiver, "capture");
+    const auto resetHandler =
+        qScopeGuard([] { QDesktopServices::unsetUrlHandler(QStringLiteral("file")); });
+    reveal->trigger();
+    QVERIFY(exportPreferences().openFolderOnSuccess);
+    for (const auto& name : {"Export HTML", "Export HTML (without styles)", "Export Image",
+                             "Export PDF", "Export DOCX", "Export EPUB"}) {
+      QVERIFY2(drive(actionBySource(window, QString::fromLatin1(name)), customFolder, {}), name);
+    }
+    QVERIFY(receiver.last.isEmpty());
+    QVERIFY(!settings.contains(lastKey));
+
+    auto* html = window.findChild<QAction*>(QStringLiteral("exportHtml"));
+    const auto output = QDir(actualFolder).filePath(QStringLiteral("report.html"));
+    QVERIFY(drive(html, customFolder, output));
+    QVERIFY(QFileInfo(output).isFile());
+    QCOMPARE(canonical(receiver.last.toLocalFile()), canonical(actualFolder));
+    QCOMPARE(canonical(settings.value(lastKey).toString()), canonical(actualFolder));
+    last->trigger();
+    QCOMPARE(canonical(exportDirectory(document.fileName())), canonical(actualFolder));
+    receiver.last = QUrl();
+    const auto blocked = QDir(customFolder).filePath(QStringLiteral("blocked.html"));
+    QVERIFY(drive(html, actualFolder, blocked, false, true));
+    QVERIFY(QFileInfo(blocked).isDir());
+    QVERIFY(receiver.last.isEmpty());
+    QCOMPARE(canonical(settings.value(lastKey).toString()), canonical(actualFolder));
+
+    auto* chinese = window.findChild<QAction*>(QStringLiteral("language_zh"));
+    QVERIFY(chinese);
+    chinese->trigger();
+    QCOMPARE(reveal->text(), QStringLiteral("导出后打开文件夹"));
+    QCOMPARE(last->text(), QStringLiteral("使用上次导出的文件夹"));
+    setExportPreferences({ExportFolderMode::CustomFolder,
+                          directory.filePath(QStringLiteral("missing folder")), false});
+    QCOMPARE(canonical(exportDirectory(document.fileName())), canonical(documentFolder));
+  }
+
   void imageExportSavesOptionsOnlyAfterWritingAndKeepsDraft() {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());

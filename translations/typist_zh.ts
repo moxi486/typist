@@ -556,6 +556,34 @@
         <translation>选择启动文件夹</translation>
     </message>
     <message>
+        <source>Export Settings</source>
+        <translation>导出设置</translation>
+    </message>
+    <message>
+        <source>Use Document Folder</source>
+        <translation>使用文档所在文件夹</translation>
+    </message>
+    <message>
+        <source>Use Last Export Folder</source>
+        <translation>使用上次导出的文件夹</translation>
+    </message>
+    <message>
+        <source>Choose Custom Export Folder…</source>
+        <translation>选择自定义导出文件夹…</translation>
+    </message>
+    <message>
+        <source>Choose Export Folder</source>
+        <translation>选择导出文件夹</translation>
+    </message>
+    <message>
+        <source>Open Folder After Export</source>
+        <translation>导出后打开文件夹</translation>
+    </message>
+    <message>
+        <source>Export saved, but the folder could not be opened</source>
+        <translation>导出已保存，无法打开所在文件夹</translation>
+    </message>
+    <message>
         <source>The file or folder is no longer available.</source>
         <translation>文件或文件夹已不可用。</translation>
     </message>

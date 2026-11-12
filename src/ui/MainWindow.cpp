@@ -433,6 +433,7 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   QMenu* settingsMenu = new QMenu(tr("Settings"), menuBar());
   menuBar()->insertMenu(helpMenu->menuAction(), settingsMenu);
   createLaunchMenu(settingsMenu);
+  createExportMenu(settingsMenu);
   QMenu* languageMenu = settingsMenu->addMenu(tr("Language"));
   auto* languageGroup = new QActionGroup(this);
   const QStringList languageIds = {QStringLiteral("system"), QStringLiteral("zh"),
@@ -1004,14 +1005,9 @@ void MainWindow::createLaunchMenu(QMenu* settings) {
     auto options = platform::launchOptions();
     const auto mode = Mode(action->data().toInt());
     if (mode == Mode::CustomFolder) {
-      auto* editor = static_cast<ui::Editor*>(m_editor);
-      const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
-      const auto restore = qScopeGuard(
-          [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
       const auto initial =
           QFileInfo(options.customFolder).isDir() ? options.customFolder : m_tree->rootPath();
-      const auto folder = QFileDialog::getExistingDirectory(
-          this, tr("Choose Startup Folder"), initial.isEmpty() ? QDir::homePath() : initial);
+      const auto folder = chooseDirectory(tr("Choose Startup Folder"), initial);
       if (folder.isEmpty()) {
         sync();
         return;
@@ -1020,6 +1016,66 @@ void MainWindow::createLaunchMenu(QMenu* settings) {
     }
     options.mode = mode;
     platform::setLaunchOptions(options);
+  });
+}
+
+QString MainWindow::chooseDirectory(const QString& title, const QString& initial) {
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+  const auto restore = qScopeGuard(
+      [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
+  return QFileDialog::getExistingDirectory(this, title,
+                                           initial.isEmpty() ? QDir::homePath() : initial);
+}
+
+void MainWindow::createExportMenu(QMenu* settings) {
+  using Mode = platform::ExportFolderMode;
+  auto* menu = settings->addMenu(tr("Export Settings"));
+  menu->setObjectName(QStringLiteral("exportSettingsMenu"));
+  auto* group = new QActionGroup(menu);
+  const auto add = [menu, group](Mode mode, const QString& id, const QString& label) {
+    auto* action = menu->addAction(label);
+    action->setCheckable(true);
+    action->setData(int(mode));
+    action->setObjectName(id);
+    group->addAction(action);
+  };
+  add(Mode::DocumentFolder, QStringLiteral("exportFolderDocument"), tr("Use Document Folder"));
+  add(Mode::LastExportFolder, QStringLiteral("exportFolderLast"), tr("Use Last Export Folder"));
+  add(Mode::CustomFolder, QStringLiteral("exportFolderCustom"), tr("Choose Custom Export Folder…"));
+  menu->addSeparator();
+  auto* reveal = menu->addAction(tr("Open Folder After Export"));
+  reveal->setObjectName(QStringLiteral("openFolderAfterExport"));
+  reveal->setCheckable(true);
+  const auto sync = [group, reveal] {
+    const auto preferences = platform::exportPreferences();
+    for (auto* action : group->actions())
+      action->setChecked(action->data().toInt() == int(preferences.folderMode));
+    reveal->setChecked(preferences.openFolderOnSuccess);
+  };
+  sync();
+  connect(menu, &QMenu::aboutToShow, group, sync);
+  connect(group, &QActionGroup::triggered, this, [this, sync](QAction* action) {
+    auto preferences = platform::exportPreferences();
+    const auto mode = Mode(action->data().toInt());
+    if (mode == Mode::CustomFolder) {
+      const auto initial = QFileInfo(preferences.customFolder).isDir()
+                               ? preferences.customFolder
+                               : platform::exportDirectory(m_currentPath);
+      const auto folder = chooseDirectory(tr("Choose Export Folder"), initial);
+      if (folder.isEmpty()) {
+        sync();
+        return;
+      }
+      preferences.customFolder = folder;
+    }
+    preferences.folderMode = mode;
+    platform::setExportPreferences(preferences);
+  });
+  connect(reveal, &QAction::triggered, this, [](bool enabled) {
+    auto preferences = platform::exportPreferences();
+    preferences.openFolderOnSuccess = enabled;
+    platform::setExportPreferences(preferences);
   });
 }
 
@@ -1508,16 +1564,28 @@ bool MainWindow::saveDocumentAs(const QString& path) {
 
 void MainWindow::exportHtml() { exportHtmlDocument(true); }
 
+QString MainWindow::suggestedExportPath(const QString& suffix) const {
+  const auto name =
+      m_currentPath.isEmpty() ? QStringLiteral("untitled") : QFileInfo(m_currentPath).baseName();
+  return QDir(platform::exportDirectory(m_currentPath)).filePath(name + suffix);
+}
+
+void MainWindow::finishExport(const QString& path, const QString& status) {
+  platform::rememberExportDirectory(path);
+  statusBar()->showMessage(status);
+  if (!platform::exportPreferences().openFolderOnSuccess) return;
+  const auto folder = platform::containingDirectoryUrl(path);
+  if (folder.isEmpty() || !QDesktopServices::openUrl(folder))
+    statusBar()->showMessage(tr("Export saved, but the folder could not be opened"), 5000);
+}
+
 void MainWindow::exportHtmlDocument(bool styled) {
   auto* editor = static_cast<ui::Editor*>(m_editor);
   const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
   const auto restore = qScopeGuard(
       [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
   const QString suffix = styled ? QStringLiteral(".html") : QStringLiteral("-plain.html");
-  const QString suggested = m_currentPath.isEmpty()
-                                ? QDir::homePath() + QStringLiteral("/untitled") + suffix
-                                : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
-                                      QFileInfo(m_currentPath).baseName() + suffix;
+  const QString suggested = suggestedExportPath(suffix);
   QFileDialog dialog(this, styled ? tr("Export HTML") : tr("Export HTML (without styles)"),
                      suggested, QStringLiteral("HTML (*.html)"));
   dialog.setAcceptMode(QFileDialog::AcceptSave);
@@ -1547,7 +1615,7 @@ void MainWindow::exportHtmlDocument(bool styled) {
     statusBar()->showMessage(error);
     return;
   }
-  statusBar()->showMessage(tr("Exported HTML"));
+  finishExport(path, tr("Exported HTML"));
 }
 
 void MainWindow::exportImage() {
@@ -1569,7 +1637,7 @@ void MainWindow::exportImage() {
   if (setup.exec() != QDialog::Accepted) return;
 
   const QFileInfo file(m_currentPath);
-  const auto directory = m_currentPath.isEmpty() ? QDir::homePath() : file.absolutePath();
+  const auto directory = platform::exportDirectory(m_currentPath);
   QFileDialog destination(this, tr("Export Image"), directory, tr("PNG image (*.png)"));
   destination.setObjectName(QStringLiteral("imageDestination"));
   destination.setAcceptMode(QFileDialog::AcceptSave);
@@ -1622,14 +1690,11 @@ void MainWindow::exportImage() {
                                      {QStringLiteral("fontPixels"), options.fontPixels},
                                      {QStringLiteral("scale"), options.scale},
                                      {QStringLiteral("theme"), int(options.theme)}});
-  statusBar()->showMessage(tr("Exported PNG image"));
+  finishExport(path, tr("Exported PNG image"));
 }
 
 void MainWindow::exportPdf() {
-  const QString suggested = m_currentPath.isEmpty()
-                                ? QDir::homePath() + QStringLiteral("/untitled.pdf")
-                                : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
-                                      QFileInfo(m_currentPath).baseName() + QStringLiteral(".pdf");
+  const QString suggested = suggestedExportPath(QStringLiteral(".pdf"));
   // PDF always reflects Markdown semantics, so it prints a detached rendered document
   // instead of whatever the editor view is currently showing.
   QTextDocument rendered;
@@ -1659,14 +1724,11 @@ void MainWindow::exportPdf() {
     return;
   }
   platform::setPdfOptions(options);
-  statusBar()->showMessage(tr("Exported PDF"));
+  finishExport(path, tr("Exported PDF"));
 }
 
 void MainWindow::exportDocx() {
-  const QString suggested = m_currentPath.isEmpty()
-                                ? QDir::homePath() + QStringLiteral("/untitled.docx")
-                                : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
-                                      QFileInfo(m_currentPath).baseName() + QStringLiteral(".docx");
+  const QString suggested = suggestedExportPath(QStringLiteral(".docx"));
   const QString path = QFileDialog::getSaveFileName(this, tr("Export DOCX"), suggested,
                                                     QStringLiteral("Word document (*.docx)"));
   if (path.isEmpty()) return;
@@ -1680,7 +1742,7 @@ void MainWindow::exportDocx() {
     statusBar()->showMessage(error);
     return;
   }
-  statusBar()->showMessage(tr("Exported DOCX"));
+  finishExport(path, tr("Exported DOCX"));
 }
 
 void MainWindow::exportEpub() {
@@ -1697,8 +1759,7 @@ void MainWindow::exportEpub() {
   platform::EpubOptions options{metadata.bookTitle(), metadata.author(), metadata.language()};
   options.coverImage = metadata.coverImage();
   options.splitChapters = metadata.splitChapters();
-  const auto directory =
-      m_currentPath.isEmpty() ? QDir::homePath() : QFileInfo(m_currentPath).absolutePath();
+  const auto directory = platform::exportDirectory(m_currentPath);
   QFileDialog destination(this, tr("Export EPUB"), directory, QStringLiteral("EPUB book (*.epub)"));
   destination.setObjectName(QStringLiteral("epubDestination"));
   destination.setAcceptMode(QFileDialog::AcceptSave);
@@ -1709,8 +1770,9 @@ void MainWindow::exportEpub() {
   if (destination.exec() != QDialog::Accepted || destination.selectedFiles().isEmpty()) return;
   QString error;
   QStringList notices;
+  const auto path = destination.selectedFiles().first();
   if (!platform::exportEpub(
-          destination.selectedFiles().first(), currentMarkdown(), options, &error,
+          path, currentMarkdown(), options, &error,
           m_currentPath.isEmpty() ? QString() : QFileInfo(m_currentPath).absolutePath(),
           &notices)) {
     QMessageBox::warning(this, tr("Export EPUB"), error);
@@ -1719,7 +1781,6 @@ void MainWindow::exportEpub() {
   settings.setValue(QStringLiteral("export/epubAuthor"), options.author);
   settings.setValue(QStringLiteral("export/epubLanguage"), options.language);
   settings.setValue(QStringLiteral("export/epubSplitChapters"), options.splitChapters);
-  statusBar()->showMessage(tr("Exported EPUB"));
   if (!notices.isEmpty()) {
     QMessageBox message(QMessageBox::Information, tr("Export EPUB"),
                         tr("EPUB exported. Some resources or links were kept as text."),
@@ -1728,6 +1789,7 @@ void MainWindow::exportEpub() {
     message.setDetailedText(notices.join('\n'));
     message.exec();
   }
+  finishExport(path, tr("Exported EPUB"));
 }
 
 void MainWindow::autoSaveNow() {

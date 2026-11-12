@@ -35,6 +35,17 @@ void setLastClosedTarget(const StartupTarget& target);
 StartupTarget startupTarget(const QStringList& arguments, bool benchmark = false,
                             const QString& benchmarkFile = {});
 
+enum class ExportFolderMode { DocumentFolder, LastExportFolder, CustomFolder };
+struct ExportPreferences {
+  ExportFolderMode folderMode = ExportFolderMode::DocumentFolder;
+  QString customFolder;
+  bool openFolderOnSuccess = false;
+};
+ExportPreferences exportPreferences();
+void setExportPreferences(const ExportPreferences& preferences);
+QString exportDirectory(const QString& documentPath);
+void rememberExportDirectory(const QString& outputPath);
+
 bool copyImagesToAssets();
 void setCopyImagesToAssets(bool enabled);
 
