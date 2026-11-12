@@ -3815,6 +3815,74 @@ class WindowTests : public QObject {
     QCOMPARE(dialog.options().paper, QStringLiteral("a5"));
   }
 
+  void htmlExportContentSettingsCanBeSavedCanceledAndCleared() {
+    QSettings settings;
+    const auto key = QStringLiteral("export/htmlContent");
+    const auto saved = settings.value(key);
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] {
+      if (saved.isValid())
+        settings.setValue(key, saved);
+      else
+        settings.remove(key);
+      typist::platform::setLanguagePreference(language);
+    });
+    settings.remove(key);
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    const auto head = QStringLiteral("<style>\np { color: navy; }\n</style>");
+    const auto body = QStringLiteral("<footer>附录</footer>");
+    const auto edit = [](typist::MainWindow& window, const QString& expectedHead,
+                         const QString& expectedBody, const QString& newHead,
+                         const QString& newBody, bool save, bool chinese) {
+      auto* action = window.findChild<QAction*>(QStringLiteral("htmlExportContent"));
+      if (!action) return false;
+      bool matched = false;
+      QTimer automation;
+      connect(&automation, &QTimer::timeout, &window, [&] {
+        auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        automation.stop();
+        auto* headField = dialog->findChild<QPlainTextEdit*>(QStringLiteral("htmlExtraHead"));
+        auto* bodyField = dialog->findChild<QPlainTextEdit*>(QStringLiteral("htmlExtraBody"));
+        auto* buttons = dialog->findChild<QDialogButtonBox*>();
+        const auto expectedTitle =
+            chinese ? QStringLiteral("附加 HTML 内容") : QStringLiteral("Additional HTML Content");
+        const auto expectedLabel =
+            chinese ? QStringLiteral("追加到 <head>") : QStringLiteral("Append to <head>");
+        matched = dialog->objectName() == QLatin1String("htmlExportContentDialog") &&
+                  action->text() == expectedTitle + QChar(0x2026) &&
+                  dialog->windowTitle() == expectedTitle && headField && bodyField && buttons &&
+                  headField->accessibleName() == expectedLabel &&
+                  headField->toPlainText() == expectedHead &&
+                  bodyField->toPlainText() == expectedBody;
+        if (!matched) {
+          dialog->reject();
+          return;
+        }
+        headField->setPlainText(newHead);
+        bodyField->setPlainText(newBody);
+        buttons->button(save ? QDialogButtonBox::Save : QDialogButtonBox::Cancel)->click();
+      });
+      automation.start(10);
+      action->trigger();
+      return matched;
+    };
+    {
+      typist::MainWindow first(nullptr, true);
+      first.show();
+      QVERIFY(edit(first, {}, {}, head, body, true, false));
+    }
+    typist::MainWindow second(nullptr, true);
+    second.show();
+    auto* chinese = second.findChild<QAction*>(QStringLiteral("language_zh"));
+    QVERIFY(chinese);
+    chinese->trigger();
+    QVERIFY(edit(second, head, body, QStringLiteral("discard"), {}, false, true));
+    QVERIFY(edit(second, head, body, {}, body, true, true));
+    QVERIFY(edit(second, {}, body, {}, {}, true, true));
+    QVERIFY(edit(second, {}, {}, {}, {}, false, true));
+  }
+
   void repeatExportUsesSuccessfulOptionsAndCurrentDraft_data() {
     QTest::addColumn<QString>("command");
     QTest::addColumn<QString>("extension");
@@ -3834,9 +3902,10 @@ class WindowTests : public QObject {
     QFETCH(bool, setupRequired);
     QSettings settings;
     QMap<QString, QVariant> oldValues;
+    const auto contentKey = QStringLiteral("export/htmlContent");
     for (const auto& key :
          {QStringLiteral("export/preferences"), QStringLiteral("export/lastDirectory"),
-          QStringLiteral("export/htmlOutline"), QStringLiteral("export/image"),
+          QStringLiteral("export/htmlOutline"), contentKey, QStringLiteral("export/image"),
           QStringLiteral("pdfPaper"), QStringLiteral("pdfMarginMm"),
           QStringLiteral("pdf/customSizeMm"), QStringLiteral("pdf/landscape"),
           QStringLiteral("pdf/repeatTableHeader"), QStringLiteral("pdf/breakBetweenTopHeadings"),
@@ -3862,6 +3931,10 @@ class WindowTests : public QObject {
     typist::platform::setThemePreference(QStringLiteral("dark"));
     typist::platform::setExportPreferences({});
     settings.setValue(QStringLiteral("export/htmlOutline"), true);
+    const auto head = QStringLiteral("<style data-custom>p { color: navy; }</style>");
+    const auto footer = QStringLiteral("<footer>附录</footer>");
+    settings.setValue(
+        contentKey, QVariantMap{{QStringLiteral("head"), head}, {QStringLiteral("body"), footer}});
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
 
     QTemporaryDir directory;
@@ -3948,11 +4021,18 @@ class WindowTests : public QObject {
     QVERIFY(initial.open(QIODevice::ReadOnly));
     const auto initialBytes = initial.readAll();
     QVERIFY(!initialBytes.isEmpty());
+    if (extension == QLatin1String("html")) {
+      QVERIFY(initialBytes.contains(head.toUtf8() + "\n</head>"));
+      QVERIFY(initialBytes.contains(footer.toUtf8() + "\n</body>"));
+      QCOMPARE(initialBytes.contains("<style>"), command == QLatin1String("Export HTML"));
+    }
     initial.close();
     QVERIFY(repeat->isEnabled() && overwrite->isEnabled());
 
     // Change global defaults to distinguish the replay from a new export.
     settings.setValue(QStringLiteral("export/htmlOutline"), false);
+    settings.setValue(
+        contentKey, QVariantMap{{QStringLiteral("body"), QStringLiteral("<footer>New</footer>")}});
     settings.setValue(QStringLiteral("export/image"), QVariantMap{{QStringLiteral("width"), 640}});
     typist::platform::setPdfPaper(QStringLiteral("letter"));
     settings.setValue(QStringLiteral("export/epubAuthor"), QStringLiteral("Different author"));
@@ -3982,6 +4062,8 @@ class WindowTests : public QObject {
     if (extension == QLatin1String("html")) {
       QVERIFY(bytes.contains("<nav class=\"export-outline"));
       QVERIFY(bytes.contains("new contents"));
+      QVERIFY(bytes.contains(head.toUtf8() + "\n</head>"));
+      QVERIFY(bytes.contains(footer.toUtf8() + "\n</body>"));
       QCOMPARE(bytes.contains("<style>"), command == QLatin1String("Export HTML"));
       if (command == QLatin1String("Export HTML")) QVERIFY(bytes.contains("#1f2328"));
     } else if (extension == QLatin1String("png")) {
@@ -4042,6 +4124,10 @@ class WindowTests : public QObject {
                mediaBox.match(QString::fromLatin1(bytes)).captured());
     } else {
       QVERIFY(overwritten.contains("Updated overwrite contents"));
+    }
+    if (extension == QLatin1String("html")) {
+      QVERIFY(overwritten.contains(head.toUtf8() + "\n</head>"));
+      QVERIFY(overwritten.contains(footer.toUtf8() + "\n</body>"));
     }
     if (extension == QLatin1String("epub")) {
       QVERIFY(overwritten.contains("<dc:title>Replay Book</dc:title>"));

@@ -77,7 +77,9 @@
 #include <QMimeData>
 #include <QPainter>
 #include <QPalette>
+#include <QPlainTextEdit>
 #include <QProcess>
+#include <QPushButton>
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
 #include <QScopeGuard>
@@ -106,6 +108,7 @@ namespace typist {
 namespace {
 
 const auto htmlOutlineSetting = QStringLiteral("export/htmlOutline");
+const auto htmlContentSetting = QStringLiteral("export/htmlContent");
 
 bool systemPrefersDark() {
   const typist::platform::DarkHint hint = typist::platform::nativeDarkHint();
@@ -1086,6 +1089,51 @@ void MainWindow::createExportMenu(QMenu* settings) {
     preferences.openFolderOnSuccess = enabled;
     platform::setExportPreferences(preferences);
   });
+  menu->addSeparator();
+  auto* htmlContent = menu->addAction(tr("Additional HTML Content…"));
+  htmlContent->setObjectName(QStringLiteral("htmlExportContent"));
+  connect(htmlContent, &QAction::triggered, this, &MainWindow::configureHtmlExportContent);
+}
+
+void MainWindow::configureHtmlExportContent() {
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+  const auto restore = qScopeGuard(
+      [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
+
+  QSettings settings;
+  const auto saved = settings.value(htmlContentSetting).toMap();
+  QDialog dialog(this);
+  dialog.setObjectName(QStringLiteral("htmlExportContentDialog"));
+  dialog.setWindowTitle(tr("Additional HTML Content"));
+  dialog.resize(580, 410);
+  QVBoxLayout layout(&dialog);
+  QPlainTextEdit head, body;
+  const auto add = [&](QPlainTextEdit& field, const QString& label, const QString& key,
+                       const QString& objectName) {
+    auto* caption = new QLabel(label, &dialog);
+    caption->setTextFormat(Qt::PlainText);
+    caption->setBuddy(&field);
+    field.setAccessibleName(label);
+    field.setObjectName(objectName);
+    field.setLineWrapMode(QPlainTextEdit::NoWrap);
+    field.setTabChangesFocus(true);
+    field.setPlainText(saved.value(key).toString());
+    layout.addWidget(caption);
+    layout.addWidget(&field, 1);
+  };
+  add(head, tr("Append to <head>"), QStringLiteral("head"), QStringLiteral("htmlExtraHead"));
+  add(body, tr("Append to <body>"), QStringLiteral("body"), QStringLiteral("htmlExtraBody"));
+
+  QDialogButtonBox buttons(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+  buttons.button(QDialogButtonBox::Save)->setText(tr("Save"));
+  buttons.button(QDialogButtonBox::Cancel)->setText(tr("Cancel"));
+  layout.addWidget(&buttons);
+  connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+  connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+  if (dialog.exec() != QDialog::Accepted) return;
+  settings.setValue(htmlContentSetting, QVariantMap{{QStringLiteral("head"), head.toPlainText()},
+                                                    {QStringLiteral("body"), body.toPlainText()}});
 }
 
 bool MainWindow::maybeSaveBeforeNavigate() {
@@ -1670,9 +1718,12 @@ void MainWindow::runPreviousExport(const ExportReplacement* replacement) {
 
 void MainWindow::exportHtmlDocument(bool styled) {
   const auto theme = ui::resolveTheme(themePreference(), systemPrefersDark());
+  QSettings settings;
+  const auto extra = settings.value(htmlContentSetting).toMap();
   exportHtmlDocument({styled, theme == ui::Theme::Dark,
-                      QSettings().value(htmlOutlineSetting, false).toBool(),
-                      m_outlinePanel->collapsible()});
+                      settings.value(htmlOutlineSetting, false).toBool(),
+                      m_outlinePanel->collapsible(), extra.value(QStringLiteral("head")).toString(),
+                      extra.value(QStringLiteral("body")).toString()});
 }
 
 void MainWindow::exportHtmlDocument(const HtmlExportSettings& options,
@@ -1705,7 +1756,8 @@ void MainWindow::exportHtmlDocument(const HtmlExportSettings& options,
   const auto css =
       options.styled ? ui::htmlStyle(theme, !headings.isEmpty()).toStdString() : std::string();
   const std::string page =
-      core::wrapHtmlDocument(body.toStdString(), QFileInfo(path).baseName().toStdString(), css);
+      core::wrapHtmlDocument(body.toStdString(), QFileInfo(path).baseName().toStdString(), css,
+                             options.extraHead.toStdString(), options.extraBody.toStdString());
   QString error;
   if (!typist::platform::writeAtomic(path, QString::fromStdString(page), &error)) {
     statusBar()->showMessage(error);

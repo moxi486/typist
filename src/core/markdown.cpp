@@ -908,15 +908,21 @@ std::string toSemanticHtml(std::string_view source, const ParseOptions& options)
   return renderHtml(source, options, false);
 }
 
-std::string wrapHtmlDocument(std::string_view body, std::string_view title, std::string_view css) {
+std::string wrapHtmlDocument(std::string_view body, std::string_view title, std::string_view css,
+                             std::string_view extraHead, std::string_view extraBody) {
   std::string out;
   out += "<!doctype html>\n<html lang=\"en\">\n<head>\n";
   out += "<meta charset=\"utf-8\">\n";
   out += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n";
   out += "<title>" + escapeHtml(title) + "</title>\n";
   if (!css.empty()) out += "<style>" + std::string(css) + "</style>\n";
+  if (!extraHead.empty()) out += std::string(extraHead) + '\n';
   out += "</head>\n<body>\n";
-  out += std::string(body);
+  out += body;
+  if (!extraBody.empty()) {
+    if (out.back() != '\n') out += '\n';
+    out += std::string(extraBody) + '\n';
+  }
   out += "</body>\n</html>\n";
   return out;
 }
