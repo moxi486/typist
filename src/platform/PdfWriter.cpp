@@ -10,6 +10,7 @@
 #include <QPainter>
 #include <QPair>
 #include <QPdfWriter>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QTextBlock>
 #include <QTextDocument>
@@ -20,6 +21,18 @@
 #include <memory>
 
 namespace typist::platform {
+
+QPageSize::PageSizeId pdfPaperId(const QString& key) {
+  if (key.compare(QStringLiteral("custom"), Qt::CaseInsensitive) == 0) return QPageSize::Custom;
+  for (auto id : kPdfPaperPresets)
+    if (key.compare(QPageSize::key(id), Qt::CaseInsensitive) == 0) return id;
+  return QPageSize::A4;
+}
+
+bool validPdfCustomSize(const QSizeF& size) {
+  return size.width() >= kMinPdfPaperSideMm && size.width() <= kMaxPdfPaperSideMm &&
+         size.height() >= kMinPdfPaperSideMm && size.height() <= kMaxPdfPaperSideMm;
+}
 
 QVector<QPair<int, int>> splitParagraphChunks(int lineCount, int linesPerPage) {
   QVector<QPair<int, int>> chunks;
@@ -71,23 +84,48 @@ namespace {
 
 constexpr double kBandHeightPx = 30.0;
 
-QPageSize paperFor(const QString& paper) {
-  return paper == QStringLiteral("letter") ? QPageSize(QPageSize::Letter)
-                                           : QPageSize(QPageSize::A4);
+QPageSize paperFor(const PdfPageOptions& options) {
+  const auto id = pdfPaperId(options.paper);
+  if (id != QPageSize::Custom) return QPageSize(id);
+  return validPdfCustomSize(options.customSizeMm)
+             ? QPageSize(options.customSizeMm, QPageSize::Millimeter, {}, QPageSize::ExactMatch)
+             : QPageSize();
 }
 
-void drawBands(QPainter& painter, const QRectF& pageRect, int page, const PdfPageOptions& options) {
+QString expandBand(const QString& pattern, const QString& title, int page, int count) {
+  static const QRegularExpression variable(
+      QStringLiteral(R"(\$\{(?:title|pageNo|pageCount|totalPages)\}|\{title\}|#)"));
+  QString text;
+  qsizetype start = 0;
+  auto matches = variable.globalMatch(pattern);
+  while (matches.hasNext()) {
+    const auto match = matches.next();
+    text += QStringView(pattern).mid(start, match.capturedStart() - start);
+    const auto token = match.capturedView();
+    if (token == u"${title}" || token == u"{title}")
+      text += title;
+    else if (token == u"${pageNo}" || token == u"#")
+      text += QString::number(page);
+    else
+      text += QString::number(count);
+    start = match.capturedEnd();
+  }
+  text += QStringView(pattern).mid(start);
+  text.replace('\n', ' ');
+  return text;
+}
+
+void drawBands(QPainter& painter, const QRectF& pageRect, int page, int count,
+               const PdfPageOptions& options) {
   painter.save();
   painter.setClipping(false);
   painter.setPen(QColor("#667085"));
   QFont font = painter.font();
   font.setPointSizeF(9);
   painter.setFont(font);
-  const auto bandText = [&](QString text) {
-    text.replace(QStringLiteral("#"), QString::number(page));
-    text.replace(QStringLiteral("{title}"), options.title);
-    text.replace('\n', ' ');
-    return painter.fontMetrics().elidedText(text, Qt::ElideRight, qFloor(pageRect.width()));
+  const auto bandText = [&](const QString& pattern) {
+    return painter.fontMetrics().elidedText(expandBand(pattern, options.title, page, count),
+                                            Qt::ElideRight, qFloor(pageRect.width()));
   };
   if (!options.header.isEmpty())
     painter.drawText(QRectF(pageRect.left(), pageRect.top(), pageRect.width(), kBandHeightPx),
@@ -115,9 +153,9 @@ struct PreparedPages {
   double headerBand = 0, contentHeight = 0;
   QVector<QRectF> backgrounds;
 };
-QSize physicalPage(const PdfPageOptions& options) {
-  auto size = paperFor(options.paper).sizePixels(96);
-  if (options.landscape) size.transpose();
+QSize physicalPage(const QPageSize& paper, bool landscape) {
+  auto size = paper.sizePixels(96);
+  if (landscape) size.transpose();
   return size;
 }
 
@@ -168,7 +206,8 @@ void applyPageBreaks(QTextDocument& document, bool breakBetweenTopHeadings) {
 }
 
 bool preparePages(const QTextDocument* document, const PdfPageOptions& options,
-                  QPaintDevice* device, PreparedPages& pages, QString* error) {
+                  const QSize& pageSize, QPaintDevice* device, PreparedPages& pages,
+                  QString* error) {
   const auto fail = [&](const QString& reason) {
     if (error) *error = reason;
     return false;
@@ -177,8 +216,7 @@ bool preparePages(const QTextDocument* document, const PdfPageOptions& options,
   if (!qIsFinite(options.marginMm) || options.marginMm < 0)
     return fail(QStringLiteral("Invalid page margins"));
   const double margin = options.marginMm * 96 / 25.4;
-  const QRectF pageRect =
-      QRectF(QPointF(), physicalPage(options)).adjusted(margin, margin, -margin, -margin);
+  const QRectF pageRect = QRectF(QPointF(), pageSize).adjusted(margin, margin, -margin, -margin);
   const double headerBand = options.header.isEmpty() ? 0.0 : kBandHeightPx;
   const double footerBand = options.footer.isEmpty() ? 0.0 : kBandHeightPx;
   const double contentHeight = pageRect.height() - headerBand - footerBand;
@@ -291,7 +329,7 @@ bool preparePages(const QTextDocument* document, const PdfPageOptions& options,
   return true;
 }
 
-void paintPage(QPainter& painter, const PreparedPages& pages, int page,
+void paintPage(QPainter& painter, const PreparedPages& pages, int page, int count,
                const PdfPageOptions& options) {
   painter.save();
   // PaintContext::clip is a layout hint; a real painter clip also protects the bands.
@@ -309,29 +347,43 @@ void paintPage(QPainter& painter, const PreparedPages& pages, int page,
   context.clip = QRectF(0, page * pages.contentHeight, pages.pageRect.width(), pages.contentHeight);
   pages.document->documentLayout()->draw(&painter, context);
   painter.restore();
-  drawBands(painter, pages.pageRect, page + 1, options);
+  drawBands(painter, pages.pageRect, page + 1, count, options);
 }
 }  // namespace
 
 QImage pdfPagePreview(const QTextDocument* document, const PdfPageOptions& options, int page,
                       int* pageCount, QString* error) {
   if (pageCount) *pageCount = 0;
-  QImage image(physicalPage(options), QImage::Format_RGB32);
+  const auto paper = paperFor(options);
+  if (!paper.isValid()) {
+    if (error) *error = QStringLiteral("Invalid paper size");
+    return {};
+  }
+  QImage image(physicalPage(paper, options.landscape), QImage::Format_RGB32);
+  if (image.isNull()) {
+    if (error) *error = QStringLiteral("Cannot allocate PDF preview");
+    return {};
+  }
   image.setDotsPerMeterX(3780);
   image.setDotsPerMeterY(3780);
   image.fill(Qt::white);
   PreparedPages pages;
-  if (!preparePages(document, options, &image, pages, error)) return {};
+  if (!preparePages(document, options, image.size(), &image, pages, error)) return {};
   const int count = qMax(1, pages.document->pageCount());
   if (pageCount) *pageCount = count;
   QPainter painter(&image);
-  paintPage(painter, pages, qBound(0, page, count - 1), options);
+  paintPage(painter, pages, qBound(0, page, count - 1), count, options);
   painter.end();
   return image;
 }
 
 bool exportPdf(const QString& path, const QTextDocument* document, const PdfPageOptions& options,
                QString* error) {
+  const auto paper = paperFor(options);
+  if (!paper.isValid()) {
+    if (error) *error = QStringLiteral("Invalid paper size");
+    return false;
+  }
   QSaveFile file(path);
   if (!file.open(QIODevice::WriteOnly)) {
     if (error) *error = file.errorString();
@@ -342,11 +394,16 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
     writer.setResolution(96);
     writer.setTitle(options.title.isEmpty() ? options.header : options.title);
     writer.setCreator(QStringLiteral("Typist"));
-    writer.setPageSize(paperFor(options.paper));
-    writer.setPageOrientation(options.landscape ? QPageLayout::Landscape : QPageLayout::Portrait);
-    writer.setPageMargins(QMarginsF(0, 0, 0, 0));
+    if (!writer.setPageLayout(
+            QPageLayout(paper, options.landscape ? QPageLayout::Landscape : QPageLayout::Portrait,
+                        QMarginsF(), QPageLayout::Millimeter))) {
+      if (error) *error = QStringLiteral("Cannot set PDF paper size");
+      return false;
+    }
     PreparedPages pages;
-    if (!preparePages(document, options, &writer, pages, error)) return false;
+    if (!preparePages(document, options, physicalPage(paper, options.landscape), &writer, pages,
+                      error))
+      return false;
     QPainter painter(&writer);
     if (!painter.isActive()) {
       if (error) *error = QStringLiteral("Cannot open PDF for writing");
@@ -358,7 +415,7 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
         if (error) *error = QStringLiteral("Cannot create PDF page");
         return false;
       }
-      paintPage(painter, pages, page, options);
+      paintPage(painter, pages, page, count, options);
     }
     painter.end();
   }

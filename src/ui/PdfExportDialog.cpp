@@ -36,9 +36,32 @@ PdfExportDialog::PdfExportDialog(const QTextDocument* document,
   form->setSpacing(12);
   m_paper = new QComboBox(controls);
   m_paper->setObjectName(QStringLiteral("pdfPaper"));
-  m_paper->addItem(QStringLiteral("A4"), QStringLiteral("a4"));
-  m_paper->addItem(QStringLiteral("Letter"), QStringLiteral("letter"));
-  m_paper->setCurrentIndex(initial.paper == QLatin1String("letter") ? 1 : 0);
+  for (auto id : platform::kPdfPaperPresets) {
+    const auto label = QPageSize::key(id);
+    m_paper->addItem(label, label.toLower());
+  }
+  const auto customPaper = QStringLiteral("custom");
+  m_paper->addItem(QString(), customPaper);
+  m_paper->setCurrentIndex(qMax(0, m_paper->findData(initial.paper.toLower())));
+  auto* dimensions = new QWidget(controls);
+  auto* sizeLayout = new QHBoxLayout(dimensions);
+  sizeLayout->setContentsMargins(0, 0, 0, 0);
+  sizeLayout->setSpacing(8);
+  const auto size = platform::validPdfCustomSize(initial.customSizeMm)
+                        ? initial.customSizeMm
+                        : platform::PdfPageOptions().customSizeMm;
+  const auto makeDimension = [&](const QString& objectName, double value) {
+    auto* spin = new QDoubleSpinBox(dimensions);
+    spin->setObjectName(objectName);
+    spin->setRange(platform::kMinPdfPaperSideMm, platform::kMaxPdfPaperSideMm);
+    spin->setDecimals(1);
+    spin->setSuffix(QStringLiteral(" mm"));
+    spin->setValue(value);
+    sizeLayout->addWidget(spin);
+    return spin;
+  };
+  m_width = makeDimension(QStringLiteral("pdfPaperWidth"), size.width());
+  m_height = makeDimension(QStringLiteral("pdfPaperHeight"), size.height());
   m_orientation = new QComboBox(controls);
   m_orientation->setObjectName(QStringLiteral("pdfOrientation"));
   m_orientation->addItems({QString(), QString()});
@@ -57,6 +80,13 @@ PdfExportDialog::PdfExportDialog(const QTextDocument* document,
   m_footer->setMaxLength(200);
   m_paperLabel = new QLabel(controls);
   form->addRow(m_paperLabel, m_paper);
+  m_dimensionsLabel = new QLabel(controls);
+  form->addRow(m_dimensionsLabel, dimensions);
+  const auto showDimensions = [this, form, dimensions, customPaper] {
+    form->setRowVisible(dimensions, m_paper->currentData().toString() == customPaper);
+  };
+  showDimensions();
+  connect(m_paper, &QComboBox::currentIndexChanged, this, showDimensions);
   m_orientationLabel = new QLabel(controls);
   form->addRow(m_orientationLabel, m_orientation);
   m_marginLabel = new QLabel(controls);
@@ -100,6 +130,7 @@ PdfExportDialog::PdfExportDialog(const QTextDocument* document,
   row->addLayout(previewColumn, 1);
   outer->addLayout(row, 1);
   m_error = new QLabel(this);
+  m_error->setObjectName(QStringLiteral("pdfPreviewError"));
   m_error->setTextFormat(Qt::PlainText);
   m_error->setWordWrap(true);
   outer->addWidget(m_error);
@@ -131,6 +162,8 @@ PdfExportDialog::PdfExportDialog(const QTextDocument* document,
     m_refresh->start();
   };
   connect(m_paper, &QComboBox::currentIndexChanged, this, update);
+  connect(m_width, &QDoubleSpinBox::valueChanged, this, update);
+  connect(m_height, &QDoubleSpinBox::valueChanged, this, update);
   connect(m_orientation, &QComboBox::currentIndexChanged, this, update);
   connect(m_margin, &QDoubleSpinBox::valueChanged, this, update);
   connect(m_header, &QLineEdit::textChanged, this, update);
@@ -157,6 +190,7 @@ PdfExportDialog::PdfExportDialog(const QTextDocument* document,
 platform::PdfPageOptions PdfExportDialog::options() const {
   platform::PdfPageOptions result;
   result.paper = m_paper->currentData().toString();
+  result.customSizeMm = QSizeF(m_width->value(), m_height->value());
   result.landscape = m_orientation->currentIndex() == 1;
   result.marginMm = m_margin->value();
   result.header = m_header->text();
@@ -193,6 +227,10 @@ void PdfExportDialog::showImage() {
 void PdfExportDialog::retranslate() {
   setWindowTitle(tr("Export PDF"));
   m_paperLabel->setText(tr("Paper size"));
+  m_paper->setItemText(m_paper->findData(QStringLiteral("custom")), tr("Custom"));
+  m_dimensionsLabel->setText(tr("Width × height"));
+  m_width->setAccessibleName(tr("Paper width"));
+  m_height->setAccessibleName(tr("Paper height"));
   m_orientationLabel->setText(tr("Orientation"));
   m_orientation->setItemText(0, tr("Portrait"));
   m_orientation->setItemText(1, tr("Landscape"));
@@ -201,7 +239,9 @@ void PdfExportDialog::retranslate() {
   m_footerLabel->setText(tr("Footer"));
   m_header->setPlaceholderText(tr("Leave empty to hide"));
   m_footer->setPlaceholderText(tr("Leave empty to hide"));
-  m_hint->setText(tr("{title} inserts the document name. # inserts the page number."));
+  m_hint->setText(
+      tr("Use ${title} for the document name, ${pageNo} for the page number and ${pageCount} for "
+         "the total."));
   m_repeat->setText(tr("Repeat table headers"));
   m_sectionBreaks->setText(tr("Break between level 1 headings"));
   m_sectionBreaks->setToolTip(

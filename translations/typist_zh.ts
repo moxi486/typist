@@ -1642,6 +1642,22 @@
         <translation>纸张大小</translation>
     </message>
     <message>
+        <source>Custom</source>
+        <translation>自定义</translation>
+    </message>
+    <message>
+        <source>Width × height</source>
+        <translation>宽 × 高</translation>
+    </message>
+    <message>
+        <source>Paper width</source>
+        <translation>纸张宽度</translation>
+    </message>
+    <message>
+        <source>Paper height</source>
+        <translation>纸张高度</translation>
+    </message>
+    <message>
         <source>Orientation</source>
         <translation>方向</translation>
     </message>
@@ -1670,8 +1686,8 @@
         <translation>留空则隐藏</translation>
     </message>
     <message>
-        <source>{title} inserts the document name. # inserts the page number.</source>
-        <translation>{title} 插入文档名称，# 插入页码。</translation>
+        <source>Use ${title} for the document name, ${pageNo} for the page number and ${pageCount} for the total.</source>
+        <translation>${title} 插入文档名称，${pageNo} 插入当前页码，${pageCount} 插入总页数。</translation>
     </message>
     <message>
         <source>Repeat table headers</source>

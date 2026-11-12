@@ -32,10 +32,11 @@ class PdfExportDialog : public QDialog {
   const QTextDocument* m_document;
   QString m_title;
   QComboBox *m_paper, *m_orientation;
-  QDoubleSpinBox* m_margin;
+  QDoubleSpinBox *m_margin, *m_width, *m_height;
   QLineEdit *m_header, *m_footer;
   QCheckBox *m_repeat, *m_sectionBreaks;
-  QLabel *m_paperLabel, *m_orientationLabel, *m_marginLabel, *m_headerLabel, *m_footerLabel;
+  QLabel *m_paperLabel, *m_dimensionsLabel, *m_orientationLabel, *m_marginLabel, *m_headerLabel,
+      *m_footerLabel;
   QLabel *m_hint, *m_pageLabel, *m_error;
   QLabel* m_preview = nullptr;
   QPushButton *m_previous, *m_next, *m_export, *m_cancel;
