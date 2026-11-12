@@ -209,7 +209,9 @@ class WindowTests : public QObject {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     const auto workspace = directory.filePath(QStringLiteral("workspace"));
+    const auto customFolder = directory.filePath(QStringLiteral("custom startup"));
     QVERIFY(QDir().mkpath(workspace));
+    QVERIFY(QDir().mkpath(customFolder));
     const auto canonicalWorkspace = QFileInfo(workspace).canonicalFilePath();
     const auto path = directory.filePath(QStringLiteral("saved.md"));
     QFile file(path);
@@ -237,9 +239,10 @@ class WindowTests : public QObject {
         auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
         if (!dialog) return;
         automation.stop();
-        found = dialog->fileMode() == QFileDialog::Directory;
-        if (accept) {
-          dialog->selectFile(workspace);
+        auto* input = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
+        found = input && dialog->fileMode() == QFileDialog::Directory;
+        if (accept && found) {
+          input->setText(customFolder);
           QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
         } else {
           dialog->reject();
@@ -260,7 +263,8 @@ class WindowTests : public QObject {
     QVERIFY(chooseFolder(true));
     QVERIFY(custom->isChecked());
     QCOMPARE(launchOptions().mode, LaunchMode::CustomFolder);
-    QCOMPARE(QFileInfo(launchOptions().customFolder).canonicalFilePath(), canonicalWorkspace);
+    QCOMPARE(QFileInfo(launchOptions().customFolder).canonicalFilePath(),
+             QFileInfo(customFolder).canonicalFilePath());
     last->trigger();
     auto* chinese = window.findChild<QAction*>(QStringLiteral("language_zh"));
     QVERIFY(chinese);
