@@ -61,7 +61,8 @@ class FolderLocationsTests : public QObject {
 
   void pinsSurviveEvictionForgetAndClear() {
     QTemporaryDir directory;
-    FolderLocationsStore store(directory.filePath("settings.ini"));
+    const auto ini = directory.filePath("settings.ini");
+    FolderLocationsStore store(ini);
     const auto pinned = makeFolder(directory, QStringLiteral("Pinned"));
     store.record(pinned);
     QVERIFY(store.setPinned(pinned, true));
@@ -73,9 +74,15 @@ class FolderLocationsTests : public QObject {
     store.forgetRecent(pinned);
     QVERIFY(!store.read().recent.contains(pinned));
     QCOMPARE(store.read().pinned, QStringList({pinned}));
+    const QStringList rawPins{pinned, directory.filePath("temporarily-unavailable")};
+    QSettings raw(ini, QSettings::IniFormat);
+    raw.setValue(QStringLiteral("folders/pinned"), rawPins);
+    raw.sync();
     store.clearRecent();
     QVERIFY(store.read().recent.isEmpty());
     QCOMPARE(store.read().pinned, QStringList({pinned}));
+    raw.sync();
+    QCOMPARE(raw.value(QStringLiteral("folders/pinned")).toStringList(), rawPins);
     QVERIFY(store.setPinned(pinned, false));
     QVERIFY(store.read().pinned.isEmpty());
   }

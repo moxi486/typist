@@ -11,7 +11,8 @@ namespace typist::platform {
 namespace {
 std::unique_ptr<QSettings> settings(const QString& file) {
   return file.isEmpty()
-             ? std::make_unique<QSettings>(QStringLiteral("Typist"), QStringLiteral("Typist"))
+             ? std::make_unique<QSettings>(QSettings::defaultFormat(), QSettings::UserScope,
+                                           QStringLiteral("Typist"), QStringLiteral("Typist"))
              : std::make_unique<QSettings>(file, QSettings::IniFormat);
 }
 QString folder(const QString& path) {
@@ -88,8 +89,8 @@ void FolderLocationsStore::forgetRecent(const QString& path) {
   write(locations);
 }
 void FolderLocationsStore::clearRecent() {
-  auto locations = read();
-  locations.recent.clear();
-  write(locations);
+  auto store = settings(m_settingsFile);
+  store->remove(QStringLiteral("folders/recent"));
+  store->sync();
 }
 }  // namespace typist::platform

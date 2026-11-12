@@ -75,6 +75,11 @@ void addRecentFile(const QString& path);
 
 void removeRecentFile(const QString& path);
 
+// Closed documents are newest first. Opening a document removes it from the list.
+QStringList closedFiles();
+void updateClosedFiles(const QString& closedPath, const QString& openedPath = {});
+void clearFileHistory();
+
 enum class FileBrowserView { Tree, List };
 enum class FileBrowserSort { Name, Natural, Modified, Created };
 struct FileBrowserOptions {

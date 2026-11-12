@@ -39,6 +39,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMap>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -66,7 +67,8 @@
 
 namespace {
 struct FolderHistoryGuard {
-  QSettings settings{QStringLiteral("Typist"), QStringLiteral("Typist")};
+  QSettings settings{QSettings::defaultFormat(), QSettings::UserScope, QStringLiteral("Typist"),
+                     QStringLiteral("Typist")};
   QVariant recent = settings.value(QStringLiteral("folders/recent"));
   QVariant pinned = settings.value(QStringLiteral("folders/pinned"));
   FolderHistoryGuard() {
@@ -81,6 +83,26 @@ struct FolderHistoryGuard {
         settings.setValue(pair.first, pair.second);
       else
         settings.remove(pair.first);
+    }
+    settings.sync();
+  }
+};
+struct FileHistoryGuard {
+  QSettings settings;
+  QMap<QString, QVariant> previous;
+  FileHistoryGuard() {
+    for (const auto& key : {QStringLiteral("recentFiles"), QStringLiteral("history/closedFiles"),
+                            QStringLiteral("startup/lastClosed"), QStringLiteral("startup/options"),
+                            QStringLiteral("window/geometry"), QStringLiteral("editor/autoSave")})
+      previous.insert(key, settings.value(key));
+    typist::platform::clearFileHistory();
+  }
+  ~FileHistoryGuard() {
+    for (auto it = previous.cbegin(); it != previous.cend(); ++it) {
+      if (it.value().isValid())
+        settings.setValue(it.key(), it.value());
+      else
+        settings.remove(it.key());
     }
     settings.sync();
   }
@@ -110,6 +132,164 @@ class WindowTests : public QObject {
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/packaging/linux/typist.png")));
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settings.path());
+  }
+
+  void closedHistoryMigratesFromStartupAndSkipsUnavailableFiles() {
+    using namespace typist::platform;
+    const FileHistoryGuard settings;
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QStringList paths;
+    for (int i = 0; i < 11; ++i) {
+      QFile file(directory.filePath(QStringLiteral("note-%1.md").arg(i)));
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      file.close();
+      paths.append(QFileInfo(file).canonicalFilePath());
+    }
+    setLastClosedTarget({paths.first(), directory.path()});
+    QCOMPARE(closedFiles(), QStringList{paths.first()});
+    updateClosedFiles(paths.first());
+    setLastClosedTarget({});
+    QCOMPARE(closedFiles(), QStringList{paths.first()});
+    for (const auto& path : paths.mid(1)) updateClosedFiles(path);
+    QCOMPARE(closedFiles().size(), 8);
+    QCOMPARE(closedFiles().first(), paths.last());
+    QCOMPARE(closedFiles().last(), paths.at(3));
+    updateClosedFiles(paths.at(4));
+    QCOMPARE(closedFiles().first(), paths.at(4));
+    QCOMPARE(closedFiles().count(paths.at(4)), 1);
+    QVERIFY(QFile::remove(paths.at(4)));
+    QCOMPARE(closedFiles().first(), paths.last());
+    updateClosedFiles({}, paths.last());
+    QVERIFY(!closedFiles().contains(paths.last()));
+    const auto before = closedFiles();
+    typist::MainWindow bench(nullptr, true);
+    QVERIFY(bench.openFile(before.first()));
+    QVERIFY(bench.close());
+    QCOMPARE(closedFiles(), before);
+    QVERIFY(recentFiles().isEmpty());
+  }
+
+  void reopenClosedFileKeepsDraftOnCancelAndWalksBackThroughHistory() {
+    using namespace typist::platform;
+    const FileHistoryGuard history;
+    const FolderHistoryGuard folders;
+    QSettings().setValue(QStringLiteral("editor/autoSave"), false);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto write = [&](const QString& name) {
+      QFile file(directory.filePath(name + QStringLiteral(".md")));
+      if (!file.open(QIODevice::WriteOnly) || file.write(name.toUtf8()) < 0) return QString();
+      file.close();
+      return QFileInfo(file).canonicalFilePath();
+    };
+    const auto first = write(QStringLiteral("First"));
+    const auto second = write(QStringLiteral("Second"));
+    const auto current = write(QStringLiteral("Current"));
+    QVERIFY(!first.isEmpty() && !second.isEmpty() && !current.isEmpty());
+
+    typist::MainWindow window;
+    QVERIFY(window.openFile(first));
+    QVERIFY(window.openFile(second));
+    QVERIFY(window.openFile(current));
+    window.show();
+    auto* reopen = window.findChild<QAction*>(QStringLiteral("reopenClosedFile"));
+    auto* fresh = window.findChild<QAction*>(QStringLiteral("newDocument"));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(reopen && fresh && editor);
+    QCOMPARE(closedFiles(), (QStringList{second, first}));
+    editor->moveCursor(QTextCursor::Start);
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* input = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(input);
+    input->setPlainText(QStringLiteral("Pending **draft**."));
+    const auto choose = [&](QMessageBox::StandardButton answer) {
+      QTimer::singleShot(0, &window, [answer] {
+        if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+          box->button(answer)->click();
+      });
+      reopen->trigger();
+    };
+    choose(QMessageBox::Cancel);
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(input->toPlainText(), QStringLiteral("Pending **draft**."));
+    QCOMPARE(closedFiles(), (QStringList{second, first}));
+    choose(QMessageBox::Discard);
+    QVERIFY(!editor->paragraphSourceActive());
+    QCOMPARE(editor->toPlainText(), QStringLiteral("Second"));
+    QCOMPARE(closedFiles(), QStringList{first});
+    reopen->trigger();
+    QCOMPARE(editor->toPlainText(), QStringLiteral("First"));
+    QVERIFY(closedFiles().isEmpty());
+    QVERIFY(recentFiles().contains(current));
+
+    fresh->trigger();
+    QVERIFY(editor->toPlainText().isEmpty());
+    QCOMPARE(closedFiles(), QStringList{first});
+    reopen->trigger();
+    QCOMPARE(editor->toPlainText(), QStringLiteral("First"));
+    QVERIFY(closedFiles().isEmpty());
+    QVERIFY(window.close());
+    QCOMPARE(closedFiles(), QStringList{first});
+  }
+
+  void clearRecentItemsKeepsPinnedFoldersAndCurrentDocument() {
+    using namespace typist::platform;
+    const FileHistoryGuard history;
+    const FolderHistoryGuard folders;
+    const auto language = languagePreference();
+    const auto restoreLanguage = qScopeGuard([&] { setLanguagePreference(language); });
+    setLanguagePreference(QStringLiteral("zh"));
+    QSettings().setValue(QStringLiteral("editor/autoSave"), false);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto folder = QFileInfo(directory.path()).canonicalFilePath();
+    const auto path = directory.filePath(QStringLiteral("Note & file.md"));
+    QFile document(path);
+    QVERIFY(document.open(QIODevice::WriteOnly));
+    const QByteArray contents("Saved.");
+    QCOMPARE(document.write(contents), contents.size());
+    document.close();
+    const auto file = QFileInfo(document).canonicalFilePath();
+    FolderLocationsStore store;
+    store.record(folder);
+    QVERIFY(store.setPinned(folder, true));
+    setLaunchOptions({LaunchMode::CustomFolder, folder});
+    setLastClosedTarget({file, folder});
+
+    typist::MainWindow window;
+    QVERIFY(window.openFile(file));
+    updateClosedFiles(file);
+    auto* menu = window.findChild<QMenu*>(QStringLiteral("recentFilesMenu"));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(menu && editor);
+    auto* clear = menu->findChild<QAction*>(QStringLiteral("clearRecentItems"));
+    QVERIFY(clear);
+    QCOMPARE(clear->text(), QStringLiteral("清除最近记录"));
+    bool hasEntry = false;
+    for (auto* action : menu->actions()) {
+      if (action->data().toString() != file) continue;
+      hasEntry = true;
+      QCOMPARE(action->text(), QStringLiteral("Note && file.md"));
+      QCOMPARE(action->toolTip(), QDir::toNativeSeparators(file));
+    }
+    QVERIFY(hasEntry);
+    editor->insertPlainText(QStringLiteral("Pending "));
+    const auto before = editor->toPlainText();
+    QVERIFY(editor->document()->isUndoAvailable());
+    clear->trigger();
+    QVERIFY(recentFiles().isEmpty());
+    QVERIFY(closedFiles().isEmpty());
+    QVERIFY(lastClosedTarget().file.isEmpty() && lastClosedTarget().folder.isEmpty());
+    QVERIFY(store.read().recent.isEmpty());
+    QCOMPARE(store.read().pinned, QStringList{folder});
+    QCOMPARE(launchOptions().mode, LaunchMode::CustomFolder);
+    QCOMPARE(launchOptions().customFolder, folder);
+    QCOMPARE(editor->toPlainText(), before);
+    QVERIFY(editor->document()->isUndoAvailable());
+    QVERIFY(document.open(QIODevice::ReadOnly));
+    QCOMPARE(document.readAll(), contents);
+    window.setBenchMode(true);
   }
 
   void startupOptionsResolveExistingPathsAndKeepBenchmarksIsolated() {

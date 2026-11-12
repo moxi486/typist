@@ -49,8 +49,7 @@ int main(int argc, char* argv[]) {
   const bool benchmark = benchStartup || benchRepaint || benchViewSwitch || benchSearch ||
                          benchFolderSearch || benchTree || benchDocx || benchEpub ||
                          benchHtmlImport || benchPdf;
-  typist::MainWindow window;
-  window.setBenchMode(benchmark);
+  typist::MainWindow window(nullptr, benchmark);
   const auto target = typist::platform::startupTarget(
       args, benchmark, QString::fromUtf8(qgetenv("TYPIST_BENCH_FILE")));
   const bool opened = window.openStartupTarget(target);
