@@ -1232,6 +1232,34 @@
         <source>Copy Link to Heading</source>
         <translation>复制标题链接</translation>
     </message>
+    <message>
+        <source>Save Image As…</source>
+        <translation>另存图片…</translation>
+    </message>
+    <message>
+        <source>Copy Image to…</source>
+        <translation>复制图片到…</translation>
+    </message>
+    <message>
+        <source>PNG image (*.png)</source>
+        <translation>PNG 图片 (*.png)</translation>
+    </message>
+    <message>
+        <source>The image has changed. Open its menu again.</source>
+        <translation>图片已变更，请重新打开图片菜单。</translation>
+    </message>
+    <message>
+        <source>Choose a filename ending in .png.</source>
+        <translation>请选择以 .png 结尾的文件名。</translation>
+    </message>
+    <message>
+        <source>Image copied and link updated</source>
+        <translation>已复制图片并更新链接</translation>
+    </message>
+    <message>
+        <source>Image saved</source>
+        <translation>已保存图片</translation>
+    </message>
 </context>
 <context>
     <name>ParagraphSourcePanel</name>
@@ -1316,6 +1344,10 @@
     <message>
         <source>Cannot read the image file</source>
         <translation>无法读取图片文件</translation>
+    </message>
+    <message>
+        <source>Choose a different destination from the source image</source>
+        <translation>请选择与原图不同的保存位置</translation>
     </message>
     <message>
         <source>This image format cannot be read</source>

@@ -15,19 +15,24 @@
 
 namespace typist::platform {
 namespace {
+constexpr qint64 kMaxImageFileBytes = 64 * 1024 * 1024;
+
 QString message(const char* source) { return QCoreApplication::translate("ImageAssets", source); }
+bool fail(QString* error, const char* reason) {
+  if (error) *error = message(reason);
+  return false;
+}
+
 QString assetDirectory(const QString& documentPath) {
   if (documentPath.isEmpty()) return imageCacheDirectory();
   const QFileInfo document(documentPath);
   return document.dir().filePath(document.completeBaseName() + QStringLiteral(".assets"));
 }
 QString targetFor(const QString& path, const QString& documentPath) {
-  if (!documentPath.isEmpty()) {
-    const QString relative = QFileInfo(documentPath).dir().relativeFilePath(path);
-    if (!QFileInfo(relative).isAbsolute())
-      return QString::fromLatin1(QUrl::toPercentEncoding(relative, "/"));
-  }
-  return QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
+  const auto base = documentPath.isEmpty()
+                        ? QUrl()
+                        : QUrl::fromLocalFile(QFileInfo(documentPath).absolutePath() + '/');
+  return imageTarget(path, base);
 }
 StoredImage store(const QByteArray& bytes, const QString& suffix, const QString& documentPath) {
   const QString directory = assetDirectory(documentPath);
@@ -50,6 +55,43 @@ StoredImage store(const QByteArray& bytes, const QString& suffix, const QString&
   return {path, targetFor(path, documentPath), {}};
 }
 }  // namespace
+QString imageTarget(const QString& path, const QUrl& documentBase) {
+  const auto absolute = QFileInfo(path).absoluteFilePath();
+  if (documentBase.isLocalFile()) {
+    const QString relative = QDir(documentBase.toLocalFile()).relativeFilePath(absolute);
+    if (!QFileInfo(relative).isAbsolute())
+      return QString::fromLatin1(QUrl::toPercentEncoding(relative, "/"));
+  }
+  return QUrl::fromLocalFile(absolute).toString(QUrl::FullyEncoded);
+}
+
+bool copyImageFile(const QString& source, const QString& destination, QString* error) {
+  const QFileInfo original(source), target(destination);
+  QFile input(source);
+  if (!original.isFile() || !input.open(QIODevice::ReadOnly))
+    return fail(error, "Cannot read the image file");
+  if (input.size() > kMaxImageFileBytes) return fail(error, "The image is too large");
+  if (!QImageReader(&input).canRead() || !input.seek(0))
+    return fail(error, "This image format cannot be read");
+  if (original == target)
+    return fail(error, "Choose a different destination from the source image");
+  const auto bytes = input.read(kMaxImageFileBytes + 1);
+  if (input.error() != QFileDevice::NoError || bytes.isEmpty())
+    return fail(error, "Cannot read the image file");
+  if (bytes.size() > kMaxImageFileBytes) return fail(error, "The image is too large");
+  QSaveFile output(destination);
+  if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
+    return fail(error, "Cannot save the image");
+  return true;
+}
+
+bool saveImagePng(const QImage& image, const QString& destination, QString* error) {
+  QSaveFile output(destination);
+  if (!output.open(QIODevice::WriteOnly) || !image.save(&output, "PNG") || !output.commit())
+    return fail(error, "Cannot save the image");
+  return true;
+}
+
 QString imageCacheDirectory() {
   return QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation))
       .filePath(QStringLiteral("images"));
@@ -66,7 +108,7 @@ StoredImage storeImage(const QImage& image, const QString& documentPath) {
 }
 StoredImage importImage(const QString& path, const QString& documentPath, bool copy) {
   QFile input(path);
-  if (input.size() > 64 * 1024 * 1024) return {{}, {}, message("The image is too large")};
+  if (input.size() > kMaxImageFileBytes) return {{}, {}, message("The image is too large")};
   if (!input.open(QIODevice::ReadOnly)) return {{}, {}, message("Cannot read the image file")};
   QImageReader reader(path);
   const auto format = QString::fromLatin1(reader.format()).toLower();

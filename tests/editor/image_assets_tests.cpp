@@ -11,13 +11,18 @@
 
 #include <QAction>
 #include <QClipboard>
+#include <QContextMenuEvent>
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFile>
+#include <QFileDialog>
+#include <QLineEdit>
+#include <QMenu>
 #include <QMimeData>
 #include <QPainter>
 #include <QPlainTextEdit>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QStatusBar>
@@ -63,6 +68,67 @@ ui::Editor* prepare(MainWindow& window, const QString& path = {}) {
 void paste(ui::Editor* editor, const QImage& image) {
   QApplication::clipboard()->setImage(image);
   editor->paste();
+}
+struct ImageMenuResult {
+  QString saveLabel, copyLabel;
+  bool choseFile = false;
+};
+ImageMenuResult imageMenu(ui::Editor* editor, const QPoint& point, const QString& action = {},
+                          const QString& destination = {},
+                          QContextMenuEvent::Reason reason = QContextMenuEvent::Mouse) {
+  const bool previous = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+  QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+  const auto restore =
+      qScopeGuard([&] { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, previous); });
+  ImageMenuResult result;
+  QTimer destinationTimer, safety;
+  destinationTimer.setInterval(10);
+  QObject::connect(&destinationTimer, &QTimer::timeout, editor, [&] {
+    auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+    if (!dialog || dialog->objectName() != QStringLiteral("imageResourceDestination")) return;
+    destinationTimer.stop();
+    auto* input = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
+    result.choseFile = input != nullptr;
+    if (!input || destination.isEmpty()) {
+      dialog->reject();
+      return;
+    }
+    input->setText(destination);
+    QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
+  });
+  safety.setSingleShot(true);
+  QObject::connect(&safety, &QTimer::timeout, editor, [] {
+    if (auto* modal = QApplication::activeModalWidget()) modal->close();
+    if (auto* menu = QApplication::activePopupWidget()) menu->close();
+  });
+  QTimer::singleShot(0, editor, [&] {
+    auto* popup = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+    if (!popup) return;
+    if (auto* save = popup->findChild<QAction*>(QStringLiteral("saveImageAsContext")))
+      result.saveLabel = save->text();
+    if (auto* copy = popup->findChild<QAction*>(QStringLiteral("copyImageToContext")))
+      result.copyLabel = copy->text();
+    if (!action.isEmpty()) {
+      if (auto* selected = popup->findChild<QAction*>(action)) {
+        destinationTimer.start();
+        selected->trigger();
+      }
+    }
+    popup->close();
+  });
+  safety.start(3000);
+  QContextMenuEvent event(reason, point, editor->viewport()->mapToGlobal(point));
+  QApplication::sendEvent(editor->viewport(), &event);
+  return result;
+}
+
+QPoint imageHitPoint(ui::Editor* editor, QTextCursor selection) {
+  const int end = selection.selectionEnd();
+  selection.setPosition(selection.selectionStart());
+  const QRect leading = editor->cursorRect(selection);
+  selection.setPosition(end);
+  const QRect trailing = editor->cursorRect(selection);
+  return QPoint((leading.left() + 3 * trailing.left()) / 4, leading.center().y());
 }
 }  // namespace
 class ImageAssetsTests : public QObject {
@@ -162,6 +228,138 @@ class ImageAssetsTests : public QObject {
     document.setPlainText(QStringLiteral("A short document."));
     QCOMPARE(platform::exportImage(temp.path(), document, {}, false),
              platform::ImageExportError::Write);
+  }
+
+  void mediaFileWritesPreserveOriginalBytesAndExistingDestinationOnFailure() {
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const auto original = temp.filePath(QStringLiteral("source.png"));
+    auto image = specimen();
+    image.setText(QStringLiteral("Description"), QStringLiteral("Keep original metadata"));
+    QVERIFY(image.save(original));
+    const auto bytes = read(original);
+    const auto copy = temp.filePath(QStringLiteral("copy.png"));
+    QVERIFY(write(copy, "previous content"));
+    QString error;
+    QVERIFY2(platform::copyImageFile(original, copy, &error), qPrintable(error));
+    QCOMPARE(read(copy), bytes);
+    QVERIFY(!platform::copyImageFile(original, original, &error));
+    QCOMPARE(read(original), bytes);
+    const auto invalid = temp.filePath(QStringLiteral("invalid.png"));
+    QVERIFY(write(invalid, "not a PNG"));
+    QVERIFY(!platform::copyImageFile(invalid, copy, &error));
+    QVERIFY(!platform::saveImagePng({}, copy, &error));
+    QCOMPARE(read(copy), bytes);
+  }
+
+  void imageContextSavesOriginalAndRelinksOnlyTheClickedImage() {
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const auto first = temp.filePath(QStringLiteral("first.png"));
+    const auto second = temp.filePath(QStringLiteral("second.png"));
+    QVERIFY(specimen(QColor("#e55748")).save(first));
+    QImage wide(900, 48, QImage::Format_ARGB32);
+    wide.fill(QColor("#3576ad"));
+    wide.setText(QStringLiteral("Description"), QStringLiteral("Keep resolution and metadata"));
+    QVERIFY(wide.save(second));
+    const auto original = read(second);
+    QVERIFY(QDir(temp.path()).mkdir(QStringLiteral("copies")));
+    const auto note = temp.filePath(QStringLiteral("note.md"));
+    const QByteArray source = QByteArray("Scroll to the images.\n\n").repeated(35) +
+                              "![First](first.png) ![Picked](second.png)\n\n"
+                              "![Keep](second.png)\n";
+    QVERIFY(write(note, source));
+    MainWindow window;
+    auto* editor = prepare(window, note);
+    const auto before = editor::serializeDocument(editor->document());
+    const QString object(QChar::ObjectReplacementCharacter);
+    const auto firstImage = editor->document()->find(object);
+    const auto clicked = editor->document()->find(object, firstImage.selectionEnd());
+    QVERIFY(clicked.hasSelection());
+    editor->setTextCursor(clicked);
+    editor->ensureCursorVisible();
+    QVERIFY(editor->verticalScrollBar()->value() > 0);
+    const auto point = imageHitPoint(editor, clicked);
+    QVERIFY(editor->viewport()->rect().contains(point));
+
+    const auto saved = temp.filePath(QStringLiteral("saved"));
+    const auto savedMenu = imageMenu(editor, point, QStringLiteral("saveImageAsContext"), saved);
+    QCOMPARE(savedMenu.saveLabel, QStringLiteral("Save Image As…"));
+    QCOMPARE(savedMenu.copyLabel, QStringLiteral("Copy Image to…"));
+    QVERIFY(savedMenu.choseFile);
+    QCOMPARE(read(saved + QStringLiteral(".png")), original);
+    QCOMPARE(QImage(saved + QStringLiteral(".png")).size(), wide.size());
+    QCOMPARE(editor::serializeDocument(editor->document()), before);
+    QVERIFY(!editor->document()->isUndoAvailable());
+
+    const auto cancelled = imageMenu(editor, point, QStringLiteral("copyImageToContext"));
+    QVERIFY(cancelled.choseFile);
+    QCOMPARE(editor::serializeDocument(editor->document()), before);
+    QVERIFY(!editor->document()->isUndoAvailable());
+
+    const auto target = temp.filePath(QStringLiteral("copies/选 图 #2.png"));
+    QVERIFY(imageMenu(editor, point, QStringLiteral("copyImageToContext"), target).choseFile);
+    QCOMPARE(read(target), original);
+    QCOMPARE(read(second), original);
+    const auto after = editor::serializeDocument(editor->document());
+    QVERIFY(after.contains(QStringLiteral("![Picked](copies/%E9%80%89%20%E5%9B%BE%20%232.png)")));
+    QVERIFY(after.contains(QStringLiteral("![Keep](second.png)")));
+    QVERIFY(after.contains(QStringLiteral("![First](first.png)")));
+    QCOMPARE(read(note), source);
+    editor->undo();
+    QCOMPARE(editor::serializeDocument(editor->document()), before);
+    QCOMPARE(read(target), original);
+    editor->redo();
+    QCOMPARE(editor::serializeDocument(editor->document()), after);
+  }
+
+  void keyboardMediaMenuSavesFormulaAndMermaidPng() {
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const auto note = temp.filePath(QStringLiteral("math.md"));
+    QVERIFY(write(note,
+                  "Inline $E=mc^2$.\n\n"
+                  "```mermaid\nflowchart TD\nA[Start] --> B[End]\n```\n\n"
+                  "![remote](https://example.test/image.png)\n"));
+    MainWindow window;
+    auto* editor = prepare(window, note);
+    auto* chinese = window.findChild<QAction*>(QStringLiteral("language_zh"));
+    auto* dark = window.findChild<QAction*>(QStringLiteral("appearance_dark"));
+    QVERIFY(chinese && dark);
+    chinese->trigger();
+    dark->trigger();
+    const auto before = editor::serializeDocument(editor->document());
+    const QString object(QChar::ObjectReplacementCharacter);
+    auto image = editor->document()->find(object);
+    for (const auto& name : {QStringLiteral("formula"), QStringLiteral("diagram")}) {
+      QVERIFY(image.hasSelection());
+      editor->setTextCursor(image);
+      editor->ensureCursorVisible();
+      const auto destination = temp.filePath(name);
+      const auto menu =
+          imageMenu(editor, editor->cursorRect().center(), QStringLiteral("saveImageAsContext"),
+                    destination, QContextMenuEvent::Keyboard);
+      QCOMPARE(menu.saveLabel, QStringLiteral("另存图片…"));
+      QVERIFY(menu.copyLabel.isEmpty());
+      QVERIFY(menu.choseFile);
+      const QImage png(destination + QStringLiteral(".png"));
+      QVERIFY(!png.isNull());
+      if (name == QStringLiteral("formula"))
+        QCOMPARE(png.pixelColor(0, 0).alpha(), 0);
+      else
+        QCOMPARE(png.pixelColor(0, 0), QColor("#262b31"));
+      image = editor->document()->find(object, image.selectionEnd());
+    }
+    QVERIFY(image.isNull());
+    auto remote = editor->document()->find(QStringLiteral("remote"));
+    QVERIFY(remote.hasSelection());
+    remote.clearSelection();
+    editor->setTextCursor(remote);
+    const auto menu =
+        imageMenu(editor, editor->cursorRect().center(), {}, {}, QContextMenuEvent::Keyboard);
+    QVERIFY(menu.saveLabel.isEmpty() && menu.copyLabel.isEmpty());
+    QCOMPARE(editor::serializeDocument(editor->document()), before);
+    QVERIFY(!editor->document()->isUndoAvailable());
   }
 
   void storesAlphaAndDeduplicatesWithoutOverwriting() {
