@@ -6,5 +6,5 @@ namespace typist::core {
 std::string syntaxHex(std::string_view text);
 std::string syntaxUnhex(std::string_view text);
 std::string prepareAdvancedMarkdown(std::string_view source);
-std::string decorateAdvancedHtml(std::string html);
+std::string decorateAdvancedHtml(std::string html, bool styled);
 }  // namespace typist::core

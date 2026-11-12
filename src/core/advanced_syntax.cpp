@@ -234,14 +234,16 @@ std::string prepareAdvancedMarkdown(std::string_view source) {
   }
   return out;
 }
-std::string decorateAdvancedHtml(std::string html) {
+std::string decorateAdvancedHtml(std::string html, bool styled) {
   int heading = 0;
   std::string toc = "<nav class=\"table-of-contents\"><ul>";
   html =
       replaceMatches(html, std::regex(R"(<h([1-6])>([\s\S]*?)</h\1>)"), [&](const std::smatch& m) {
         const auto id = "heading-" + std::to_string(++heading);
-        toc += "<li style=\"margin-left:" + std::to_string((std::stoi(m[1]) - 1) * 16) +
-               "px\"><a href=\"#" + id + "\">" + m[2].str() + "</a></li>";
+        toc += styled ? "<li style=\"margin-left:" + std::to_string((std::stoi(m[1]) - 1) * 16) +
+                            "px\">"
+                      : "<li>";
+        toc += "<a href=\"#" + id + "\">" + m[2].str() + "</a></li>";
         return "<h" + m[1].str() + " id=\"" + id + "\">" + m[2].str() + "</h" + m[1].str() + ">";
       });
   toc += "</ul></nav>";
@@ -261,12 +263,12 @@ std::string decorateAdvancedHtml(std::string html) {
       html,
       std::regex(
           R"rx(<pre><code class="language-(typist-math|mermaid|typist-footnote-[0-9a-f]+)">([\s\S]*?)</code></pre>)rx"),
-      [](const std::smatch& m) {
+      [styled](const std::smatch& m) {
         const auto tag = m[1].str(), body = unescape(m[2]);
         if (tag.find("typist-footnote-") == 0) {
           const auto id = tag.substr(16);
           return "<aside class=\"footnote\" id=\"fn-" + id + "\"><b>[" + escape(syntaxUnhex(id)) +
-                 "]</b> " + toHtml(body) + "</aside>";
+                 "]</b> " + toHtml(body, {}, styled) + "</aside>";
         }
         return "<div class=\"typist-" + std::string(tag == "mermaid" ? "diagram" : "math") +
                "\" data-source=\"" + syntaxHex(body) + "\"><pre>" + escape(body) + "</pre></div>";

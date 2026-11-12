@@ -17,6 +17,6 @@ QString themeName(Theme theme);
 QString editorStyleSheet(Theme theme);
 
 // CSS embedded in exported HTML so an exported page keeps the same look as the editor.
-QString htmlStyle(Theme theme);
+QString htmlStyle(Theme theme, bool outline = false);
 
 }  // namespace typist::ui

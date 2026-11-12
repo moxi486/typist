@@ -8,6 +8,11 @@
 class QTextDocument;
 
 namespace typist::render {
+struct HtmlHeading;
+struct HtmlRenderOptions {
+  bool dark = false;
+  bool styled = true;
+};
 struct RenderResult {
   QImage image;
   QString error;
@@ -16,6 +21,8 @@ RenderResult math(const QString& source, bool display = false,
                   const QColor& color = QColor("#333333"));
 RenderResult mermaid(const QString& source, bool dark = false);
 QString html(const QString& markdown, bool dark = false);
+QString html(const QString& markdown, const HtmlRenderOptions& options,
+             QList<HtmlHeading>* outline = nullptr);
 constexpr int kTocObjectType = QTextFormat::UserObject + 44;
 void installDocumentObjects(QTextDocument* document);
 void invalidateToc(QTextDocument* document);

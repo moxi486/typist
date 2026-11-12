@@ -13,6 +13,7 @@
 #include "FindBar.h"
 #include "FolderLocationsMenu.h"
 #include "FolderSearchRunner.h"
+#include "HeadingLinks.h"
 #include "HtmlImportDialog.h"
 #include "HtmlImporter.h"
 #include "ImageAssets.h"
@@ -101,6 +102,8 @@
 namespace typist {
 
 namespace {
+
+const auto htmlOutlineSetting = QStringLiteral("export/htmlOutline");
 
 bool systemPrefersDark() {
   const typist::platform::DarkHint hint = typist::platform::nativeDarkHint();
@@ -301,9 +304,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   connect(saveAsAction, &QAction::triggered, this, &MainWindow::saveAs);
 
   QAction* exportHtmlAction = new QAction(tr("Export HTML"), this);
+  exportHtmlAction->setObjectName(QStringLiteral("exportHtml"));
   exportHtmlAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+E")));
   fileMenu->addAction(exportHtmlAction);
   connect(exportHtmlAction, &QAction::triggered, this, &MainWindow::exportHtml);
+  auto* plainHtmlAction = fileMenu->addAction(tr("Export HTML (without styles)"));
+  plainHtmlAction->setObjectName(QStringLiteral("exportPlainHtml"));
+  connect(plainHtmlAction, &QAction::triggered, this, [this] { exportHtmlDocument(false); });
 
   QAction* exportPdfAction = new QAction(tr("Export PDF"), this);
   exportPdfAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+P")));
@@ -944,6 +951,15 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
     m_autoSaveEnabled = enabled;
     QSettings().setValue(QStringLiteral("editor/autoSave"), enabled);
   });
+  auto* htmlOutline = settings->addAction(tr("Include Outline in HTML Export"));
+  htmlOutline->setObjectName(QStringLiteral("htmlExportOutline"));
+  htmlOutline->setCheckable(true);
+  htmlOutline->setChecked(QSettings().value(htmlOutlineSetting, false).toBool());
+  connect(htmlOutline, &QAction::triggered, this,
+          [](bool enabled) { QSettings().setValue(htmlOutlineSetting, enabled); });
+  connect(settings, &QMenu::aboutToShow, htmlOutline, [htmlOutline] {
+    htmlOutline->setChecked(QSettings().value(htmlOutlineSetting).toBool());
+  });
 }
 
 bool MainWindow::maybeSaveBeforeNavigate() {
@@ -1416,26 +1432,42 @@ bool MainWindow::saveDocumentAs(const QString& path) {
   return true;
 }
 
-void MainWindow::exportHtml() {
+void MainWindow::exportHtml() { exportHtmlDocument(true); }
+
+void MainWindow::exportHtmlDocument(bool styled) {
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+  const auto restore = qScopeGuard(
+      [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
+  const QString suffix = styled ? QStringLiteral(".html") : QStringLiteral("-plain.html");
   const QString suggested = m_currentPath.isEmpty()
-                                ? QDir::homePath() + QStringLiteral("/untitled.html")
+                                ? QDir::homePath() + QStringLiteral("/untitled") + suffix
                                 : QFileInfo(m_currentPath).absolutePath() + QStringLiteral("/") +
-                                      QFileInfo(m_currentPath).baseName() + QStringLiteral(".html");
-  const QString path = QFileDialog::getSaveFileName(this, tr("Export HTML"), suggested,
-                                                    QStringLiteral("HTML (*.html)"));
+                                      QFileInfo(m_currentPath).baseName() + suffix;
+  QFileDialog dialog(this, styled ? tr("Export HTML") : tr("Export HTML (without styles)"),
+                     suggested, QStringLiteral("HTML (*.html)"));
+  dialog.setAcceptMode(QFileDialog::AcceptSave);
+  dialog.setDefaultSuffix(QStringLiteral("html"));
+  if (dialog.exec() != QDialog::Accepted) return;
+  const QString path = dialog.selectedFiles().value(0);
   if (path.isEmpty()) return;
 
-  const std::string body =
-      typist::render::embedLocalImages(
-          typist::render::html(
-              currentMarkdown(),
-              ui::resolveTheme(themePreference(), systemPrefersDark()) == ui::Theme::Dark),
-          m_view->rendered()->baseUrl())
-          .toStdString();
-  const std::string css =
-      ui::htmlStyle(ui::resolveTheme(themePreference(), systemPrefersDark())).toStdString();
+  const auto theme = ui::resolveTheme(themePreference(), systemPrefersDark());
+  const bool includeOutline = QSettings().value(htmlOutlineSetting, false).toBool();
+  QList<render::HtmlHeading> headings;
+  const render::HtmlRenderOptions options{theme == ui::Theme::Dark, styled};
+  QString body = render::embedLocalImages(
+      render::html(currentMarkdown(), options, includeOutline ? &headings : nullptr),
+      m_view->rendered()->baseUrl());
+  if (!headings.isEmpty()) {
+    body = QStringLiteral("<div class=\"export-layout\">\n") +
+           render::htmlOutline(headings, tr("Outline"), m_outlinePanel->collapsible()) +
+           QStringLiteral("<main class=\"export-content\">\n") + body +
+           QStringLiteral("</main>\n</div>\n");
+  }
+  const auto css = styled ? ui::htmlStyle(theme, !headings.isEmpty()).toStdString() : std::string();
   const std::string page =
-      typist::core::wrapHtmlDocument(body, QFileInfo(path).baseName().toStdString(), css);
+      core::wrapHtmlDocument(body.toStdString(), QFileInfo(path).baseName().toStdString(), css);
   QString error;
   if (!typist::platform::writeAtomic(path, QString::fromStdString(page), &error)) {
     statusBar()->showMessage(error);

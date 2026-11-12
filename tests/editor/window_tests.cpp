@@ -3443,6 +3443,135 @@ class WindowTests : public QObject {
     QCOMPARE(dialog.options().paper, QStringLiteral("a5"));
   }
 
+  void htmlExportUsesOutlinePreferenceAndKeepsPendingDraft() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QSettings settings;
+    const auto key = QStringLiteral("export/htmlOutline");
+    const auto previous = settings.value(key);
+    const bool collapsible = typist::platform::outlineCollapsible();
+    const auto theme = typist::platform::themePreference();
+    const bool native = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+    const auto restore = qScopeGuard([&] {
+      if (previous.isValid())
+        settings.setValue(key, previous);
+      else
+        settings.remove(key);
+      typist::platform::setOutlineCollapsible(collapsible);
+      typist::platform::setThemePreference(theme);
+      QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native);
+    });
+    settings.remove(key);
+    typist::platform::setOutlineCollapsible(false);
+    typist::platform::setThemePreference(QStringLiteral("light"));
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+
+    QFile source(directory.filePath(QStringLiteral("sample.md")));
+    const QByteArray markdown(
+        "Original paragraph.\n\n# Guide\n\n[TOC]\n\n## Installation\n\n"
+        "Install Typist to write and export Markdown.\n\n"
+        "### Windows\n\n![Sample](sample.png)\n\n"
+        "```cpp\nint count = 1;\n```\n\n# Guide\n\nAnother section.\n");
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QCOMPARE(source.write(markdown), markdown.size());
+    source.close();
+    QImage image(48, 32, QImage::Format_RGB32);
+    image.fill(QColor(QStringLiteral("#315e95")));
+    QVERIFY(image.save(directory.filePath(QStringLiteral("sample.png"))));
+
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.openFile(source.fileName());
+    window.show();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* styled = window.findChild<QAction*>(QStringLiteral("exportHtml"));
+    auto* plain = window.findChild<QAction*>(QStringLiteral("exportPlainHtml"));
+    auto* include = window.findChild<QAction*>(QStringLiteral("htmlExportOutline"));
+    auto* hierarchy = window.findChild<QAction*>(QStringLiteral("outlineCollapsible"));
+    QVERIFY(editor && styled && plain && include && hierarchy);
+    QVERIFY(include->isCheckable() && !include->isChecked());
+    QCOMPARE(styled->shortcut(), QKeySequence(QStringLiteral("Ctrl+Shift+E")));
+
+    const auto exportTo = [&](QAction* action, const QString& name, bool cancel = false) {
+      bool handled = false;
+      QTimer automation;
+      automation.setInterval(10);
+      connect(&automation, &QTimer::timeout, &window, [&] {
+        auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        automation.stop();
+        auto* input = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
+        if (cancel || !input) {
+          handled = cancel;
+          dialog->reject();
+          return;
+        }
+        input->setText(directory.filePath(name));
+        handled = QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
+      });
+      QTimer safety;
+      safety.setSingleShot(true);
+      connect(&safety, &QTimer::timeout, &window, [] {
+        if (auto* modal = QApplication::activeModalWidget()) modal->close();
+      });
+      automation.start();
+      safety.start(3000);
+      action->trigger();
+      return handled;
+    };
+    const auto read = [&](const QString& name) {
+      QFile file(directory.filePath(name + QStringLiteral(".html")));
+      return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+    };
+    QVERIFY(exportTo(styled, QStringLiteral("default")));
+    const auto defaultHtml = read(QStringLiteral("default"));
+    QVERIFY(defaultHtml.contains("<style>"));
+    QVERIFY(defaultHtml.contains("class=\"table-of-contents\""));
+    QVERIFY(!defaultHtml.contains("class=\"export-outline"));
+
+    include->trigger();
+    QVERIFY(settings.value(key).toBool());
+    QVERIFY(exportTo(styled, QStringLiteral("flat")));
+    const auto flat = read(QStringLiteral("flat"));
+    QVERIFY(flat.contains("<nav class=\"export-outline flat\""));
+    QVERIFY(flat.contains("class=\"table-of-contents\""));
+    QVERIFY(flat.contains("data:image/png;base64,"));
+    QVERIFY(!flat.contains("<details"));
+
+    hierarchy->trigger();
+    QVERIFY(hierarchy->isChecked());
+    editor->moveCursor(QTextCursor::Start);
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(draft);
+    draft->setPlainText(QStringLiteral("Pending **draft**."));
+    const auto before = typist::editor::serializeDocument(editor->document());
+    QVERIFY(exportTo(plain, QStringLiteral("cancelled"), true));
+    QVERIFY(read(QStringLiteral("cancelled")).isEmpty());
+    QVERIFY(editor->paragraphSourceActive());
+    QVERIFY(exportTo(plain, QStringLiteral("plain")));
+    const auto plainHtml = read(QStringLiteral("plain"));
+    QVERIFY(plainHtml.contains("<details open>"));
+    QVERIFY(plainHtml.contains("href=\"#guide-1\""));
+    QVERIFY(plainHtml.contains("class=\"table-of-contents\""));
+    QVERIFY(plainHtml.contains("data:image/png;base64,"));
+    QVERIFY(plainHtml.contains("Pending <strong>draft</strong>."));
+    QVERIFY(!plainHtml.contains("<style>") && !plainHtml.contains(" style="));
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    QVERIFY(source.open(QIODevice::ReadOnly));
+    QCOMPARE(source.readAll(), markdown);
+
+    const QString specimens = qEnvironmentVariable("TYPIST_HTML_OUTPUT");
+    if (!specimens.isEmpty()) {
+      QVERIFY(QDir().mkpath(specimens));
+      QVERIFY(exportTo(styled, QStringLiteral("collapsible")));
+      for (const auto& name : {QStringLiteral("flat.html"), QStringLiteral("plain.html"),
+                               QStringLiteral("collapsible.html")})
+        QVERIFY(QFile::copy(directory.filePath(name), QDir(specimens).filePath(name)));
+    }
+  }
+
   void pdfMenuPersistsOnlyAfterSuccessfulSave() {
     QTemporaryDir directory;
     typist::MainWindow window;

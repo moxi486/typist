@@ -900,8 +900,8 @@ std::string renderHtml(std::string_view source, const ParseOptions& options, boo
 }
 }  // namespace
 
-std::string toHtml(std::string_view source, const ParseOptions& options) {
-  return decorateAdvancedHtml(renderHtml(prepareAdvancedMarkdown(source), options, true));
+std::string toHtml(std::string_view source, const ParseOptions& options, bool styled) {
+  return decorateAdvancedHtml(renderHtml(prepareAdvancedMarkdown(source), options, true), styled);
 }
 
 std::string toSemanticHtml(std::string_view source, const ParseOptions& options) {
@@ -914,7 +914,7 @@ std::string wrapHtmlDocument(std::string_view body, std::string_view title, std:
   out += "<meta charset=\"utf-8\">\n";
   out += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n";
   out += "<title>" + escapeHtml(title) + "</title>\n";
-  out += "<style>" + std::string(css) + "</style>\n";
+  if (!css.empty()) out += "<style>" + std::string(css) + "</style>\n";
   out += "</head>\n<body>\n";
   out += std::string(body);
   out += "</body>\n</html>\n";

@@ -70,7 +70,7 @@ QString editorStyleSheet(Theme theme) {
       .arg(canvas, surface, text, muted, border, hover, accent);
 }
 
-QString htmlStyle(Theme theme) {
+QString htmlStyle(Theme theme, bool outline) {
   QString style = QStringLiteral(
       "body { max-width: 68ch; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; ");
   if (theme == Theme::Dark) {
@@ -82,6 +82,55 @@ QString htmlStyle(Theme theme) {
   style += QStringLiteral(
       "table { border-collapse: collapse; } th, td { border: 1px solid #bbb; padding: 0.4rem "
       "0.6rem; }");
+  if (outline) {
+    style += QStringLiteral(R"css(
+      body { max-width: 74rem; }
+      .export-layout {
+        display: grid;
+        grid-template-columns: minmax(11rem, 16rem) minmax(0, 1fr);
+        gap: 2rem;
+        align-items: start;
+      }
+      .export-content { max-width: 68ch; }
+      .export-content img { max-width: 100%; height: auto; }
+      .export-outline {
+        position: sticky;
+        top: 1rem;
+        max-height: calc(100vh - 2rem);
+        overflow: auto;
+        border-inline-end: 1px solid #9996;
+        padding-inline-end: 1rem;
+        font: .9rem/1.5 Inter, system-ui, sans-serif;
+        overflow-wrap: anywhere;
+      }
+      .export-outline h2 { font-size: 1rem; margin: 0 0 .65rem; }
+      .export-outline ul { list-style: none; padding: 0; margin: 0; }
+      .export-outline ul ul { padding-inline-start: 1rem; }
+      .export-outline li { margin: .35rem 0; }
+      .export-outline summary { cursor: pointer; }
+      .export-outline.flat .outline-level-2 { padding-inline-start: .8rem; }
+      .export-outline.flat .outline-level-3 { padding-inline-start: 1.6rem; }
+      .export-outline.flat .outline-level-4 { padding-inline-start: 2.4rem; }
+      .export-outline.flat .outline-level-5 { padding-inline-start: 3.2rem; }
+      .export-outline.flat .outline-level-6 { padding-inline-start: 4rem; }
+      @media (max-width: 48rem) {
+        .export-layout { display: block; }
+        .export-outline {
+          position: static;
+          max-height: none;
+          border-inline-end: 0;
+          border-bottom: 1px solid #9996;
+          margin-bottom: 1.5rem;
+          padding-bottom: 1rem;
+        }
+      }
+      @media print {
+        .export-layout { display: block; }
+        .export-outline { display: none; }
+        .export-content { max-width: none; }
+      }
+    )css");
+  }
   return style;
 }
 
