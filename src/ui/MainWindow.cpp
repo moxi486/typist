@@ -2012,9 +2012,11 @@ void MainWindow::exportEpubDocument(const platform::EpubOptions* previous,
         this);
     metadata.setSplitChapters(
         settings.value(QStringLiteral("export/epubSplitChapters"), false).toBool());
+    metadata.setTocDepth(
+        settings.value(QStringLiteral("export/epubTocDepth"), options.tocDepth).toInt());
     if (metadata.exec() != QDialog::Accepted) return;
-    options = {metadata.bookTitle(), metadata.author(), metadata.language(), metadata.coverImage(),
-               metadata.splitChapters()};
+    options = {metadata.bookTitle(),  metadata.author(),        metadata.language(),
+               metadata.coverImage(), metadata.splitChapters(), metadata.tocDepth()};
   }
   const auto directory = platform::exportDirectory(m_currentPath);
   const auto name = m_currentPath.isEmpty() ? QStringLiteral("untitled")
@@ -2040,6 +2042,7 @@ void MainWindow::exportEpubDocument(const platform::EpubOptions* previous,
   settings.setValue(QStringLiteral("export/epubAuthor"), options.author);
   settings.setValue(QStringLiteral("export/epubLanguage"), options.language);
   settings.setValue(QStringLiteral("export/epubSplitChapters"), options.splitChapters);
+  settings.setValue(QStringLiteral("export/epubTocDepth"), options.tocDepth);
   if (!notices.isEmpty()) {
     QMessageBox message(QMessageBox::Information, tr("Export EPUB"),
                         tr("EPUB exported. Some resources or links were kept as text."),

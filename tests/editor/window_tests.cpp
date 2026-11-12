@@ -3275,6 +3275,16 @@ class WindowTests : public QObject {
   }
 
   void epubMenuExportsWithDefaultSuffixAndRemembersMetadata() {
+    QSettings settings;
+    const auto depthKey = QStringLiteral("export/epubTocDepth");
+    const auto savedDepth = settings.value(depthKey);
+    const auto restoreDepth = qScopeGuard([&] {
+      if (savedDepth.isValid())
+        settings.setValue(depthKey, savedDepth);
+      else
+        settings.remove(depthKey);
+    });
+    settings.setValue(depthKey, 99);
     QTemporaryDir directory;
     QImage cover(100, 160, QImage::Format_RGB32);
     cover.fill(QColor("#315f99"));
@@ -3288,7 +3298,7 @@ class WindowTests : public QObject {
     const auto before = typist::editor::serializeDocument(editor->document());
     const auto previous = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
-    bool metadataAccepted = false, destinationAccepted = false;
+    bool metadataAccepted = false, destinationAccepted = false, defaultDepthSeen = false;
     QTimer automation;
     automation.setInterval(10);
     connect(&automation, &QTimer::timeout, &window, [&] {
@@ -3301,6 +3311,8 @@ class WindowTests : public QObject {
             ->setText(QStringLiteral("en"));
         dialog->findChild<QLineEdit*>(QStringLiteral("epubCover"))->setText(coverPath);
         dialog->findChild<QCheckBox*>(QStringLiteral("epubSplitChapters"))->setChecked(true);
+        defaultDepthSeen = dialog->tocDepth() == 3;
+        dialog->findChild<QSpinBox*>(QStringLiteral("epubTocDepth"))->setValue(1);
         metadataAccepted = true;
         dialog->accept();
       } else if (auto* destination =
@@ -3324,7 +3336,7 @@ class WindowTests : public QObject {
     automation.stop();
     safety.stop();
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, previous);
-    QVERIFY(invoked && metadataAccepted && destinationAccepted);
+    QVERIFY(invoked && metadataAccepted && destinationAccepted && defaultDepthSeen);
     QFile file(directory.filePath(QStringLiteral("menu-book.epub")));
     QVERIFY(file.open(QIODevice::ReadOnly));
     const auto bytes = file.readAll();
@@ -3337,16 +3349,20 @@ class WindowTests : public QObject {
     QCOMPARE(QSettings().value(QStringLiteral("export/epubLanguage")).toString(),
              QStringLiteral("en"));
     QVERIFY(QSettings().value(QStringLiteral("export/epubSplitChapters")).toBool());
+    QCOMPARE(settings.value(depthKey).toInt(), 1);
     QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
     bool remembered = false;
     QTimer::singleShot(0, &window, [&] {
       if (auto* dialog = qobject_cast<typist::ui::EpubDialog*>(QApplication::activeModalWidget())) {
-        remembered = dialog->splitChapters() && dialog->coverImage().isEmpty();
+        remembered =
+            dialog->splitChapters() && dialog->coverImage().isEmpty() && dialog->tocDepth() == 1;
+        dialog->setTocDepth(6);
         dialog->reject();
       }
     });
     QVERIFY(QMetaObject::invokeMethod(&window, "exportEpub", Qt::DirectConnection));
     QVERIFY(remembered);
+    QCOMPARE(settings.value(depthKey).toInt(), 1);
   }
   void epubCoverBrowseValidationAndBilingualPreview() {
     QTemporaryDir directory;
@@ -3384,6 +3400,13 @@ class WindowTests : public QObject {
       QVERIFY(confirm->isEnabled());
       dialog.setSplitChapters(true);
       QVERIFY(dialog.splitChapters());
+      const auto depth = dialog.findChild<QSpinBox*>(QStringLiteral("epubTocDepth"));
+      QVERIFY(depth);
+      QCOMPARE(depth->minimum(), 1);
+      QCOMPARE(depth->maximum(), 6);
+      QCOMPARE(depth->accessibleName(), language == QLatin1String("en")
+                                            ? QStringLiteral("Table of contents depth")
+                                            : QStringLiteral("目录深度"));
       QVERIFY(dialog.findChild<QLabel*>(QStringLiteral("epubCoverPreview"))->isVisible());
       QCOMPARE(dialog.findChild<QCheckBox*>(QStringLiteral("epubSplitChapters"))->text(),
                language == QLatin1String("en")
@@ -3923,7 +3946,7 @@ class WindowTests : public QObject {
           QStringLiteral("pdf/repeatTableHeader"), QStringLiteral("pdf/breakBetweenTopHeadings"),
           QStringLiteral("pdf/header"), QStringLiteral("pdf/footer"),
           QStringLiteral("export/epubAuthor"), QStringLiteral("export/epubLanguage"),
-          QStringLiteral("export/epubSplitChapters")})
+          QStringLiteral("export/epubSplitChapters"), QStringLiteral("export/epubTocDepth")})
       oldValues.insert(key, settings.value(key));
     const auto language = typist::platform::languagePreference();
     const auto theme = typist::platform::themePreference();
@@ -3956,7 +3979,7 @@ class WindowTests : public QObject {
     for (const auto& path : {source, other}) {
       QFile file(path);
       QVERIFY(file.open(QIODevice::WriteOnly));
-      QVERIFY(file.write("# First\n\nSome text.\n\n# Second\n\nOld paragraph.\n") > 0);
+      QVERIFY(file.write("# First\n\n## Detail\n\nSome text.\n\n# Second\n\nOld paragraph.\n") > 0);
     }
     const auto coverPath = directory.filePath(QStringLiteral("cover.png"));
     QImage cover(64, 100, QImage::Format_RGB32);
@@ -4018,6 +4041,7 @@ class WindowTests : public QObject {
               ->setText(QStringLiteral("en"));
           epub->findChild<QLineEdit*>(QStringLiteral("epubCover"))->setText(coverPath);
           epub->findChild<QCheckBox*>(QStringLiteral("epubSplitChapters"))->setChecked(true);
+          epub->setTocDepth(1);
           epub->accept();
         }
       });
@@ -4056,6 +4080,7 @@ class WindowTests : public QObject {
     settings.setValue(QStringLiteral("export/image"), QVariantMap{{QStringLiteral("width"), 640}});
     typist::platform::setPdfPaper(QStringLiteral("letter"));
     settings.setValue(QStringLiteral("export/epubAuthor"), QStringLiteral("Different author"));
+    settings.setValue(QStringLiteral("export/epubTocDepth"), 6);
     window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();
     editor->moveCursor(QTextCursor::End);
     QVERIFY(editor->startParagraphSourceEdit());
@@ -4106,6 +4131,8 @@ class WindowTests : public QObject {
       QVERIFY(bytes.contains("<dc:creator>Replay Author</dc:creator>"));
       QVERIFY(bytes.contains("OEBPS/cover.xhtml"));
       QVERIFY(bytes.contains("OEBPS/chapter-2.xhtml"));
+      QVERIFY(bytes.contains("id=\"detail\""));
+      QVERIFY(!bytes.contains("href=\"content.xhtml#detail\""));
       QVERIFY(bytes.contains("new contents"));
     } else {
       QVERIFY(bytes.contains("new contents"));
@@ -4160,6 +4187,8 @@ class WindowTests : public QObject {
     if (extension == QLatin1String("epub")) {
       QVERIFY(overwritten.contains("<dc:title>Replay Book</dc:title>"));
       QVERIFY(overwritten.contains("OEBPS/cover.xhtml"));
+      QVERIFY(overwritten.contains("id=\"detail\""));
+      QVERIFY(!overwritten.contains("href=\"content.xhtml#detail\""));
       QVERIFY(QFile::remove(coverPath));
       QVERIFY(runOverwrite(true));
       QCOMPARE(receiver.urls.size(), 2);

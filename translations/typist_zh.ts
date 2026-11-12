@@ -1702,6 +1702,10 @@
         <translation>按一级标题拆分章节</translation>
     </message>
     <message>
+        <source>Table of contents depth</source>
+        <translation>目录深度</translation>
+    </message>
+    <message>
         <source>Optional local cover image. It is embedded in the book; the original stays unchanged.</source>
         <translation>可选的本地封面图片。图片会嵌入书中，原文件保持不变。</translation>
     </message>
@@ -1743,6 +1747,10 @@
     <message>
         <source>Enter a book title and a valid language tag</source>
         <translation>请输入书名和有效的语言标签</translation>
+    </message>
+    <message>
+        <source>Choose a table of contents depth from 1 to 6</source>
+        <translation>请选择 1 至 6 之间的目录深度</translation>
     </message>
     <message>
         <source>EPUB source exceeds the 16 MiB limit</source>
