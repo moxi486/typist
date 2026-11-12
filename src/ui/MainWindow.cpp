@@ -109,6 +109,7 @@ namespace {
 
 const auto htmlOutlineSetting = QStringLiteral("export/htmlOutline");
 const auto htmlContentSetting = QStringLiteral("export/htmlContent");
+const auto epubCssSetting = QStringLiteral("export/epubCss");
 
 QUrl exportedFileUrl(const QString& path, platform::ExportFormat format) {
   const QFileInfo file(path);
@@ -1152,6 +1153,9 @@ void MainWindow::createExportMenu(QMenu* settings) {
   auto* htmlContent = menu->addAction(tr("Additional HTML Content…"));
   htmlContent->setObjectName(QStringLiteral("htmlExportContent"));
   connect(htmlContent, &QAction::triggered, this, &MainWindow::configureHtmlExportContent);
+  auto* epubStylesheet = menu->addAction(tr("EPUB Stylesheet…"));
+  epubStylesheet->setObjectName(QStringLiteral("epubStylesheet"));
+  connect(epubStylesheet, &QAction::triggered, this, &MainWindow::configureEpubStylesheet);
 }
 
 void MainWindow::configureHtmlExportContent() {
@@ -1193,6 +1197,41 @@ void MainWindow::configureHtmlExportContent() {
   if (dialog.exec() != QDialog::Accepted) return;
   settings.setValue(htmlContentSetting, QVariantMap{{QStringLiteral("head"), head.toPlainText()},
                                                     {QStringLiteral("body"), body.toPlainText()}});
+}
+
+void MainWindow::configureEpubStylesheet() {
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+  const auto restore = qScopeGuard(
+      [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
+
+  QSettings settings;
+  QDialog dialog(this);
+  dialog.setObjectName(QStringLiteral("epubStylesheetDialog"));
+  dialog.setWindowTitle(tr("EPUB Stylesheet"));
+  dialog.resize(580, 360);
+  QVBoxLayout layout(&dialog);
+  QLabel caption(tr("Custom CSS for EPUB exports"));
+  QPlainTextEdit css(settings.value(epubCssSetting).toString());
+  css.setObjectName(QStringLiteral("epubCustomCss"));
+  css.setAccessibleName(caption.text());
+  css.setLineWrapMode(QPlainTextEdit::NoWrap);
+  css.setTabChangesFocus(true);
+  caption.setBuddy(&css);
+  layout.addWidget(&caption);
+  layout.addWidget(&css, 1);
+  QDialogButtonBox buttons(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+  buttons.button(QDialogButtonBox::Save)->setText(tr("Save"));
+  buttons.button(QDialogButtonBox::Cancel)->setText(tr("Cancel"));
+  layout.addWidget(&buttons);
+  connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+  connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+  if (dialog.exec() != QDialog::Accepted) return;
+  const auto stylesheet = css.toPlainText();
+  if (stylesheet.trimmed().isEmpty())
+    settings.remove(epubCssSetting);
+  else
+    settings.setValue(epubCssSetting, stylesheet);
 }
 
 bool MainWindow::maybeSaveBeforeNavigate() {
@@ -2015,8 +2054,13 @@ void MainWindow::exportEpubDocument(const platform::EpubOptions* previous,
     metadata.setTocDepth(
         settings.value(QStringLiteral("export/epubTocDepth"), options.tocDepth).toInt());
     if (metadata.exec() != QDialog::Accepted) return;
-    options = {metadata.bookTitle(),  metadata.author(),        metadata.language(),
-               metadata.coverImage(), metadata.splitChapters(), metadata.tocDepth()};
+    options = {metadata.bookTitle(),
+               metadata.author(),
+               metadata.language(),
+               metadata.coverImage(),
+               metadata.splitChapters(),
+               metadata.tocDepth(),
+               settings.value(epubCssSetting).toString()};
   }
   const auto directory = platform::exportDirectory(m_currentPath);
   const auto name = m_currentPath.isEmpty() ? QStringLiteral("untitled")

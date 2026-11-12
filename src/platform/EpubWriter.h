@@ -13,6 +13,7 @@ struct EpubOptions {
   QString coverImage = {};     // optional local image; relative paths use baseDirectory
   bool splitChapters = false;  // split at top-level H1 blocks, preserving any preface
   int tocDepth = defaultTocDepth;
+  QString customCss = {};
 };
 bool exportEpub(const QString& path, const QString& markdown, const EpubOptions& options,
                 QString* error, const QString& baseDirectory = {}, QStringList* notices = nullptr);

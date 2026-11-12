@@ -180,6 +180,7 @@ class MainWindow : public QMainWindow {
   void configureCodeFences();
   void configureWritingArea();
   void configureHtmlExportContent();
+  void configureEpubStylesheet();
   struct HtmlExportSettings {
     bool styled;
     bool dark;

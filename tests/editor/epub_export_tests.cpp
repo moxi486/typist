@@ -98,6 +98,7 @@ class EpubExportTests : public QObject {
     QCOMPARE(qFromLittleEndian<quint16>(bytes.constData() + 28), quint16(0));
     const auto entries = unzip(bytes);
     QCOMPARE(entries.size(), 6);
+    QVERIFY(!entries.value("OEBPS/nav.xhtml").contains("custom.css"));
     for (auto it = entries.begin(); it != entries.end(); ++it)
       if (it.key().endsWith(".xml") || it.key().endsWith(".xhtml") || it.key().endsWith(".opf")) {
         QXmlStreamReader xml(it.value());
@@ -293,6 +294,10 @@ class EpubExportTests : public QObject {
     auto configured = options;
     configured.coverImage = coverPath;
     configured.splitChapters = true;
+    const auto stylesheet = QStringLiteral(
+        "@charset \"UTF-8\";\n/* 书籍样式 */\nbody { line-height: 1.8; }\nnav a { color: #246; "
+        "}\n");
+    configured.customCss = stylesheet;
     const auto path = directory.filePath(QStringLiteral("chapters.epub"));
     QString error;
     QStringList notices;
@@ -315,6 +320,17 @@ class EpubExportTests : public QObject {
     QVERIFY(entries.contains("OEBPS/chapter-4.xhtml"));
     QVERIFY(!entries.contains("OEBPS/chapter-5.xhtml"));
     const auto opf = entries.value("OEBPS/content.opf");
+    QCOMPARE(entries.value("OEBPS/custom.css"), stylesheet.toUtf8());
+    QVERIFY(entries.value("OEBPS/style.css").contains("line-height:1.65"));
+    QVERIFY(
+        opf.contains("<item id=\"custom-style\" href=\"custom.css\" media-type=\"text/css\"/>"));
+    for (auto it = entries.cbegin(); it != entries.cend(); ++it) {
+      if (!it.key().endsWith(".xhtml")) continue;
+      const auto builtIn = it.value().indexOf("href=\"style.css\"");
+      const auto custom = it.value().indexOf("href=\"custom.css\"");
+      QVERIFY(builtIn >= 0 && custom > builtIn);
+      QCOMPARE(it.value().count("href=\"custom.css\""), 1);
+    }
     QCOMPARE(opf.count("properties=\"cover-image\""), 1);
     QVERIFY(opf.contains(
         "<spine><itemref idref=\"cover\"/><itemref idref=\"content\"/><itemref "
@@ -348,9 +364,14 @@ class EpubExportTests : public QObject {
     saveSpecimen(QStringLiteral("chapters-only"), read(path));
     configured.splitChapters = false;
     configured.coverImage = coverPath;
+    configured.customCss.clear();
     QVERIFY(typist::platform::exportEpub(path, source, configured, &error, directory.path()));
-    QVERIFY(!unzip(read(path)).contains("OEBPS/chapter-2.xhtml"));
-    QVERIFY(brokenReference(unzip(read(path))).isEmpty());
+    const auto cleared = unzip(read(path));
+    QVERIFY(!cleared.contains("OEBPS/chapter-2.xhtml"));
+    QVERIFY(!cleared.contains("OEBPS/custom.css"));
+    QVERIFY(!cleared.value("OEBPS/content.xhtml").contains("custom.css"));
+    QVERIFY(!cleared.value("OEBPS/content.opf").contains("custom.css"));
+    QVERIFY(brokenReference(cleared).isEmpty());
     saveSpecimen(QStringLiteral("cover-only"), read(path));
   }
   void readerTocDepthAndHierarchy() {
