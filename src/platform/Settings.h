@@ -15,6 +15,26 @@ void setThemePreference(const QString& value);
 
 QString languagePreference();
 void setLanguagePreference(const QString& value);
+
+enum class LaunchMode { NewDocument, LastFolder, LastFileAndFolder, CustomFolder };
+struct LaunchOptions {
+  LaunchMode mode = LaunchMode::NewDocument;
+  QString customFolder;
+};
+struct StartupTarget {
+  QString file;
+  QString folder;
+  bool importHtml = false;
+};
+LaunchOptions launchOptions();
+void setLaunchOptions(const LaunchOptions& options);
+StartupTarget lastClosedTarget();
+void setLastClosedTarget(const StartupTarget& target);
+// Arguments exclude the executable name. Explicit input and benchmark launches
+// take precedence over preferences and saved paths.
+StartupTarget startupTarget(const QStringList& arguments, bool benchmark = false,
+                            const QString& benchmarkFile = {});
+
 bool copyImagesToAssets();
 void setCopyImagesToAssets(bool enabled);
 

@@ -42,6 +42,7 @@ class FileTree : public QTreeWidget {
 
  signals:
   void entryActivated(const QString& path);
+  void entryOpenInNewWindow(const QString& path);
 
   // Emitted when the watcher sees a change under the root; the refresh itself is debounced.
   void directoryChanged();

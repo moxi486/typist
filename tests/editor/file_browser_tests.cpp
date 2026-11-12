@@ -345,8 +345,15 @@ class FileBrowserTests : public QObject {
     tree.setRoot(directory.path());
     tree.selectPath(path);
     QSignalSpy opened(&tree, &FileTree::entryActivated);
+    QSignalSpy newWindow(&tree, &FileTree::entryOpenInNewWindow);
     QScopedPointer<QMenu> menu(tree.createContextMenu());
     tree.selectPath(other);  // A live selection change must not redirect a menu action.
+    auto* openWindow = menu->findChild<QAction*>("fileOpenInNewWindow");
+    QVERIFY(openWindow && openWindow->isEnabled());
+    openWindow->trigger();
+    QCOMPARE(newWindow.count(), 1);
+    QCOMPARE(newWindow.takeFirst().first().toString(), path);
+    QCOMPARE(tree.selectedPath(), other);
     menu->findChild<QAction*>("fileCopyPath")->trigger();
     QCOMPARE(QApplication::clipboard()->text(), QDir::toNativeSeparators(path));
     menu->findChild<QAction*>("fileCopyRelativePath")->trigger();
@@ -371,6 +378,12 @@ class FileBrowserTests : public QObject {
     menu.reset(tree.createContextMenu());
     QVERIFY(!menu->findChild<QAction*>("fileDuplicate"));
     QVERIFY(!menu->findChild<QAction*>("fileDelete"));
+    openWindow = menu->findChild<QAction*>("fileOpenInNewWindow");
+    QVERIFY(openWindow && openWindow->isEnabled());
+    openWindow->trigger();
+    QCOMPARE(newWindow.count(), 1);
+    QCOMPARE(newWindow.takeFirst().first().toString(), directory.path());
+    QCOMPARE(opened.count(), 0);
     menu->findChild<QAction*>("fileCopyRelativePath")->trigger();
     QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("."));
     tree.setRoot({});

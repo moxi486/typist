@@ -1,12 +1,12 @@
 #include "Localization.h"
 #include "MainWindow.h"
+#include "Settings.h"
 
 #include <QApplication>
 #include <QByteArray>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
-#include <QFileInfo>
 #include <QFont>
 #include <QIcon>
 #include <QLocale>
@@ -31,41 +31,30 @@ int main(int argc, char* argv[]) {
   interfaceFont.setPointSize(10);
   application.setFont(interfaceFont);
 
-  const QStringList args = application.arguments();
-  const bool benchStartup = args.contains(QStringLiteral("--bench-startup"));
-  const bool benchRepaint = args.contains(QStringLiteral("--bench-repaint"));
-  const bool benchViewSwitch = args.contains(QStringLiteral("--bench-view-switch"));
-  const bool benchSearch = args.contains(QStringLiteral("--bench-search"));
-  const bool benchFolderSearch = args.contains(QStringLiteral("--bench-file-search"));
-  const bool benchTree = args.contains(QStringLiteral("--bench-tree"));
-  const bool benchDocx = args.contains(QStringLiteral("--bench-docx"));
-  const bool benchEpubChapters = args.contains(QStringLiteral("--bench-epub-chapters"));
-  const bool benchEpub = args.contains(QStringLiteral("--bench-epub")) || benchEpubChapters;
-  const bool benchHtmlImport = args.contains(QStringLiteral("--bench-import-html"));
-  const bool benchPdf = args.contains(QStringLiteral("--bench-pdf"));
+  const QStringList args = application.arguments().mid(1);
+  const int delimiter = args.indexOf(QStringLiteral("--"));
+  const auto flags = delimiter < 0 ? args : args.mid(0, delimiter);
+  const bool benchStartup = flags.contains(QStringLiteral("--bench-startup"));
+  const bool benchRepaint = flags.contains(QStringLiteral("--bench-repaint"));
+  const bool benchViewSwitch = flags.contains(QStringLiteral("--bench-view-switch"));
+  const bool benchSearch = flags.contains(QStringLiteral("--bench-search"));
+  const bool benchFolderSearch = flags.contains(QStringLiteral("--bench-file-search"));
+  const bool benchTree = flags.contains(QStringLiteral("--bench-tree"));
+  const bool benchDocx = flags.contains(QStringLiteral("--bench-docx"));
+  const bool benchEpubChapters = flags.contains(QStringLiteral("--bench-epub-chapters"));
+  const bool benchEpub = flags.contains(QStringLiteral("--bench-epub")) || benchEpubChapters;
+  const bool benchHtmlImport = flags.contains(QStringLiteral("--bench-import-html"));
+  const bool benchPdf = flags.contains(QStringLiteral("--bench-pdf"));
 
+  const bool benchmark = benchStartup || benchRepaint || benchViewSwitch || benchSearch ||
+                         benchFolderSearch || benchTree || benchDocx || benchEpub ||
+                         benchHtmlImport || benchPdf;
   typist::MainWindow window;
-  window.setBenchMode(benchStartup || benchRepaint || benchViewSwitch || benchSearch ||
-                      benchFolderSearch || benchTree || benchDocx || benchEpub || benchHtmlImport ||
-                      benchPdf);
-  bool htmlImported = false;
-  const auto openInput = [&](const QString& path) {
-    const auto suffix = QFileInfo(path).suffix().toLower();
-    if (suffix == QLatin1String("html") || suffix == QLatin1String("htm"))
-      htmlImported = window.importHtmlFile(path);
-    else
-      window.openFile(path);
-  };
-  const QByteArray benchFile = qgetenv("TYPIST_BENCH_FILE");
-  if (!benchFile.isEmpty()) openInput(QString::fromUtf8(benchFile));
-  if (benchFile.isEmpty()) {
-    for (const QString& argument : args.mid(1)) {
-      if (!argument.startsWith(QStringLiteral("--")) && QFileInfo(argument).isFile()) {
-        openInput(argument);
-        break;
-      }
-    }
-  }
+  window.setBenchMode(benchmark);
+  const auto target = typist::platform::startupTarget(
+      args, benchmark, QString::fromUtf8(qgetenv("TYPIST_BENCH_FILE")));
+  const bool opened = window.openStartupTarget(target);
+  const bool htmlImported = target.importHtml && opened;
   window.show();
 
   int repaintBudgetBreaches = 0;
@@ -79,8 +68,7 @@ int main(int argc, char* argv[]) {
   qint64 epubBytes = 0;
   qint64 pdfBytes = 0;
 
-  if (benchStartup || benchRepaint || benchViewSwitch || benchSearch || benchFolderSearch ||
-      benchTree || benchDocx || benchEpub || benchHtmlImport || benchPdf) {
+  if (benchmark) {
     QTimer::singleShot(
         0, &application,
         [&startup, &application, &window, benchStartup, benchRepaint, benchViewSwitch, benchSearch,

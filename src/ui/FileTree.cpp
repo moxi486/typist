@@ -531,6 +531,10 @@ QMenu* FileTree::createContextMenu(QWidget* parent) {
     action->setObjectName(QString::fromLatin1(id));
     return action;
   };
+  auto* openWindow = add("fileOpenInNewWindow", tr("Open in New Window"));
+  openWindow->setEnabled(QFileInfo::exists(path));
+  connect(openWindow, &QAction::triggered, this, [this, path] { emit entryOpenInNewWindow(path); });
+  menu->addSeparator();
   auto* newFile = add("fileNewMarkdown", tr("New Markdown File"));
   auto* newFolder = add("fileNewFolder", tr("New Folder"));
   newFile->setEnabled(!dir.isEmpty() && QFileInfo(dir).isDir());

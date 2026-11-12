@@ -267,6 +267,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
           [this] { updateSearchFocusGuard(); });
 
   connect(m_tree, &ui::FileTree::entryActivated, this, &MainWindow::openTreeEntry);
+  connect(m_tree, &ui::FileTree::entryOpenInNewWindow, this, &MainWindow::openNewWindow);
   connect(m_tree, &ui::FileTree::fileRenamed, this, &MainWindow::treeFileRenamed);
   connect(m_tree, &ui::FileTree::fileRemoved, this, &MainWindow::treeFileRemoved);
   connect(m_tree, &ui::FileTree::directoryChanged, this, &MainWindow::checkCurrentFileConflict);
@@ -424,6 +425,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   QMenu* settingsMenu = new QMenu(tr("Settings"), menuBar());
   menuBar()->insertMenu(helpMenu->menuAction(), settingsMenu);
+  createLaunchMenu(settingsMenu);
   QMenu* languageMenu = settingsMenu->addMenu(tr("Language"));
   auto* languageGroup = new QActionGroup(this);
   const QStringList languageIds = {QStringLiteral("system"), QStringLiteral("zh"),
@@ -559,7 +561,7 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
                                QStringLiteral("Ctrl+N"), [this] { newDocument(); });
   file->insertAction(file->actions().first(), newAction);
   command(file, QStringLiteral("newWindow"), tr("New Window"), QStringLiteral("Ctrl+Shift+N"),
-          [] { QProcess::startDetached(QCoreApplication::applicationFilePath(), QStringList()); });
+          [this] { openNewWindow(); });
   command(file, QStringLiteral("openQuickly"), tr("Open Quickly"), QStringLiteral("Ctrl+P"),
           [this] { openQuickly(); });
   command(file, QStringLiteral("closeDocument"), tr("Close"), QStringLiteral("Ctrl+W"),
@@ -968,6 +970,52 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   });
 }
 
+void MainWindow::createLaunchMenu(QMenu* settings) {
+  using Mode = platform::LaunchMode;
+  auto* menu = settings->addMenu(tr("On Launch"));
+  menu->setObjectName(QStringLiteral("onLaunchMenu"));
+  auto* group = new QActionGroup(menu);
+  const auto add = [menu, group](Mode mode, const QString& id, const QString& label) {
+    auto* action = menu->addAction(label);
+    action->setCheckable(true);
+    action->setData(int(mode));
+    action->setObjectName(id);
+    group->addAction(action);
+  };
+  add(Mode::NewDocument, QStringLiteral("launchNewDocument"), tr("Open a Blank Document"));
+  add(Mode::LastFolder, QStringLiteral("launchLastFolder"), tr("Restore Last Folder"));
+  add(Mode::LastFileAndFolder, QStringLiteral("launchLastFileAndFolder"),
+      tr("Restore Last File and Folder"));
+  add(Mode::CustomFolder, QStringLiteral("launchCustomFolder"), tr("Open a Custom Folder…"));
+  const auto sync = [group] {
+    const int mode = int(platform::launchOptions().mode);
+    for (auto* action : group->actions()) action->setChecked(action->data().toInt() == mode);
+  };
+  sync();
+  connect(menu, &QMenu::aboutToShow, group, sync);
+  connect(group, &QActionGroup::triggered, this, [this, sync](QAction* action) {
+    auto options = platform::launchOptions();
+    const auto mode = Mode(action->data().toInt());
+    if (mode == Mode::CustomFolder) {
+      auto* editor = static_cast<ui::Editor*>(m_editor);
+      const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+      const auto restore = qScopeGuard(
+          [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
+      const auto initial =
+          QFileInfo(options.customFolder).isDir() ? options.customFolder : m_tree->rootPath();
+      const auto folder = QFileDialog::getExistingDirectory(
+          this, tr("Choose Startup Folder"), initial.isEmpty() ? QDir::homePath() : initial);
+      if (folder.isEmpty()) {
+        sync();
+        return;
+      }
+      options.customFolder = folder;
+    }
+    options.mode = mode;
+    platform::setLaunchOptions(options);
+  });
+}
+
 bool MainWindow::maybeSaveBeforeNavigate() {
   if (!m_dirty || m_benchMode) return true;
   if (!m_currentPath.isEmpty() && m_autoSaveEnabled) {
@@ -1234,6 +1282,13 @@ void MainWindow::openDialog() {
   const QString path = QFileDialog::getOpenFileName(this, tr("Open Markdown"), QString(),
                                                     QStringLiteral("Markdown (*.md)"));
   if (!path.isEmpty()) openFile(path);
+}
+
+bool MainWindow::openStartupTarget(const platform::StartupTarget& target) {
+  const bool opened = target.file.isEmpty() ||
+                      (target.importHtml ? importHtmlFile(target.file) : openFile(target.file));
+  // Open the document before restoring a workspace that may be elsewhere.
+  return (target.folder.isEmpty() || openFolderPath(target.folder)) && opened;
 }
 
 bool MainWindow::openFile(const QString& path) {
@@ -1887,6 +1942,7 @@ bool MainWindow::openFolderPath(const QString& path) {
   const auto restoreFocus = qScopeGuard(
       [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
   m_tree->setRoot(dir);
+  m_tree->selectPath(m_currentPath);
   m_workspaceSearch->setRoot(dir);
   m_sidebarRootLabel->setText(QDir(dir).dirName());
   m_folderLocationsMenu->setRoot(dir);
@@ -1898,6 +1954,16 @@ bool MainWindow::openFolderPath(const QString& path) {
 }
 
 void MainWindow::openTreeEntry(const QString& path) { openFile(path); }
+
+void MainWindow::openNewWindow(const QString& path) {
+  if (!path.isEmpty() && !QFileInfo::exists(path)) {
+    statusBar()->showMessage(tr("The file or folder is no longer available."), 4000);
+    return;
+  }
+  const QString argument = path.isEmpty() ? QStringLiteral("--new") : path;
+  if (!QProcess::startDetached(QCoreApplication::applicationFilePath(), {argument}))
+    statusBar()->showMessage(tr("Cannot open a new window."), 4000);
+}
 
 qint64 MainWindow::searchFolderForBench(const QString& rootDir, const QString& pattern,
                                         int* hitsOut) {
@@ -1991,6 +2057,11 @@ void MainWindow::closeEvent(QCloseEvent* event) {
   if (!m_benchMode) {
     QSettings settings;
     settings.setValue(QStringLiteral("window/geometry"), saveGeometry());
+    const auto file =
+        m_currentPath.isEmpty() ? QString() : QFileInfo(m_currentPath).absoluteFilePath();
+    auto folder = m_tree->rootPath();
+    if (folder.isEmpty() && !file.isEmpty()) folder = QFileInfo(file).absolutePath();
+    platform::setLastClosedTarget({file, folder});
   }
   QMainWindow::closeEvent(event);
 }

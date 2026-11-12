@@ -1,5 +1,6 @@
 #include "Settings.h"
 
+#include <QFileInfo>
 #include <QSettings>
 
 namespace typist::platform {
@@ -10,6 +11,20 @@ QSettings openSettings(QSettings::Format format = QSettings::NativeFormat) {
                    QStringLiteral("Typist"));
 }
 const auto writingAreaKey = QStringLiteral("editor/writingAreaWidths");
+const auto launchOptionsKey = QStringLiteral("startup/options");
+const auto lastClosedKey = QStringLiteral("startup/lastClosed");
+
+StartupTarget explicitStartupTarget(const QString& path) {
+  const QFileInfo info(path);
+  if (info.isFile()) {
+    const auto suffix = info.suffix().toLower();
+    return {info.absoluteFilePath(),
+            {},
+            suffix == QLatin1String("html") || suffix == QLatin1String("htm")};
+  }
+  if (info.isDir()) return {{}, info.absoluteFilePath()};
+  return {};
+}
 
 WritingWidth readWritingWidth(const QVariant& value) {
   bool ok = false;
@@ -22,6 +37,65 @@ WritingWidth readWritingWidth(const QVariant& value) {
   return WritingWidth::Standard;
 }
 }  // namespace
+
+LaunchOptions launchOptions() {
+  const auto values = openSettings(QSettings::defaultFormat()).value(launchOptionsKey).toMap();
+  const int mode = values.value(QStringLiteral("mode")).toInt();
+  return {mode >= int(LaunchMode::NewDocument) && mode <= int(LaunchMode::CustomFolder)
+              ? LaunchMode(mode)
+              : LaunchMode::NewDocument,
+          values.value(QStringLiteral("customFolder")).toString()};
+}
+
+void setLaunchOptions(const LaunchOptions& options) {
+  auto settings = openSettings(QSettings::defaultFormat());
+  settings.setValue(launchOptionsKey,
+                    QVariantMap{{QStringLiteral("mode"), int(options.mode)},
+                                {QStringLiteral("customFolder"), options.customFolder}});
+  settings.sync();
+}
+
+StartupTarget lastClosedTarget() {
+  const auto values = openSettings(QSettings::defaultFormat()).value(lastClosedKey).toMap();
+  return {values.value(QStringLiteral("file")).toString(),
+          values.value(QStringLiteral("folder")).toString()};
+}
+
+void setLastClosedTarget(const StartupTarget& target) {
+  auto settings = openSettings(QSettings::defaultFormat());
+  settings.setValue(lastClosedKey, QVariantMap{{QStringLiteral("file"), target.file},
+                                               {QStringLiteral("folder"), target.folder}});
+  settings.sync();
+}
+
+StartupTarget startupTarget(const QStringList& arguments, bool benchmark,
+                            const QString& benchmarkFile) {
+  if (benchmark && !benchmarkFile.isEmpty()) return explicitStartupTarget(benchmarkFile);
+  bool blank = false, reopen = false, positional = false, literal = false;
+  for (const auto& argument : arguments) {
+    if (!literal && argument.startsWith(QLatin1String("--"))) {
+      literal = argument == QLatin1String("--");
+      blank |= argument == QLatin1String("--new");
+      reopen |= argument == QLatin1String("--reopen-file");
+      continue;
+    }
+    if (argument.isEmpty()) continue;
+    positional = true;
+    const auto target = explicitStartupTarget(argument);
+    if (!target.file.isEmpty() || !target.folder.isEmpty()) return target;
+  }
+  if (positional || benchmark || blank) return {};
+
+  const auto options = launchOptions();
+  const auto mode = reopen ? LaunchMode::LastFileAndFolder : options.mode;
+  if (mode == LaunchMode::NewDocument) return {};
+  if (mode == LaunchMode::CustomFolder)
+    return {{}, QFileInfo(options.customFolder).isDir() ? options.customFolder : QString()};
+  auto target = lastClosedTarget();
+  if (mode == LaunchMode::LastFolder || !QFileInfo(target.file).isFile()) target.file.clear();
+  if (!QFileInfo(target.folder).isDir()) target.folder.clear();
+  return target;
+}
 
 WritingAreaWidths writingAreaWidths() {
   const auto widths = openSettings(QSettings::defaultFormat()).value(writingAreaKey).toMap();
