@@ -4029,11 +4029,12 @@ class WindowTests : public QObject {
     QSettings settings;
     QMap<QString, QVariant> oldValues;
     const auto contentKey = QStringLiteral("export/htmlContent");
+    const auto htmlThemeKey = QStringLiteral("export/htmlTheme");
     const auto epubCssKey = QStringLiteral("export/epubCss");
     for (const auto& key :
          {QStringLiteral("export/preferences"), QStringLiteral("export/lastDirectory"),
-          QStringLiteral("export/htmlOutline"), contentKey, QStringLiteral("export/image"),
-          QStringLiteral("pdfPaper"), QStringLiteral("pdfMarginMm"),
+          QStringLiteral("export/htmlOutline"), contentKey, htmlThemeKey,
+          QStringLiteral("export/image"), QStringLiteral("pdfPaper"), QStringLiteral("pdfMarginMm"),
           QStringLiteral("pdf/customSizeMm"), QStringLiteral("pdf/landscape"),
           QStringLiteral("pdf/repeatTableHeader"), QStringLiteral("pdf/breakBetweenTopHeadings"),
           QStringLiteral("pdf/header"), QStringLiteral("pdf/footer"),
@@ -4059,6 +4060,7 @@ class WindowTests : public QObject {
     typist::platform::setThemePreference(QStringLiteral("dark"));
     typist::platform::setExportPreferences({});
     settings.setValue(QStringLiteral("export/htmlOutline"), true);
+    settings.setValue(htmlThemeKey, QStringLiteral("light"));
     const auto head = QStringLiteral("<style data-custom>p { color: navy; }</style>");
     const auto footer = QStringLiteral("<footer>附录</footer>");
     const auto stylesheet = QStringLiteral("body { line-height: 1.8; }");
@@ -4167,6 +4169,8 @@ class WindowTests : public QObject {
       QVERIFY(initialBytes.contains(head.toUtf8() + "\n</head>"));
       QVERIFY(initialBytes.contains(footer.toUtf8() + "\n</body>"));
       QCOMPARE(initialBytes.contains("<style>"), command == QLatin1String("Export HTML"));
+      if (command == QLatin1String("Export HTML"))
+        QVERIFY(initialBytes.contains("background: #ffffff;"));
     }
     initial.close();
     QVERIFY(repeat->isEnabled() && overwrite->isEnabled());
@@ -4175,6 +4179,7 @@ class WindowTests : public QObject {
 
     // Change global defaults to distinguish the replay from a new export.
     settings.setValue(QStringLiteral("export/htmlOutline"), false);
+    settings.setValue(htmlThemeKey, QStringLiteral("dark"));
     settings.setValue(
         contentKey, QVariantMap{{QStringLiteral("body"), QStringLiteral("<footer>New</footer>")}});
     settings.setValue(QStringLiteral("export/image"), QVariantMap{{QStringLiteral("width"), 640}});
@@ -4216,7 +4221,7 @@ class WindowTests : public QObject {
       QVERIFY(bytes.contains(head.toUtf8() + "\n</head>"));
       QVERIFY(bytes.contains(footer.toUtf8() + "\n</body>"));
       QCOMPARE(bytes.contains("<style>"), command == QLatin1String("Export HTML"));
-      if (command == QLatin1String("Export HTML")) QVERIFY(bytes.contains("#1f2328"));
+      if (command == QLatin1String("Export HTML")) QVERIFY(bytes.contains("background: #ffffff;"));
     } else if (extension == QLatin1String("png")) {
       const auto picture = QImage::fromData(bytes);
       QCOMPARE(picture.width(), 900);
@@ -4311,6 +4316,7 @@ class WindowTests : public QObject {
       QCOMPARE(repeated.readAll(), overwritten);
       repeated.close();
     } else if (command == QLatin1String("Export HTML")) {
+      QVERIFY(overwritten.contains("background: #ffffff;"));
       QVERIFY(overwritten.contains("<title>repeat</title>"));
       QVERIFY(overwritten.contains("<nav class=\"export-outline"));
       auto modified = overwritten;
@@ -4627,22 +4633,32 @@ class WindowTests : public QObject {
     QVERIFY(directory.isValid());
     QSettings settings;
     const auto key = QStringLiteral("export/htmlOutline");
+    const auto themeKey = QStringLiteral("export/htmlTheme");
     const auto previous = settings.value(key);
+    const auto previousExportTheme = settings.value(themeKey);
     const bool collapsible = typist::platform::outlineCollapsible();
     const auto theme = typist::platform::themePreference();
+    const auto language = typist::platform::languagePreference();
     const bool native = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
     const auto restore = qScopeGuard([&] {
       if (previous.isValid())
         settings.setValue(key, previous);
       else
         settings.remove(key);
+      if (previousExportTheme.isValid())
+        settings.setValue(themeKey, previousExportTheme);
+      else
+        settings.remove(themeKey);
       typist::platform::setOutlineCollapsible(collapsible);
       typist::platform::setThemePreference(theme);
+      typist::platform::setLanguagePreference(language);
       QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native);
     });
     settings.remove(key);
+    settings.remove(themeKey);
     typist::platform::setOutlineCollapsible(false);
     typist::platform::setThemePreference(QStringLiteral("light"));
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
 
     QFile source(directory.filePath(QStringLiteral("sample.md")));
@@ -4667,7 +4683,13 @@ class WindowTests : public QObject {
     auto* plain = window.findChild<QAction*>(QStringLiteral("exportPlainHtml"));
     auto* include = window.findChild<QAction*>(QStringLiteral("htmlExportOutline"));
     auto* hierarchy = window.findChild<QAction*>(QStringLiteral("outlineCollapsible"));
+    auto* themeMenu = window.findChild<QMenu*>(QStringLiteral("htmlExportTheme"));
+    auto* current = window.findChild<QAction*>(QStringLiteral("htmlExportTheme_current"));
+    auto* light = window.findChild<QAction*>(QStringLiteral("htmlExportTheme_light"));
+    auto* dark = window.findChild<QAction*>(QStringLiteral("htmlExportTheme_dark"));
     QVERIFY(editor && styled && plain && include && hierarchy);
+    QVERIFY(themeMenu && current && light && dark);
+    QVERIFY(current->isChecked() && !light->isChecked() && !dark->isChecked());
     QVERIFY(include->isCheckable() && !include->isChecked());
     QCOMPARE(styled->shortcut(), QKeySequence(QStringLiteral("Ctrl+Shift+E")));
 
@@ -4705,13 +4727,21 @@ class WindowTests : public QObject {
     QVERIFY(exportTo(styled, QStringLiteral("default")));
     const auto defaultHtml = read(QStringLiteral("default"));
     QVERIFY(defaultHtml.contains("<style>"));
+    QVERIFY(defaultHtml.contains("background: #ffffff;"));
+    QVERIFY(defaultHtml.contains("color:#8b3d91"));
     QVERIFY(defaultHtml.contains("class=\"table-of-contents\""));
     QVERIFY(!defaultHtml.contains("class=\"export-outline"));
 
     include->trigger();
     QVERIFY(settings.value(key).toBool());
+    dark->trigger();
+    QVERIFY(dark->isChecked() && !current->isChecked());
+    QCOMPARE(settings.value(themeKey).toString(), QStringLiteral("dark"));
+    QCOMPARE(typist::platform::themePreference(), QStringLiteral("light"));
     QVERIFY(exportTo(styled, QStringLiteral("flat")));
     const auto flat = read(QStringLiteral("flat"));
+    QVERIFY(flat.contains("background: #1f2328;"));
+    QVERIFY(flat.contains("color:#d7a0e8"));
     QVERIFY(flat.contains("<nav class=\"export-outline flat\""));
     QVERIFY(flat.contains("class=\"table-of-contents\""));
     QVERIFY(flat.contains("data:image/png;base64,"));
@@ -4740,6 +4770,30 @@ class WindowTests : public QObject {
     QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
     QVERIFY(source.open(QIODevice::ReadOnly));
     QCOMPARE(source.readAll(), markdown);
+
+    {
+      typist::MainWindow other(nullptr, true);
+      auto* otherDark = other.findChild<QAction*>(QStringLiteral("htmlExportTheme_dark"));
+      auto* otherLight = other.findChild<QAction*>(QStringLiteral("htmlExportTheme_light"));
+      QVERIFY(otherDark && otherLight && otherDark->isChecked());
+      otherLight->trigger();
+    }
+    QVERIFY(QMetaObject::invokeMethod(themeMenu, "aboutToShow", Qt::DirectConnection));
+    QVERIFY(light->isChecked() && !dark->isChecked());
+    window.findChild<QAction*>(QStringLiteral("appearance_dark"))->trigger();
+    QVERIFY(exportTo(styled, QStringLiteral("fixed-light")));
+    QVERIFY(read(QStringLiteral("fixed-light")).contains("background: #ffffff;"));
+
+    current->trigger();
+    QCOMPARE(settings.value(themeKey).toString(), QStringLiteral("current"));
+    QVERIFY(exportTo(styled, QStringLiteral("follow-dark")));
+    QVERIFY(read(QStringLiteral("follow-dark")).contains("background: #1f2328;"));
+    settings.setValue(themeKey, QStringLiteral("unknown"));
+    QVERIFY(QMetaObject::invokeMethod(themeMenu, "aboutToShow", Qt::DirectConnection));
+    QVERIFY(current->isChecked());
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(themeMenu->title(), QStringLiteral("HTML 导出主题"));
+    QCOMPARE(current->text(), QStringLiteral("跟随编辑器主题"));
 
     const QString specimens = qEnvironmentVariable("TYPIST_HTML_OUTPUT");
     if (!specimens.isEmpty()) {
