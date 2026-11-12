@@ -5,6 +5,11 @@ class QLabel;
 class QPushButton;
 class QCheckBox;
 class QSpinBox;
+class QTabWidget;
+class QPlainTextEdit;
+namespace typist::platform {
+struct EpubPublicationDetails;
+}
 namespace typist::ui {
 class EpubDialog : public QDialog {
   Q_OBJECT
@@ -19,6 +24,7 @@ class EpubDialog : public QDialog {
   void setSplitChapters(bool enabled);
   int tocDepth() const;
   void setTocDepth(int depth);
+  platform::EpubPublicationDetails publicationDetails() const;
 
  protected:
   void changeEvent(QEvent* event) override;
@@ -36,6 +42,11 @@ class EpubDialog : public QDialog {
   QCheckBox* m_split;
   QLabel* m_tocDepthCaption;
   QSpinBox* m_tocDepth;
+  QTabWidget* m_tabs;
+  QLineEdit *m_subtitle, *m_publisher, *m_identifier, *m_rights;
+  QPlainTextEdit* m_description;
+  QLabel *m_subtitleCaption, *m_publisherCaption, *m_identifierCaption, *m_rightsCaption,
+      *m_descriptionCaption;
   bool m_coverValid = true;
 };
 }  // namespace typist::ui

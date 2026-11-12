@@ -13,9 +13,12 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPixmap>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSpinBox>
+#include <QTabWidget>
+#include <QVBoxLayout>
 
 namespace typist::ui {
 EpubDialog::EpubDialog(const QString& title, const QString& author, const QString& language,
@@ -24,8 +27,14 @@ EpubDialog::EpubDialog(const QString& title, const QString& author, const QStrin
   if (parent) setPalette(parent->palette());
   setObjectName(QStringLiteral("epubDialog"));
   setMinimumWidth(560);
-  auto* form = new QFormLayout(this);
-  form->setContentsMargins(24, 22, 24, 22);
+  auto* layout = new QVBoxLayout(this);
+  layout->setContentsMargins(24, 22, 24, 22);
+  m_tabs = new QTabWidget(this);
+  m_tabs->setObjectName(QStringLiteral("epubTabs"));
+  layout->addWidget(m_tabs);
+  auto* book = new QWidget;
+  m_tabs->addTab(book, QString());
+  auto* form = new QFormLayout(book);
   form->setSpacing(14);
   m_titleCaption = new QLabel(this);
   m_authorCaption = new QLabel(this);
@@ -74,12 +83,35 @@ EpubDialog::EpubDialog(const QString& title, const QString& author, const QStrin
   m_hint = new QLabel(this);
   m_hint->setWordWrap(true);
   form->addRow(m_hint);
+
+  auto* publication = new QWidget;
+  m_tabs->addTab(publication, QString());
+  auto* details = new QFormLayout(publication);
+  const auto addField = [details](QWidget* field, const QString& name) {
+    auto* label = new QLabel;
+    label->setBuddy(field);
+    field->setObjectName(name);
+    details->addRow(label, field);
+    return label;
+  };
+  m_subtitle = new QLineEdit;
+  m_publisher = new QLineEdit;
+  m_description = new QPlainTextEdit;
+  m_description->setTabChangesFocus(true);
+  m_identifier = new QLineEdit;
+  m_rights = new QLineEdit;
+  m_subtitleCaption = addField(m_subtitle, QStringLiteral("epubSubtitle"));
+  m_publisherCaption = addField(m_publisher, QStringLiteral("epubPublisher"));
+  m_descriptionCaption = addField(m_description, QStringLiteral("epubDescription"));
+  m_identifierCaption = addField(m_identifier, QStringLiteral("epubIdentifier"));
+  m_rightsCaption = addField(m_rights, QStringLiteral("epubRights"));
+
   auto* buttons = new QDialogButtonBox(this);
   m_export = buttons->addButton(QString(), QDialogButtonBox::AcceptRole);
   m_export->setObjectName(QStringLiteral("confirmEpub"));
   m_cancel = buttons->addButton(QString(), QDialogButtonBox::RejectRole);
   m_cancel->setObjectName(QStringLiteral("cancelEpub"));
-  form->addRow(buttons);
+  layout->addWidget(buttons);
   setStyleSheet(QStringLiteral(
       "QPushButton#confirmEpub{background:#3d72bb;color:white;border:0;border-radius:5px;"
       "padding:8px "
@@ -111,6 +143,12 @@ void EpubDialog::setTocDepth(int depth) {
                            ? depth
                            : platform::EpubOptions::defaultTocDepth);
 }
+platform::EpubPublicationDetails EpubDialog::publicationDetails() const {
+  return {m_subtitle->text().trimmed(), m_publisher->text().trimmed(),
+          m_description->toPlainText().trimmed(), m_identifier->text().trimmed(),
+          m_rights->text().trimmed()};
+}
+
 void EpubDialog::updateCover() {
   m_coverPreview->clear();
   m_clearCover->setEnabled(!coverImage().isEmpty());
@@ -135,6 +173,8 @@ void EpubDialog::validate() {
 }
 void EpubDialog::retranslate() {
   setWindowTitle(tr("Export EPUB"));
+  m_tabs->setTabText(0, tr("Book"));
+  m_tabs->setTabText(1, tr("Publication details"));
   m_titleCaption->setText(tr("Book title"));
   m_authorCaption->setText(tr("Author"));
   m_author->setPlaceholderText(tr("Optional"));
@@ -147,6 +187,12 @@ void EpubDialog::retranslate() {
   m_coverPreview->setAccessibleName(tr("Cover preview"));
   m_tocDepthCaption->setText(tr("Table of contents depth"));
   m_tocDepth->setAccessibleName(m_tocDepthCaption->text());
+  m_subtitleCaption->setText(tr("Subtitle"));
+  m_publisherCaption->setText(tr("Publisher"));
+  m_descriptionCaption->setText(tr("Description"));
+  m_identifierCaption->setText(tr("Book identifier"));
+  m_identifier->setPlaceholderText(tr("Generated automatically if blank"));
+  m_rightsCaption->setText(tr("Copyright and rights"));
   m_split->setText(tr("Split chapters at level-one headings"));
   m_hint->setText(tr(
       "Use a language tag such as zh-CN or en. Headings become the reader's table of contents."));

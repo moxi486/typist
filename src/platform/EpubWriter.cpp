@@ -474,18 +474,36 @@ bool exportEpub(const QString& path, const QString& markdown, const EpubOptions&
   const auto navigation =
       xhtml(context.chinese() ? QStringLiteral("目录") : QStringLiteral("Contents"), navigationBody,
             options);
-  const auto identifier = "urn:uuid:" + QUuid::createUuid().toString(QUuid::WithoutBraces);
-  QString package =
-      QStringLiteral(
-          "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-          "<package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" "
-          "unique-identifier=\"book-id\" "
-          "xml:lang=\"%1\"><metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">"
-          "<dc:identifier "
-          "id=\"book-id\">%2</dc:identifier><dc:title>%3</dc:title><dc:language>%1</dc:language>")
-          .arg(xml(options.language), identifier, xml(options.title.trimmed()));
-  if (!options.author.trimmed().isEmpty())
-    package += "<dc:creator>" + xml(options.author.trimmed()) + "</dc:creator>";
+  auto identifier = options.publication.identifier.trimmed();
+  if (identifier.isEmpty())
+    identifier = "urn:uuid:" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+  const auto title = xml(options.title.trimmed());
+  const auto subtitle = options.publication.subtitle.trimmed();
+  const auto titles =
+      subtitle.isEmpty()
+          ? QStringLiteral("<dc:title>%1</dc:title>").arg(title)
+          : QStringLiteral(
+                "<dc:title id=\"main-title\">%1</dc:title>"
+                "<dc:title id=\"subtitle\">%2</dc:title>"
+                "<meta refines=\"#main-title\" property=\"title-type\">main</meta>"
+                "<meta refines=\"#subtitle\" property=\"title-type\">subtitle</meta>")
+                .arg(title, xml(subtitle));
+  QString package = QStringLiteral(
+                        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                        "<package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" "
+                        "unique-identifier=\"book-id\" "
+                        "xml:lang=\"%1\"><metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">"
+                        "<dc:identifier "
+                        "id=\"book-id\">%2</dc:identifier>%3<dc:language>%1</dc:language>")
+                        .arg(xml(options.language), xml(identifier), titles);
+  const auto appendMetadata = [&package](const QString& name, const QString& value) {
+    const auto trimmed = value.trimmed();
+    if (!trimmed.isEmpty()) package += QStringLiteral("<dc:%1>%2</dc:%1>").arg(name, xml(trimmed));
+  };
+  appendMetadata(QStringLiteral("creator"), options.author);
+  appendMetadata(QStringLiteral("publisher"), options.publication.publisher);
+  appendMetadata(QStringLiteral("description"), options.publication.description);
+  appendMetadata(QStringLiteral("rights"), options.publication.rights);
   package += "<meta property=\"dcterms:modified\">" +
              QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd'T'HH:mm:ss'Z'") +
              "</meta></metadata><manifest>"

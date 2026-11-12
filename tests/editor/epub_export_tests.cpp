@@ -374,6 +374,63 @@ class EpubExportTests : public QObject {
     QVERIFY(brokenReference(cleared).isEmpty());
     saveSpecimen(QStringLiteral("cover-only"), read(path));
   }
+  void publicationDetailsInPackageMetadata() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto path = directory.filePath(QStringLiteral("metadata.epub"));
+    const auto source = QStringLiteral("# First chapter\n\nA short publication.\n");
+    auto configured = options;
+    configured.publication = {QStringLiteral("  双语 & Research <2>  "),
+                              QStringLiteral("  出版社 & Press "),
+                              QStringLiteral("First paragraph.\n第二行 <示例> & notes."),
+                              QStringLiteral(" https://example.org/books/one?a=1&b=2 "),
+                              QStringLiteral(" © 2026 Author & Press ")};
+    QString error;
+    QVERIFY2(typist::platform::exportEpub(path, source, configured, &error), qPrintable(error));
+    const auto withMetadata = read(path);
+    const auto entries = unzip(withMetadata);
+    const auto opf = entries.value("OEBPS/content.opf");
+    QVERIFY(opf.contains("unique-identifier=\"book-id\""));
+    QVERIFY(
+        opf.contains("<dc:identifier id=\"book-id\">https://example.org/books/"
+                     "one?a=1&amp;b=2</dc:identifier>"));
+    QVERIFY(opf.contains("<dc:title id=\"main-title\">" + options.title.toHtmlEscaped().toUtf8() +
+                         "</dc:title>"));
+    QVERIFY(opf.contains(QStringLiteral("<dc:title id=\"subtitle\">双语 &amp; Research "
+                                        "&lt;2&gt;</dc:title>")
+                             .toUtf8()));
+    QVERIFY(opf.contains("<meta refines=\"#main-title\" property=\"title-type\">main</meta>"));
+    QVERIFY(opf.contains("<meta refines=\"#subtitle\" property=\"title-type\">subtitle</meta>"));
+    QVERIFY(
+        opf.contains(QStringLiteral("<dc:publisher>出版社 &amp; Press</dc:publisher>").toUtf8()));
+    QVERIFY(opf.contains(QStringLiteral("<dc:description>First paragraph.\n第二行 &lt;示例&gt; "
+                                        "&amp; notes.</dc:description>")
+                             .toUtf8()));
+    QVERIFY(
+        opf.contains(QStringLiteral("<dc:rights>© 2026 Author &amp; Press</dc:rights>").toUtf8()));
+    QVERIFY(brokenReference(entries).isEmpty());
+    saveSpecimen(QStringLiteral("publication-metadata"), withMetadata);
+
+    configured.publication.description += QChar(1);
+    QVERIFY(!typist::platform::exportEpub(path, source, configured, &error));
+    QVERIFY(error.contains(QStringLiteral("invalid XML")));
+    QCOMPARE(read(path), withMetadata);
+
+    configured.publication = {};
+    configured.publication.subtitle = QStringLiteral("  ");
+    QVERIFY2(typist::platform::exportEpub(path, source, configured, &error), qPrintable(error));
+    const auto withoutMetadata = read(path);
+    const auto minimal = unzip(withoutMetadata).value("OEBPS/content.opf");
+    QVERIFY(minimal.contains("<dc:identifier id=\"book-id\">urn:uuid:"));
+    QVERIFY(
+        minimal.contains("<dc:title>" + options.title.toHtmlEscaped().toUtf8() + "</dc:title>"));
+    QVERIFY(!minimal.contains("title-type"));
+    QVERIFY(!minimal.contains("<dc:publisher>"));
+    QVERIFY(!minimal.contains("<dc:description>"));
+    QVERIFY(!minimal.contains("<dc:rights>"));
+    saveSpecimen(QStringLiteral("publication-default"), withoutMetadata);
+  }
+
   void readerTocDepthAndHierarchy() {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
