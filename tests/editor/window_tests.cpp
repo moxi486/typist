@@ -3910,6 +3910,70 @@ class WindowTests : public QObject {
     QVERIFY(edit(second, {}, {}, {}, {}, false, true));
   }
 
+  void epubStylesheetSettingsCanBeSavedCanceledAndCleared() {
+    QSettings settings;
+    const auto key = QStringLiteral("export/epubCss");
+    const auto previous = settings.value(key);
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] {
+      if (previous.isValid())
+        settings.setValue(key, previous);
+      else
+        settings.remove(key);
+      typist::platform::setLanguagePreference(language);
+    });
+    settings.remove(key);
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    const auto stylesheet = QStringLiteral("/* 书籍 */\nbody { line-height: 1.8; }\n");
+    const auto edit = [](typist::MainWindow& window, const QString& expected,
+                         const QString& replacement, bool save, bool chinese) {
+      auto* action = window.findChild<QAction*>(QStringLiteral("epubStylesheet"));
+      if (!action) return false;
+      bool matched = false;
+      QTimer automation;
+      connect(&automation, &QTimer::timeout, &window, [&] {
+        auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        automation.stop();
+        auto* field = dialog->findChild<QPlainTextEdit*>(QStringLiteral("epubCustomCss"));
+        auto* buttons = dialog->findChild<QDialogButtonBox*>();
+        const auto title =
+            chinese ? QStringLiteral("EPUB 样式表") : QStringLiteral("EPUB Stylesheet");
+        const auto caption = chinese ? QStringLiteral("EPUB 导出的自定义 CSS")
+                                     : QStringLiteral("Custom CSS for EPUB exports");
+        matched = dialog->objectName() == QLatin1String("epubStylesheetDialog") &&
+                  action->text() == title + QChar(0x2026) && dialog->windowTitle() == title &&
+                  field && buttons && field->accessibleName() == caption &&
+                  field->toPlainText() == expected;
+        if (!matched) {
+          dialog->reject();
+          return;
+        }
+        field->setPlainText(replacement);
+        buttons->button(save ? QDialogButtonBox::Save : QDialogButtonBox::Cancel)->click();
+      });
+      automation.start(10);
+      action->trigger();
+      return matched;
+    };
+    {
+      typist::MainWindow first(nullptr, true);
+      first.show();
+      QVERIFY(edit(first, {}, stylesheet, true, false));
+    }
+    QCOMPARE(settings.value(key).toString(), stylesheet);
+    typist::MainWindow second(nullptr, true);
+    second.show();
+    auto* chinese = second.findChild<QAction*>(QStringLiteral("language_zh"));
+    QVERIFY(chinese);
+    chinese->trigger();
+    QVERIFY(edit(second, stylesheet, QStringLiteral("discard"), false, true));
+    QCOMPARE(settings.value(key).toString(), stylesheet);
+    QVERIFY(edit(second, stylesheet, QStringLiteral(" \n"), true, true));
+    QVERIFY(!settings.contains(key));
+    QVERIFY(edit(second, {}, {}, false, true));
+  }
+
   void repeatExportUsesSuccessfulOptionsAndCurrentDraft_data() {
     QTest::addColumn<QString>("command");
     QTest::addColumn<QString>("extension");
@@ -3938,6 +4002,7 @@ class WindowTests : public QObject {
     QSettings settings;
     QMap<QString, QVariant> oldValues;
     const auto contentKey = QStringLiteral("export/htmlContent");
+    const auto epubCssKey = QStringLiteral("export/epubCss");
     for (const auto& key :
          {QStringLiteral("export/preferences"), QStringLiteral("export/lastDirectory"),
           QStringLiteral("export/htmlOutline"), contentKey, QStringLiteral("export/image"),
@@ -3946,7 +4011,8 @@ class WindowTests : public QObject {
           QStringLiteral("pdf/repeatTableHeader"), QStringLiteral("pdf/breakBetweenTopHeadings"),
           QStringLiteral("pdf/header"), QStringLiteral("pdf/footer"),
           QStringLiteral("export/epubAuthor"), QStringLiteral("export/epubLanguage"),
-          QStringLiteral("export/epubSplitChapters"), QStringLiteral("export/epubTocDepth")})
+          QStringLiteral("export/epubSplitChapters"), QStringLiteral("export/epubTocDepth"),
+          epubCssKey})
       oldValues.insert(key, settings.value(key));
     const auto language = typist::platform::languagePreference();
     const auto theme = typist::platform::themePreference();
@@ -3968,6 +4034,9 @@ class WindowTests : public QObject {
     settings.setValue(QStringLiteral("export/htmlOutline"), true);
     const auto head = QStringLiteral("<style data-custom>p { color: navy; }</style>");
     const auto footer = QStringLiteral("<footer>附录</footer>");
+    const auto stylesheet = QStringLiteral("body { line-height: 1.8; }");
+    const auto updatedStylesheet = QStringLiteral("body { line-height: 2.1; }");
+    settings.setValue(epubCssKey, stylesheet);
     settings.setValue(
         contentKey, QVariantMap{{QStringLiteral("head"), head}, {QStringLiteral("body"), footer}});
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
@@ -4081,6 +4150,7 @@ class WindowTests : public QObject {
     typist::platform::setPdfPaper(QStringLiteral("letter"));
     settings.setValue(QStringLiteral("export/epubAuthor"), QStringLiteral("Different author"));
     settings.setValue(QStringLiteral("export/epubTocDepth"), 6);
+    settings.setValue(epubCssKey, updatedStylesheet);
     window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();
     editor->moveCursor(QTextCursor::End);
     QVERIFY(editor->startParagraphSourceEdit());
@@ -4131,6 +4201,9 @@ class WindowTests : public QObject {
       QVERIFY(bytes.contains("<dc:creator>Replay Author</dc:creator>"));
       QVERIFY(bytes.contains("OEBPS/cover.xhtml"));
       QVERIFY(bytes.contains("OEBPS/chapter-2.xhtml"));
+      QVERIFY(bytes.contains("OEBPS/custom.css"));
+      QVERIFY(bytes.contains(stylesheet.toUtf8()));
+      QVERIFY(!bytes.contains(updatedStylesheet.toUtf8()));
       QVERIFY(bytes.contains("id=\"detail\""));
       QVERIFY(!bytes.contains("href=\"content.xhtml#detail\""));
       QVERIFY(bytes.contains("new contents"));
@@ -4187,6 +4260,9 @@ class WindowTests : public QObject {
     if (extension == QLatin1String("epub")) {
       QVERIFY(overwritten.contains("<dc:title>Replay Book</dc:title>"));
       QVERIFY(overwritten.contains("OEBPS/cover.xhtml"));
+      QVERIFY(overwritten.contains(stylesheet.toUtf8()));
+      QVERIFY(!overwritten.contains(updatedStylesheet.toUtf8()));
+      QCOMPARE(settings.value(epubCssKey).toString(), updatedStylesheet);
       QVERIFY(overwritten.contains("id=\"detail\""));
       QVERIFY(!overwritten.contains("href=\"content.xhtml#detail\""));
       QVERIFY(QFile::remove(coverPath));

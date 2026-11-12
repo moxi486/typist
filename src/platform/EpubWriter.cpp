@@ -299,14 +299,18 @@ QString blocks(const std::vector<Block>& nodes, Context& context, bool root) {
   return out;
 }
 QString xhtml(const QString& title, const QString& body, const EpubOptions& options) {
+  const auto customLink =
+      options.customCss.isEmpty()
+          ? QString()
+          : QStringLiteral("<link rel=\"stylesheet\" type=\"text/css\" href=\"custom.css\"/>");
   return QStringLiteral(
              "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n"
              "<html xmlns=\"http://www.w3.org/1999/xhtml\" "
              "xmlns:epub=\"http://www.idpf.org/2007/ops\" "
              "xml:lang=\"%1\" lang=\"%1\"><head><meta charset=\"utf-8\"/><title>%2</title>"
              "<link rel=\"stylesheet\" type=\"text/css\" "
-             "href=\"style.css\"/></head><body>%3</body></html>")
-      .arg(xml(options.language), xml(title), body);
+             "href=\"style.css\"/>%3</head><body>%4</body></html>")
+      .arg(xml(options.language), xml(title), customLink, body);
 }
 bool validXml(const QString& source) {
   QXmlStreamReader reader(source);
@@ -488,6 +492,8 @@ bool exportEpub(const QString& path, const QString& markdown, const EpubOptions&
              "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" "
              "properties=\"nav\"/>"
              "<item id=\"style\" href=\"style.css\" media-type=\"text/css\"/>";
+  if (!options.customCss.isEmpty())
+    package += "<item id=\"custom-style\" href=\"custom.css\" media-type=\"text/css\"/>";
   for (int index = 0; index < sections.size(); ++index)
     package +=
         QStringLiteral("<item id=\"content%1\" href=\"%2\" media-type=\"application/xhtml+xml\"/>")
@@ -533,6 +539,8 @@ bool exportEpub(const QString& path, const QString& markdown, const EpubOptions&
                                {"OEBPS/content.opf", package.toUtf8()},
                                {"OEBPS/nav.xhtml", navigation.toUtf8()},
                                {"OEBPS/style.css", css}};
+  if (!options.customCss.isEmpty())
+    entries.append({"OEBPS/custom.css", options.customCss.toUtf8()});
   for (const auto& section : sections) {
     const auto content =
         xhtml(section.title, relocateLinks(section.body, section.filename, targets), options);

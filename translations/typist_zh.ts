@@ -588,6 +588,18 @@
         <translation>附加 HTML 内容</translation>
     </message>
     <message>
+        <source>EPUB Stylesheet…</source>
+        <translation>EPUB 样式表…</translation>
+    </message>
+    <message>
+        <source>EPUB Stylesheet</source>
+        <translation>EPUB 样式表</translation>
+    </message>
+    <message>
+        <source>Custom CSS for EPUB exports</source>
+        <translation>EPUB 导出的自定义 CSS</translation>
+    </message>
+    <message>
         <source>Append to &lt;head&gt;</source>
         <translation>追加到 &lt;head&gt;</translation>
     </message>
