@@ -102,6 +102,7 @@ class MainWindow : public QMainWindow {
   void redo();
   void toggleSourceView();
   void exportHtml();
+  void exportImage();
   void exportPdf();
   void exportDocx();
   void exportEpub();

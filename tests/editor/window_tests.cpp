@@ -7,6 +7,7 @@
 #include "FolderLocationsMenu.h"
 #include "HtmlImportDialog.h"
 #include "HtmlImporter.h"
+#include "ImageExportDialog.h"
 #include "LinkDialog.h"
 #include "LinkNavigation.h"
 #include "MainWindow.h"
@@ -48,6 +49,7 @@
 #include <QScopedPointer>
 #include <QScrollBar>
 #include <QSettings>
+#include <QSpinBox>
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QTemporaryDir>
@@ -3441,6 +3443,114 @@ class WindowTests : public QObject {
     QVERIFY(!width->isVisible() && !height->isVisible());
     QTRY_VERIFY(exportButton->isEnabled());
     QCOMPARE(dialog.options().paper, QStringLiteral("a5"));
+  }
+
+  void imageExportSavesOptionsOnlyAfterWritingAndKeepsDraft() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QSettings settings;
+    const auto key = QStringLiteral("export/image");
+    const auto previous = settings.value(key);
+    const auto language = typist::platform::languagePreference();
+    const bool native = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+    const auto restore = qScopeGuard([&] {
+      if (previous.isValid())
+        settings.setValue(key, previous);
+      else
+        settings.remove(key);
+      typist::platform::setLanguagePreference(language);
+      QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native);
+    });
+    settings.remove(key);
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+
+    QFile source(directory.filePath(QStringLiteral("export.test.md")));
+    const QByteArray markdown("Original paragraph.\n\n## A heading\n\nFinal paragraph.\n");
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QCOMPARE(source.write(markdown), markdown.size());
+    source.close();
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    window.openFile(source.fileName());
+    window.show();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* action = window.findChild<QAction*>(QStringLiteral("exportImage"));
+    QVERIFY(editor && action);
+    QCOMPARE(action->text(), QStringLiteral("Export Image"));
+    editor->moveCursor(QTextCursor::Start);
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(draft);
+    draft->setPlainText(QStringLiteral("Pending **draft**. ").repeated(30));
+    const auto before = typist::editor::serializeDocument(editor->document());
+
+    enum class Outcome { CancelSettings, CancelDestination, Save };
+    const auto exportTo = [&](Outcome outcome, bool expectSaved, bool chinese = false) {
+      bool handledSettings = false;
+      bool handledDestination = false;
+      QTimer automation;
+      automation.setInterval(10);
+      connect(&automation, &QTimer::timeout, &window, [&] {
+        auto* modal = QApplication::activeModalWidget();
+        if (auto* setup = qobject_cast<typist::ui::ImageExportDialog*>(modal)) {
+          const auto initial = setup->options();
+          handledSettings = initial.width == (expectSaved ? 720 : 640) &&
+                            initial.fontPixels == (expectSaved ? 20 : 24) &&
+                            initial.scale == (expectSaved ? 2 : 1) &&
+                            setup->windowTitle() == (chinese ? QStringLiteral("导出图片")
+                                                             : QStringLiteral("Export Image"));
+          if (outcome == Outcome::CancelSettings) {
+            setup->reject();
+            return;
+          }
+          setup->findChild<QSpinBox*>(QStringLiteral("imageWidth"))->setValue(720);
+          setup->findChild<QSpinBox*>(QStringLiteral("imageFontSize"))->setValue(20);
+          setup->findChild<QComboBox*>(QStringLiteral("imageScale"))->setCurrentIndex(1);
+          setup->findChild<QComboBox*>(QStringLiteral("imageTheme"))->setCurrentIndex(2);
+          setup->accept();
+        } else if (auto* file = qobject_cast<QFileDialog*>(modal)) {
+          auto* input = file->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
+          handledDestination = input && input->text() == QStringLiteral("export.test.png");
+          if (outcome == Outcome::CancelDestination || !input) {
+            file->reject();
+            return;
+          }
+          input->setText(directory.filePath(QStringLiteral("note")));
+          QMetaObject::invokeMethod(file, "accept", Qt::DirectConnection);
+        }
+      });
+      QTimer safety;
+      safety.setSingleShot(true);
+      connect(&safety, &QTimer::timeout, &window, [] {
+        if (auto* modal = QApplication::activeModalWidget()) modal->close();
+      });
+      automation.start();
+      safety.start(3000);
+      action->trigger();
+      return handledSettings && handledDestination == (outcome != Outcome::CancelSettings);
+    };
+    QVERIFY(exportTo(Outcome::CancelSettings, false));
+    QVERIFY(!settings.contains(key));
+    QVERIFY(exportTo(Outcome::CancelDestination, false));
+    QVERIFY(!settings.contains(key));
+    const auto output = directory.filePath(QStringLiteral("note.png"));
+    QVERIFY(!QFileInfo::exists(output));
+    QVERIFY(editor->paragraphSourceActive());
+    QVERIFY(exportTo(Outcome::Save, false));
+    const QImage image(output);
+    QVERIFY(!image.isNull());
+    QCOMPARE(image.width(), 1440);
+    QCOMPARE(image.pixelColor(0, 0), QColor("#1f2328"));
+    QVERIFY(image.height() > 500);  // Includes the long pending paragraph.
+    QCOMPARE(settings.value(key).toMap().value(QStringLiteral("width")).toInt(), 720);
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    QVERIFY(source.open(QIODevice::ReadOnly));
+    QCOMPARE(source.readAll(), markdown);
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(action->text(), QStringLiteral("导出图片"));
+    QVERIFY(exportTo(Outcome::CancelSettings, true, true));
   }
 
   void htmlExportUsesOutlinePreferenceAndKeepsPendingDraft() {
