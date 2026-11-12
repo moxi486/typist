@@ -258,6 +258,20 @@ void Editor::paintEvent(QPaintEvent* event) {
       painter.setPen(QPen(border, 1));
       painter.drawLine(0, first.center().y(), viewport()->width() - 1, first.center().y());
     }
+    if (render::isPageBreak(block)) {
+      const QString label = tr("Page Break");
+      const int center = viewport()->width() / 2;
+      const int halfLabel = painter.fontMetrics().horizontalAdvance(label) / 2 + 10;
+      const int y = first.center().y();
+      painter.setPen(QPen(border, 1, Qt::DashLine));
+      if (center > halfLabel) {
+        painter.drawLine(0, y, center - halfLabel, y);
+        painter.drawLine(center + halfLabel, y, viewport()->width() - 1, y);
+      }
+      painter.setPen(palette().color(QPalette::PlaceholderText));
+      painter.drawText(QRect(0, first.top(), viewport()->width(), first.height()), Qt::AlignCenter,
+                       label);
+    }
   }
 }
 
@@ -273,7 +287,7 @@ bool Editor::startParagraphSourceEdit() {
       format.hasProperty(editor::kQuoteProperty) ||
       format.hasProperty(editor::kSpecialBlockProperty) ||
       format.hasProperty(editor::kFootnoteDefinitionProperty) ||
-      format.hasProperty(editor::kRuleProperty))
+      format.hasProperty(editor::kRuleProperty) || render::isPageBreak(block))
     return false;
   QString source = editor::inlineMarkdown(block);
   if (format.headingLevel() > 0) source.prepend(QString(format.headingLevel(), '#') + ' ');
@@ -762,6 +776,36 @@ void Editor::updateCodeBlockBar(bool reset) {
   m_codeBar->setGeometry(viewport()->geometry().right() - barWidth + 1, 3, barWidth, 28);
   m_codeBar->show();
   m_codeBar->raise();
+}
+
+bool Editor::insertPageBreak() {
+  if (isReadOnly()) return false;
+  finishParagraphSourceEdit();
+  auto cursor = textCursor();
+  const auto block = cursor.block();
+  const auto format = block.blockFormat();
+  const QString markdown = QString::fromLatin1(core::kPageBreakMarkdown);
+  if (m_rendered) {
+    if (cursor.hasSelection() || cursor.currentTable() || block.textList() ||
+        format.hasProperty(editor::kCodeBlockProperty) ||
+        format.hasProperty(editor::kQuoteProperty) ||
+        format.hasProperty(editor::kSpecialBlockProperty) ||
+        format.hasProperty(editor::kFootnoteDefinitionProperty) ||
+        format.hasProperty(editor::kRuleProperty) || render::isPageBreak(block))
+      return false;
+    cursor.beginEditBlock();
+    const bool inserted = editor::insertMarkdownAtCursor(markdown, cursor, nullptr);
+    if (inserted && !cursor.movePosition(QTextCursor::NextBlock))
+      cursor.insertBlock(QTextBlockFormat(), QTextCharFormat());
+    cursor.endEditBlock();
+    if (!inserted) return false;
+  } else {
+    cursor.insertText(QStringLiteral("\n\n") + markdown + QStringLiteral("\n\n"));
+  }
+  setTextCursor(cursor);
+  setFocus();
+  ensureCursorVisible();
+  return true;
 }
 
 void Editor::insertAdvancedContent(const QString& type) {
@@ -1463,7 +1507,8 @@ void Editor::keyPressEvent(QKeyEvent* event) {
   }
   const bool plain = !control && !event->modifiers().testFlag(Qt::AltModifier);
   const bool special =
-      m_rendered && cursor.blockFormat().hasProperty(editor::kSpecialBlockProperty);
+      m_rendered && (cursor.blockFormat().hasProperty(editor::kSpecialBlockProperty) ||
+                     render::isPageBreak(cursor.block()));
   const bool returnKey = event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter;
   if (m_rendered && control && event->key() == Qt::Key_Space &&
       event->modifiers().testFlag(Qt::ShiftModifier) &&

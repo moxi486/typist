@@ -321,6 +321,64 @@ std::vector<std::string> sourceLines(std::string_view source) {
   return lines;
 }
 
+std::string_view trimAscii(std::string_view text) {
+  constexpr std::string_view space = " \t\r\n";
+  const auto start = text.find_first_not_of(space);
+  return start == std::string_view::npos
+             ? std::string_view()
+             : text.substr(start, text.find_last_not_of(space) - start + 1);
+}
+
+bool isPageBreakDiv(std::string_view html) {
+  // Only an empty standalone div with the pagination declarations is a marker.
+  // Do not interpret arbitrary HTML or CSS in the native editor.
+  if (html.find_first_of("\r\n") != std::string_view::npos) return false;
+  std::string lower(html);
+  std::transform(lower.begin(), lower.end(), lower.begin(),
+                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+  const std::string_view text(lower);
+  if (text.size() < 5 || text.substr(0, 4) != "<div" || (text[4] != ' ' && text[4] != '\t'))
+    return false;
+  const auto equal = text.find('=', 4);
+  if (equal == std::string_view::npos || trimAscii(text.substr(4, equal - 4)) != "style")
+    return false;
+  const auto rest = trimAscii(text.substr(equal + 1));
+  if (rest.empty() || (rest.front() != '"' && rest.front() != '\'')) return false;
+  const auto end = rest.find(rest.front(), 1);
+  if (end == std::string_view::npos) return false;
+  auto close = trimAscii(rest.substr(end + 1));
+  if (close.empty() || close.front() != '>') return false;
+  close = trimAscii(close.substr(1));
+  if (close.size() < 6 || close.substr(0, 5) != "</div" || trimAscii(close.substr(5)) != ">")
+    return false;
+
+  auto declarations = trimAscii(rest.substr(1, end - 1));
+  if (declarations.empty()) return false;
+  while (!declarations.empty()) {
+    const auto separator = declarations.find(';');
+    const auto declaration = declarations.substr(0, separator);
+    const auto colon = declaration.find(':');
+    if (colon == std::string_view::npos) return false;
+    const auto property = trimAscii(declaration.substr(0, colon));
+    const auto value = trimAscii(declaration.substr(colon + 1));
+    if (!((property == "page-break-after" && value == "always") ||
+          (property == "break-after" && value == "page")))
+      return false;
+    if (separator == std::string_view::npos) break;
+    declarations = trimAscii(declarations.substr(separator + 1));
+  }
+  return true;
+}
+
+std::string_view pageBreakSource(cmark_node* node) {
+  if (cmark_node_get_type(node) != CMARK_NODE_HTML_BLOCK ||
+      cmark_node_get_type(cmark_node_parent(node)) != CMARK_NODE_DOCUMENT)
+    return {};
+  const char* literal = cmark_node_get_literal(node);
+  const auto html = literal ? trimAscii(literal) : std::string_view();
+  return isPageBreakDiv(html) ? html : std::string_view();
+}
+
 Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
   Block block;
   const std::string_view type = cmark_node_get_type_string(node);
@@ -423,6 +481,9 @@ Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
     block.type = BlockType::TableCell;
     block.runs = inlineRuns(node);
     block.text = flattenRuns(block.runs);
+  } else if (const auto pageBreak = pageBreakSource(node); !pageBreak.empty()) {
+    block.type = BlockType::PageBreak;
+    block.text = pageBreak;
   } else {
     block.type = BlockType::Unsupported;
     block.text = type;
@@ -510,6 +571,9 @@ std::string serializeBlock(const Block& block, int indent) {
     }
     case BlockType::TableOfContents:
       out += "[TOC]\n\n";
+      break;
+    case BlockType::PageBreak:
+      out += block.text + "\n\n";
       break;
     case BlockType::Heading:
       out += prefix + std::string(static_cast<std::size_t>(block.level), '#');

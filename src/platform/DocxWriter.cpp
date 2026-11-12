@@ -434,7 +434,9 @@ QString tableXml(const typist::core::Block& table, XmlContext& context) {
 
 QString blocksXml(const std::vector<typist::core::Block>& blocks, XmlContext& context) {
   QString out;
+  bool pageBreak = false;
   for (const typist::core::Block& block : blocks) {
+    const auto start = out.size();
     const QString text = QString::fromStdString(block.text);
     switch (block.type) {
       case typist::core::BlockType::Heading:
@@ -493,6 +495,9 @@ QString blocksXml(const std::vector<typist::core::Block>& blocks, XmlContext& co
       case typist::core::BlockType::ThematicBreak:
         out += breakXml();
         break;
+      case typist::core::BlockType::PageBreak:
+        pageBreak = !out.isEmpty();
+        break;
       case typist::core::BlockType::BlockQuote:
         if (!block.children.empty()) {
           for (const auto& child : block.children)
@@ -509,6 +514,10 @@ QString blocksXml(const std::vector<typist::core::Block>& blocks, XmlContext& co
       default:
         if (!text.isEmpty()) out += paragraphXml(runsXml(block.runs, text, context));
         break;
+    }
+    if (pageBreak && out.size() > start) {
+      out.insert(start, paragraphXml(QStringLiteral("<w:r><w:br w:type=\"page\"/></w:r>")));
+      pageBreak = false;
     }
   }
   return out;

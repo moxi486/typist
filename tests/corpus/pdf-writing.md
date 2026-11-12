@@ -20,6 +20,10 @@ const auto document = currentMarkdown();
 exportPdf(document);
 ```
 
+下方的表格前插入了手动分页符，可在 PDF 预览中检查新页的起点。
+
+<div style="page-break-after:always"></div>
+
 ## 检查表格
 
 | 检查项 | 结果 |

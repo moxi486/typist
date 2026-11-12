@@ -67,6 +67,7 @@ bool setListStyle(QTextCursor& cursor, ParagraphStyle style) {
   const bool task = style == ParagraphStyle::TaskList;
   cursor.beginEditBlock();
   for (const auto& block : blocks) {
+    if (render::isPageBreak(block)) continue;
     const int indent = qMax(1, level(block));
     const bool wasTask = block.blockFormat().hasProperty(kTaskProperty);
     const bool checked = block.blockFormat().boolProperty(kTaskProperty);
