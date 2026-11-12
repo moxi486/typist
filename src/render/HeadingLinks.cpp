@@ -22,10 +22,13 @@ QString HeadingIds::next(const QString& title) {
   m_used.insert(id);
   return id;
 }
-QString addHeadingLinks(const QString& html) {
-  static const QRegularExpression headings(QStringLiteral(
-      "<blockquote>|</blockquote>|<h([1-6])(?: id=\"(heading-[0-9]+)\")?>([\\s\\S]*?)</h\\1>"));
+QString addHeadingLinks(const QString& html, QList<HtmlHeading>* outline) {
+  static const QRegularExpression headings(
+      QStringLiteral(
+          R"rx(<!--[\s\S]*?(?:-->|$)|<(?<raw>script|style|textarea|template)\b[^>]*>[\s\S]*?(?:</\k<raw>\s*>|$)|<blockquote\b[^>]*>|</blockquote\s*>|<h(?<level>[1-6])(?: id="(?<old>heading-[0-9]+)")?>(?<content>[\s\S]*?)</h\k<level>>)rx"),
+      QRegularExpression::CaseInsensitiveOption);
   static const QRegularExpression images(QStringLiteral("<img\\b[^>]*\\balt=\"([^\"]*)\"[^>]*>"));
+  if (outline) outline->clear();
   HeadingIds ids;
   QMap<QString, QString> replacements;
   QString out;
@@ -34,23 +37,26 @@ QString addHeadingLinks(const QString& html) {
   auto matches = headings.globalMatch(html);
   while (matches.hasNext()) {
     const auto match = matches.next();
-    if (match.captured() == QLatin1String("<blockquote>")) {
-      ++quoteDepth;
+    const auto level = match.capturedView(QStringLiteral("level"));
+    if (level.isEmpty()) {
+      if (match.capturedView().startsWith(u"<blockquote", Qt::CaseInsensitive))
+        ++quoteDepth;
+      else if (match.capturedView().startsWith(u"</blockquote", Qt::CaseInsensitive))
+        quoteDepth = qMax(0, quoteDepth - 1);
       continue;
     }
-    if (match.captured() == QLatin1String("</blockquote>")) {
-      --quoteDepth;
-      continue;
-    }
-    auto markup = match.captured(3);
+    const auto content = match.captured(QStringLiteral("content"));
+    auto markup = content;
     markup.replace(images, QStringLiteral("\\1"));
     const auto title = QTextDocumentFragment::fromHtml(markup).toPlainText();
-    const auto id =
-        quoteDepth ? QStringLiteral("_typist:quote:") + match.captured(2) : ids.next(title);
-    if (!match.captured(2).isEmpty()) replacements[match.captured(2)] = id;
+    const auto old = match.captured(QStringLiteral("old"));
+    const auto id = quoteDepth ? QStringLiteral("_typist:quote:") + old : ids.next(title);
+    if (!old.isEmpty()) replacements[old] = id;
+    if (outline && !quoteDepth && !title.trimmed().isEmpty())
+      outline->append({level.toInt(), title, id});
     out += html.mid(end, match.capturedStart() - end);
     out += QStringLiteral("<h%1 id=\"%2\">%3</h%1>")
-               .arg(match.captured(1), id.toHtmlEscaped(), match.captured(3));
+               .arg(level.toString(), id.toHtmlEscaped(), content);
     end = match.capturedEnd();
   }
   out += html.mid(end);
@@ -77,5 +83,35 @@ QString addHeadingLinks(const QString& html) {
     end = menu.capturedEnd();
   }
   return result + out.mid(end);
+}
+
+namespace {
+QString outlineItems(const QList<HtmlHeading>& headings, qsizetype& index, int parentLevel,
+                     bool collapsible) {
+  QString html = QStringLiteral("<ul>\n");
+  while (index < headings.size() && headings.at(index).level > parentLevel) {
+    const auto& item = headings.at(index++);
+    const auto link = QStringLiteral("<a href=\"#%1\">%2</a>")
+                          .arg(item.id.toHtmlEscaped(), item.title.toHtmlEscaped());
+    if (collapsible && index < headings.size() && headings.at(index).level > item.level) {
+      html += QStringLiteral("<li><details open><summary>") + link + QStringLiteral("</summary>\n");
+      html += outlineItems(headings, index, item.level, true);
+      html += QStringLiteral("</details></li>\n");
+    } else {
+      html += QStringLiteral("<li class=\"outline-level-%1\">").arg(item.level) + link +
+              QStringLiteral("</li>\n");
+    }
+  }
+  return html + QStringLiteral("</ul>\n");
+}
+}  // namespace
+
+QString htmlOutline(const QList<HtmlHeading>& headings, const QString& title, bool collapsible) {
+  if (headings.isEmpty()) return {};
+  qsizetype index = 0;
+  return QStringLiteral("<nav class=\"export-outline %1\" aria-label=\"%2\">\n<h2>%2</h2>\n")
+             .arg(collapsible ? QStringLiteral("collapsible") : QStringLiteral("flat"),
+                  title.toHtmlEscaped()) +
+         outlineItems(headings, index, 0, collapsible) + QStringLiteral("</nav>\n");
 }
 }  // namespace typist::render

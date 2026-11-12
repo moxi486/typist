@@ -36,6 +36,14 @@
         <translation>导出 HTML</translation>
     </message>
     <message>
+        <source>Export HTML (without styles)</source>
+        <translation>导出 HTML（无样式）</translation>
+    </message>
+    <message>
+        <source>Include Outline in HTML Export</source>
+        <translation>HTML 导出包含大纲</translation>
+    </message>
+    <message>
         <source>Export PDF</source>
         <translation>导出 PDF</translation>
     </message>

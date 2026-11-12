@@ -80,6 +80,53 @@ class LinkWorkflowTests : public QObject {
     QVERIFY(html.contains("href=\"#alpha-1\">Alpha"));
     QVERIFY(html.contains("id=\"_typist:quote:heading-3\""));
   }
+
+  void htmlOutlineUsesRenderedHeadingIdsAndPlainExportKeepsSemantics() {
+    const auto source = QStringLiteral(
+        "[TOC]\n\n# Intro\n\n### **Setup** & flags\n\n> # Quoted\n\n"
+        "<!-- <h2>Hidden heading</h2> -->\n\n# Intro\n\n## [中文](https://example.test)\n\n"
+        "```cpp\nconst int value = 7;\n```\n\nA formula $E=mc^2$.\n\n"
+        "<div style=\"page-break-after:always\"></div>\n");
+    QList<render::HtmlHeading> headings;
+    const auto styled = render::html(source, {true, true}, &headings);
+    QCOMPARE(headings.size(), 4);
+    QCOMPARE(headings.at(0).id, QStringLiteral("intro"));
+    QCOMPARE(headings.at(1).title, QStringLiteral("Setup & flags"));
+    QCOMPARE(headings.at(1).level, 3);
+    QCOMPARE(headings.at(2).id, QStringLiteral("intro-1"));
+    QCOMPARE(headings.at(3).id, QStringLiteral("中文"));
+    QVERIFY(styled.contains(QStringLiteral("style=\"color:")));
+    for (const auto& heading : headings) {
+      QVERIFY(styled.contains(QStringLiteral("id=\"%1\"").arg(heading.id)));
+      QVERIFY(styled.contains(QStringLiteral("href=\"#%1\"").arg(heading.id)));
+    }
+    const auto flat = render::htmlOutline(headings, QStringLiteral("Outline & links"), false);
+    QVERIFY(flat.contains(QStringLiteral("aria-label=\"Outline &amp; links\"")));
+    QVERIFY(flat.contains(QStringLiteral("outline-level-3")));
+    QVERIFY(!flat.contains(QStringLiteral("<details")));
+    const auto nested = render::htmlOutline(headings, QStringLiteral("大纲"), true);
+    QCOMPARE(nested.count(QStringLiteral("<details open>")), 2);
+    QVERIFY(nested.contains(QStringLiteral("<summary><a href=\"#intro-1\">Intro</a>")));
+    QVERIFY(nested.contains(QStringLiteral("Setup &amp; flags")));
+    QVERIFY(!nested.contains(QStringLiteral("https://example.test")));
+    QVERIFY(!nested.contains(QStringLiteral("Quoted")));
+    QVERIFY(!nested.contains(QStringLiteral("Hidden heading")));
+
+    const auto plain = render::html(source, {true, false}, &headings);
+    QCOMPARE(headings.size(), 4);
+    QVERIFY(plain.contains(QStringLiteral("class=\"table-of-contents\"")));
+    QVERIFY(plain.contains(QStringLiteral("class=\"language-cpp\">const int value = 7;")));
+    QVERIFY(plain.contains(QStringLiteral("data:image/png;base64,")));
+    QVERIFY(plain.contains(QStringLiteral("style=\"page-break-after:always\"")));
+    QVERIFY(!plain.contains(QStringLiteral("style=\"color:")));
+    QVERIFY(!plain.contains(QStringLiteral("style=\"margin-left:")));
+    QVERIFY(!plain.contains(QStringLiteral("style=\"max-width:")));
+    const auto page =
+        QString::fromStdString(core::wrapHtmlDocument(plain.toStdString(), "Doc", ""));
+    QVERIFY(!page.contains(QStringLiteral("<style>")));
+    render::html(QStringLiteral("No headings."), {false, false}, &headings);
+    QVERIFY(render::htmlOutline(headings, QStringLiteral("Outline"), true).isEmpty());
+  }
   void editingAndRemovingLinksRetainsRichLabelAndOneUndo() {
     ui::Editor editor;
     ui::ViewSwitch view;

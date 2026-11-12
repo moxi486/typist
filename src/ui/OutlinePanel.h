@@ -21,6 +21,7 @@ class OutlinePanel : public QWidget {
  public:
   explicit OutlinePanel(QTextEdit* editor, QWidget* parent = nullptr);
   void setDocument(QTextDocument* document, bool reset = false);
+  bool collapsible() const { return m_collapsible; }
 
  protected:
   void changeEvent(QEvent* event) override;

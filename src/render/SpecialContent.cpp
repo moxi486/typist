@@ -128,8 +128,13 @@ void expandTocForPrint(QTextDocument* document) {
     }
   }
 }
-QString html(const QString& markdown, bool dark) {
-  const QString body = QString::fromStdString(core::toHtml(markdown.toStdString()));
+QString html(const QString& markdown, bool dark) { return html(markdown, HtmlRenderOptions{dark}); }
+
+QString html(const QString& markdown, const HtmlRenderOptions& options,
+             QList<HtmlHeading>* outline) {
+  const bool dark = options.styled && options.dark;
+  const QString body =
+      QString::fromStdString(core::toHtml(markdown.toStdString(), {}, options.styled));
   static const QRegularExpression pattern(QStringLiteral(
       "<(span|div) class=\"typist-(math|diagram)\" data-source=\"([0-9a-f]+)\">[\\s\\S]*?</\\1>"));
   QString out;
@@ -151,22 +156,28 @@ QString html(const QString& markdown, bool dark) {
       QBuffer buffer(&bytes);
       buffer.open(QIODevice::WriteOnly);
       result.image.save(&buffer, "PNG");
+      const auto imageStyle =
+          options.styled
+              ? QStringLiteral(" style=\"max-width:100%;height:auto;vertical-align:middle\"")
+              : QString();
       const QString image = QStringLiteral(
-                                "<img alt=\"%1\" width=\"%2\" height=\"%3\" "
-                                "style=\"max-width:100%;height:auto;vertical-align:middle\" "
-                                "src=\"data:image/png;base64,%4\">")
+                                "<img alt=\"%1\" width=\"%2\" height=\"%3\"%4 "
+                                "src=\"data:image/png;base64,%5\">")
                                 .arg(source.toHtmlEscaped())
                                 .arg(result.image.width() / 2)
                                 .arg(result.image.height() / 2)
-                                .arg(QString::fromLatin1(bytes.toBase64()));
-      out +=
-          match.captured(1) == QLatin1String("div")
-              ? QStringLiteral("<div style=\"text-align:center;margin:1em 0\">%1</div>").arg(image)
-              : image;
+                                .arg(imageStyle, QString::fromLatin1(bytes.toBase64()));
+      out += match.captured(1) == QLatin1String("div")
+                 ? (options.styled
+                        ? QStringLiteral("<div style=\"text-align:center;margin:1em 0\">%1</div>")
+                              .arg(image)
+                        : QStringLiteral("<div>") + image + QStringLiteral("</div>"))
+                 : image;
     }
     last = match.capturedEnd();
   }
   out += body.mid(last);
+  if (!options.styled) return addHeadingLinks(out, outline);
   static const QRegularExpression code(
       QStringLiteral("<pre><code class=\"language-([^\"]+)\">([\\s\\S]*?)</code></pre>"));
   QString highlighted;
@@ -186,6 +197,6 @@ QString html(const QString& markdown, bool dark) {
             .arg(block.captured(1), highlightedCodeHtml(literal, block.captured(1), dark));
     last = block.capturedEnd();
   }
-  return addHeadingLinks(highlighted + out.mid(last));
+  return addHeadingLinks(highlighted + out.mid(last), outline);
 }
 }  // namespace typist::render

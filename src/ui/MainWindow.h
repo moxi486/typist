@@ -160,6 +160,7 @@ class MainWindow : public QMainWindow {
   void insertTableDialog();
   void configureCodeFences();
   void configureWritingArea();
+  void exportHtmlDocument(bool styled);
   void insertLinkDialog();
   void showDocumentStatistics();
   void replaceOne();

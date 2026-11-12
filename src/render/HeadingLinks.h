@@ -1,4 +1,5 @@
 #pragma once
+#include <QList>
 #include <QSet>
 #include <QString>
 
@@ -11,5 +12,11 @@ class HeadingIds {
   QSet<QString> m_used;
 };
 QString headingSlug(const QString& title);
-QString addHeadingLinks(const QString& html);
+struct HtmlHeading {
+  int level;
+  QString title;
+  QString id;
+};
+QString addHeadingLinks(const QString& html, QList<HtmlHeading>* outline = nullptr);
+QString htmlOutline(const QList<HtmlHeading>& headings, const QString& title, bool collapsible);
 }  // namespace typist::render
