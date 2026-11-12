@@ -27,6 +27,7 @@
 #include <QPageSize>
 #include <QPainter>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QSet>
 #include <QSettings>
 #include <QTextBlock>
@@ -1947,10 +1948,14 @@ void EditorSpike::regexSearchHonoursCaseFlag() {
 }
 
 void EditorSpike::recentFilesKeepNewestFirstAndCap() {
-  // The store is the native one (registry on Windows), so clear it for a deterministic run.
-  QSettings store(QStringLiteral("Typist"), QStringLiteral("Typist"));
-  store.remove(QStringLiteral("recentFiles"));
-  store.sync();
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+  const auto format = QSettings::defaultFormat();
+  const auto restore = qScopeGuard([format] { QSettings::setDefaultFormat(format); });
+  QSettings::setDefaultFormat(QSettings::IniFormat);
+  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, directory.path());
+  QSettings store(QSettings::IniFormat, QSettings::UserScope, QStringLiteral("Typist"),
+                  QStringLiteral("Typist"));
   typist::platform::addRecentFile(QStringLiteral("/a.md"));
   typist::platform::addRecentFile(QStringLiteral("/b.md"));
   typist::platform::addRecentFile(QStringLiteral("/a.md"));

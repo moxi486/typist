@@ -516,6 +516,22 @@
         <translation>新建窗口</translation>
     </message>
     <message>
+        <source>Reopen Closed File</source>
+        <translation>重新打开已关闭的文件</translation>
+    </message>
+    <message>
+        <source>No closed files to reopen</source>
+        <translation>没有可重新打开的文件</translation>
+    </message>
+    <message>
+        <source>Clear Recent Items</source>
+        <translation>清除最近记录</translation>
+    </message>
+    <message>
+        <source>Cleared recent items</source>
+        <translation>已清除最近记录</translation>
+    </message>
+    <message>
         <source>On Launch</source>
         <translation>启动时</translation>
     </message>

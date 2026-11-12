@@ -52,7 +52,7 @@ class MainWindow : public QMainWindow {
   Q_OBJECT
 
  public:
-  explicit MainWindow(QWidget* parent = nullptr);
+  explicit MainWindow(QWidget* parent = nullptr, bool benchmark = false);
 
   bool openFile(const QString& path);
   bool openFolderPath(const QString& path);
@@ -121,6 +121,7 @@ class MainWindow : public QMainWindow {
   void rebuildRecentMenu();
   void toggleOutline();
   void openRecentEntry(QAction* action);
+  void reopenClosedFile();
   void checkCurrentFileConflict();
   void writeRecoveryDraft();
   void recoverLatestDraft();
@@ -160,6 +161,8 @@ class MainWindow : public QMainWindow {
   void createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMenu* settings);
   void createLaunchMenu(QMenu* settings);
   bool maybeSaveBeforeNavigate();
+  bool openFileReplacingCurrent(const QString& path, bool rememberCurrent);
+  void clearRecentHistory();
   bool adoptHtmlImport(const editor::HtmlImportResult& result);
   bool pasteImages(const QMimeData* source);
   bool insertImageMarkdown(const QStringList& images);

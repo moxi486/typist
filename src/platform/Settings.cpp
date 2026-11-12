@@ -2,6 +2,7 @@
 
 #include <QFileInfo>
 #include <QSettings>
+#include <algorithm>
 
 namespace typist::platform {
 
@@ -13,6 +14,37 @@ QSettings openSettings(QSettings::Format format = QSettings::NativeFormat) {
 const auto writingAreaKey = QStringLiteral("editor/writingAreaWidths");
 const auto launchOptionsKey = QStringLiteral("startup/options");
 const auto lastClosedKey = QStringLiteral("startup/lastClosed");
+const auto closedFilesKey = QStringLiteral("history/closedFiles");
+const auto recentFilesKey = QStringLiteral("recentFiles");
+constexpr int fileHistoryLimit = 8;
+#ifdef Q_OS_WIN
+constexpr auto pathCase = Qt::CaseInsensitive;
+#else
+constexpr auto pathCase = Qt::CaseSensitive;
+#endif
+
+QString canonicalFile(const QString& path) {
+  const QFileInfo info(path);
+  return info.isFile() ? info.canonicalFilePath() : QString();
+}
+
+QStringList readClosedFiles(const QSettings& settings) {
+  if (settings.contains(closedFilesKey)) return settings.value(closedFilesKey).toStringList();
+  // Existing installations already have a named document from the last closed window.
+  const auto file = settings.value(lastClosedKey).toMap().value(QStringLiteral("file")).toString();
+  return file.isEmpty() ? QStringList() : QStringList{file};
+}
+
+QStringList availableClosedFiles(const QStringList& paths) {
+  QStringList result;
+  for (const auto& path : paths) {
+    const auto file = canonicalFile(path);
+    if (file.isEmpty() || result.contains(file, pathCase)) continue;
+    result.append(file);
+    if (result.size() == fileHistoryLimit) break;
+  }
+  return result;
+}
 
 StartupTarget explicitStartupTarget(const QString& path) {
   const QFileInfo info(path);
@@ -265,8 +297,8 @@ void setPdfOptions(const PdfPageOptions& options) {
 }
 
 QStringList recentFiles(int limit) {
-  QSettings settings = openSettings();
-  const QStringList stored = settings.value(QStringLiteral("recentFiles")).toStringList();
+  const auto settings = openSettings(QSettings::defaultFormat());
+  const QStringList stored = settings.value(recentFilesKey).toStringList();
   QStringList out;
   for (const QString& path : stored) {
     if (path.isEmpty() || out.contains(path)) continue;
@@ -278,19 +310,50 @@ QStringList recentFiles(int limit) {
 
 void addRecentFile(const QString& path) {
   if (path.isEmpty()) return;
-  QSettings settings = openSettings();
-  QStringList stored = settings.value(QStringLiteral("recentFiles")).toStringList();
+  auto settings = openSettings(QSettings::defaultFormat());
+  QStringList stored = settings.value(recentFilesKey).toStringList();
   stored.removeOne(path);
   stored.prepend(path);
-  while (stored.size() > 8) stored.removeLast();
-  settings.setValue(QStringLiteral("recentFiles"), stored);
+  while (stored.size() > fileHistoryLimit) stored.removeLast();
+  settings.setValue(recentFilesKey, stored);
 }
 
 void removeRecentFile(const QString& path) {
-  QSettings settings = openSettings();
-  QStringList stored = settings.value(QStringLiteral("recentFiles")).toStringList();
+  auto settings = openSettings(QSettings::defaultFormat());
+  QStringList stored = settings.value(recentFilesKey).toStringList();
   stored.removeOne(path);
-  settings.setValue(QStringLiteral("recentFiles"), stored);
+  settings.setValue(recentFilesKey, stored);
+}
+
+QStringList closedFiles() {
+  const auto settings = openSettings(QSettings::defaultFormat());
+  return availableClosedFiles(readClosedFiles(settings));
+}
+
+void updateClosedFiles(const QString& closedPath, const QString& openedPath) {
+  auto settings = openSettings(QSettings::defaultFormat());
+  const auto before = readClosedFiles(settings);
+  auto paths = availableClosedFiles(before);
+  const auto closed = canonicalFile(closedPath);
+  const auto opened = canonicalFile(openedPath);
+  paths.erase(std::remove_if(paths.begin(), paths.end(),
+                             [&](const QString& path) {
+                               return path.compare(opened, pathCase) == 0 ||
+                                      path.compare(closed, pathCase) == 0;
+                             }),
+              paths.end());
+  if (!closed.isEmpty() && closed.compare(opened, pathCase) != 0) paths.prepend(closed);
+  while (paths.size() > fileHistoryLimit) paths.removeLast();
+  if (paths != before || (!before.isEmpty() && !settings.contains(closedFilesKey)))
+    settings.setValue(closedFilesKey, paths);
+}
+
+void clearFileHistory() {
+  auto settings = openSettings(QSettings::defaultFormat());
+  settings.remove(recentFilesKey);
+  settings.remove(closedFilesKey);
+  settings.remove(lastClosedKey);
+  settings.sync();
 }
 
 }  // namespace typist::platform

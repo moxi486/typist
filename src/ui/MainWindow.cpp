@@ -163,7 +163,8 @@ QIcon navigationIcon(bool source, const QColor& color) {
 
 }  // namespace
 
-MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
+MainWindow::MainWindow(QWidget* parent, bool benchmark)
+    : QMainWindow(parent), m_benchMode(benchmark) {
   const QRect available = screen()->availableGeometry();
   setMinimumSize(qMin(760, available.width()), qMin(540, available.height()));
   resize(qMin(1180, int(available.width() * 0.9)), qMin(820, int(available.height() * 0.9)));
@@ -334,9 +335,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   fileMenu->addAction(recoverAction);
   connect(recoverAction, &QAction::triggered, this, &MainWindow::recoverLatestDraft);
 
+  auto* reopenClosed = fileMenu->addAction(tr("Reopen Closed File"));
+  reopenClosed->setObjectName(QStringLiteral("reopenClosedFile"));
+  connect(reopenClosed, &QAction::triggered, this, &MainWindow::reopenClosedFile);
   m_recentMenu = fileMenu->addMenu(tr("Recent Files"));
+  m_recentMenu->setObjectName(QStringLiteral("recentFilesMenu"));
+  m_recentMenu->setToolTipsVisible(true);
   fileMenu->addMenu(m_folderLocationsMenu);
   connect(m_recentMenu, &QMenu::triggered, this, &MainWindow::openRecentEntry);
+  connect(m_recentMenu, &QMenu::aboutToShow, this, &MainWindow::rebuildRecentMenu);
   rebuildRecentMenu();
 
   QMenu* editMenu = menuBar()->addMenu(tr("Edit"));
@@ -1040,6 +1047,7 @@ bool MainWindow::maybeSaveBeforeNavigate() {
 void MainWindow::newDocument() {
   if (!maybeSaveBeforeNavigate()) return;
   static_cast<ui::Editor*>(m_editor)->finishParagraphSourceEdit(false);
+  if (!m_benchMode) platform::updateClosedFiles(m_currentPath);
   m_currentPath.clear();
   m_view->rendered()->setBaseUrl(QUrl());
   m_view->loadMarkdownIntoBoth(QString(), nullptr);
@@ -1291,7 +1299,9 @@ bool MainWindow::openStartupTarget(const platform::StartupTarget& target) {
   return (target.folder.isEmpty() || openFolderPath(target.folder)) && opened;
 }
 
-bool MainWindow::openFile(const QString& path) {
+bool MainWindow::openFile(const QString& path) { return openFileReplacingCurrent(path, true); }
+
+bool MainWindow::openFileReplacingCurrent(const QString& path, bool rememberCurrent) {
   if (!QFileInfo(path).isFile()) {
     statusBar()->showMessage(tr("Cannot open file"));
     return false;
@@ -1318,12 +1328,13 @@ bool MainWindow::openFile(const QString& path) {
   m_view->showActiveIn(m_editor);
   m_editor->moveCursor(QTextCursor::Start);
   m_sourceMode = m_view->isSourceMode();
+  if (!m_benchMode) platform::updateClosedFiles(rememberCurrent ? m_currentPath : QString(), path);
   m_currentPath = path;
   m_savedMarkdown = source;
   m_sourceAction->setText(tr("Source View"));
   markClean();
   if (m_findBar->isVisible()) refreshMatches();
-  typist::platform::addRecentFile(path);
+  if (!m_benchMode) platform::addRecentFile(path);
   rebuildRecentMenu();
 
   if (m_sidebarDock->isVisible() || !m_tree->rootPath().isEmpty()) {
@@ -1362,6 +1373,7 @@ bool MainWindow::adoptHtmlImport(const editor::HtmlImportResult& result) {
     return false;
   }
   m_autoSave->cancelPending();
+  if (!m_benchMode) platform::updateClosedFiles(m_currentPath);
   m_currentPath.clear();
   m_view->rendered()->setBaseUrl(QUrl());
   m_document = m_view->active();
@@ -1409,7 +1421,7 @@ void MainWindow::save() {
 
   m_savedMarkdown = markdown;
   markClean();
-  typist::platform::addRecentFile(m_currentPath);
+  if (!m_benchMode) platform::addRecentFile(m_currentPath);
   rebuildRecentMenu();
 }
 
@@ -1483,12 +1495,13 @@ bool MainWindow::saveDocumentAs(const QString& path) {
     }
   }
   ui::removeDraft(m_currentPath);
+  if (!m_benchMode) platform::updateClosedFiles({}, path);
   m_currentPath = path;
   m_savedMarkdown = markdown;
   m_view->rendered()->setBaseUrl(
       QUrl::fromLocalFile(QFileInfo(path).absolutePath() + QLatin1Char('/')));
   markClean();
-  platform::addRecentFile(path);
+  if (!m_benchMode) platform::addRecentFile(path);
   rebuildRecentMenu();
   return true;
 }
@@ -2061,6 +2074,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         m_currentPath.isEmpty() ? QString() : QFileInfo(m_currentPath).absoluteFilePath();
     auto folder = m_tree->rootPath();
     if (folder.isEmpty() && !file.isEmpty()) folder = QFileInfo(file).absolutePath();
+    platform::updateClosedFiles(file);
     platform::setLastClosedTarget({file, folder});
   }
   QMainWindow::closeEvent(event);
@@ -2190,22 +2204,50 @@ void MainWindow::rebuildRecentMenu() {
   if (!m_recentMenu) return;
   m_recentMenu->clear();
   for (const QString& path : typist::platform::recentFiles()) {
-    if (!QFileInfo::exists(path)) {
-      typist::platform::removeRecentFile(path);
+    if (!QFileInfo(path).isFile()) {
+      if (!m_benchMode) platform::removeRecentFile(path);
       continue;
     }
-    QAction* entry = m_recentMenu->addAction(QFileInfo(path).fileName());
+    QAction* entry =
+        m_recentMenu->addAction(QFileInfo(path).fileName().replace('&', QStringLiteral("&&")));
     entry->setData(path);
+    entry->setToolTip(QDir::toNativeSeparators(path));
   }
   if (m_recentMenu->isEmpty()) {
     QAction* placeholder = m_recentMenu->addAction(tr("No recent files"));
     placeholder->setEnabled(false);
   }
+  m_recentMenu->addSeparator();
+  auto* clear = m_recentMenu->addAction(tr("Clear Recent Items"));
+  clear->setObjectName(QStringLiteral("clearRecentItems"));
+  connect(clear, &QAction::triggered, this, &MainWindow::clearRecentHistory);
 }
 
 void MainWindow::openRecentEntry(QAction* action) {
   if (!action || !action->isEnabled() || action->data().isNull()) return;
   openFile(action->data().toString());
+}
+
+void MainWindow::reopenClosedFile() {
+  const QFileInfo current(m_currentPath);
+  for (const auto& path : platform::closedFiles()) {
+    if (QFileInfo(path) == current) continue;
+    auto* editor = static_cast<ui::Editor*>(m_editor);
+    const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+    const auto restore = qScopeGuard(
+        [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
+    // The outgoing document stays in Recent Files while we walk back through the stack.
+    openFileReplacingCurrent(path, false);
+    return;
+  }
+  statusBar()->showMessage(tr("No closed files to reopen"), 4000);
+}
+
+void MainWindow::clearRecentHistory() {
+  platform::clearFileHistory();
+  platform::FolderLocationsStore().clearRecent();
+  rebuildRecentMenu();
+  statusBar()->showMessage(tr("Cleared recent items"), 4000);
 }
 
 void MainWindow::checkCurrentFileConflict() {
@@ -2477,6 +2519,7 @@ void MainWindow::recoverLatestDraft() {
   m_sourceMode = m_view->isSourceMode();
   // Recovery lands in an untitled buffer: the writer decides where it is saved.
   m_outlinePanel->setDocument(m_document, true);
+  if (!m_benchMode) platform::updateClosedFiles(m_currentPath);
   m_currentPath.clear();
   m_savedMarkdown = text;
   m_dirty = true;

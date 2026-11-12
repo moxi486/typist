@@ -4,6 +4,7 @@
 | --- | --- |
 | 新建 / 新建窗口 / 关闭 | Ctrl+N / Ctrl+Shift+N / Ctrl+W |
 | 快速打开工作区 / 最近文件 | Ctrl+P；输入文件名或路径模糊搜索，↑ / ↓ 选择、Enter 打开、Esc 关闭 |
+| 重新打开已关闭的文件 | 文件 → 重新打开已关闭的文件 |
 | 打开 / 保存 / 另存为 | Ctrl+O / Ctrl+S / Ctrl+Shift+S |
 | 导出 HTML / PDF / DOCX | Ctrl+Shift+E / Ctrl+Shift+P / Ctrl+Shift+X |
 | 导出 HTML（无样式） | 文件 → 导出 HTML（无样式） |
