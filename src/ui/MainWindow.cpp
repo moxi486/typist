@@ -88,6 +88,7 @@
 #include <QString>
 #include <QStyle>
 #include <QTabWidget>
+#include <QTemporaryDir>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextEdit>
@@ -333,6 +334,10 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   m_repeatExportAction->setObjectName(QStringLiteral("repeatExport"));
   m_repeatExportAction->setEnabled(false);
   connect(m_repeatExportAction, &QAction::triggered, this, &MainWindow::repeatExport);
+  m_overwriteExportAction = fileMenu->addAction(tr("Export and Overwrite with Previous Settings"));
+  m_overwriteExportAction->setObjectName(QStringLiteral("overwritePreviousExport"));
+  m_overwriteExportAction->setEnabled(false);
+  connect(m_overwriteExportAction, &QAction::triggered, this, &MainWindow::overwritePreviousExport);
 
   QAction* recoverAction = new QAction(tr("Recover Draft"), this);
   recoverAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+R")));
@@ -1579,10 +1584,40 @@ QString MainWindow::suggestedExportPath(const QString& suffix) const {
   return QDir(platform::exportDirectory(m_currentPath)).filePath(name + suffix);
 }
 
-void MainWindow::finishExport(const QString& path, const QString& status,
-                              std::function<void()> repeat) {
+QString MainWindow::chooseExportFile(const QString& title, const QString& suggested,
+                                     const QString& filter, const QString& suffix,
+                                     const QString& objectName) {
+  const QFileInfo info(suggested);
+  QFileDialog dialog(this, title, info.absolutePath(), filter);
+  dialog.setObjectName(objectName);
+  dialog.setAcceptMode(QFileDialog::AcceptSave);
+  dialog.setDefaultSuffix(suffix);
+  dialog.selectFile(info.fileName());
+  if (dialog.exec() != QDialog::Accepted) return {};
+  return dialog.selectedFiles().value(0);
+}
+
+QString MainWindow::completeExportPath(const QString& path, const ExportReplacement* replacement) {
+  if (!replacement) return path;
+  switch (platform::replaceExport(replacement->destination, path)) {
+    case platform::ExportReplacementResult::Success:
+      return replacement->destination.path;
+    case platform::ExportReplacementResult::Changed:
+      statusBar()->showMessage(tr("The previous export has changed or is unavailable."), 5000);
+      break;
+    case platform::ExportReplacementResult::WriteFailed:
+      statusBar()->showMessage(tr("Could not replace the previous export."), 5000);
+      break;
+  }
+  return {};
+}
+
+void MainWindow::finishExport(const QString& path, const QString& status, ExportReplay repeat) {
   m_previousExport = std::move(repeat);
+  m_previousExportFile = platform::ExportedFile::capture(path);
   m_repeatExportAction->setEnabled(true);
+  m_overwriteExportAction->setEnabled(!m_previousExportFile.digest.isEmpty());
+  m_overwriteExportAction->setStatusTip(m_previousExportFile.path);
   platform::rememberExportDirectory(path);
   statusBar()->showMessage(status);
   if (!platform::exportPreferences().openFolderOnSuccess) return;
@@ -1593,10 +1628,36 @@ void MainWindow::finishExport(const QString& path, const QString& status,
 
 void MainWindow::resetPreviousExport() {
   m_previousExport = {};
+  m_previousExportFile = {};
   m_repeatExportAction->setEnabled(false);
+  m_overwriteExportAction->setEnabled(false);
+  m_overwriteExportAction->setStatusTip({});
 }
 
-void MainWindow::repeatExport() {
+void MainWindow::repeatExport() { runPreviousExport(nullptr); }
+
+void MainWindow::overwritePreviousExport() {
+  if (!m_previousExport) return;
+  const auto previous = m_previousExportFile;
+  if (!previous.unchanged()) {
+    statusBar()->showMessage(tr("The previous export has changed or is unavailable."), 5000);
+    return;
+  }
+  if (!m_currentPath.isEmpty() && QFileInfo(previous.path) == QFileInfo(m_currentPath)) {
+    statusBar()->showMessage(tr("The previous export is the current Markdown document."), 5000);
+    return;
+  }
+  const QFileInfo output(previous.path);
+  QTemporaryDir staging(output.dir().filePath(QStringLiteral(".typist-export-XXXXXX")));
+  if (!staging.isValid()) {
+    statusBar()->showMessage(tr("Could not replace the previous export."), 5000);
+    return;
+  }
+  const ExportReplacement replacement{previous, staging.filePath(output.fileName())};
+  runPreviousExport(&replacement);
+}
+
+void MainWindow::runPreviousExport(const ExportReplacement* replacement) {
   // A successful export replaces the stored callback while this copy runs.
   const auto repeat = m_previousExport;
   if (!repeat) return;
@@ -1604,7 +1665,7 @@ void MainWindow::repeatExport() {
   const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
   const auto restore = qScopeGuard(
       [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
-  repeat();
+  repeat(replacement);
 }
 
 void MainWindow::exportHtmlDocument(bool styled) {
@@ -1614,19 +1675,19 @@ void MainWindow::exportHtmlDocument(bool styled) {
                       m_outlinePanel->collapsible()});
 }
 
-void MainWindow::exportHtmlDocument(const HtmlExportSettings& options) {
+void MainWindow::exportHtmlDocument(const HtmlExportSettings& options,
+                                    const ExportReplacement* replacement) {
   auto* editor = static_cast<ui::Editor*>(m_editor);
   const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
   const auto restore = qScopeGuard(
       [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
   const QString suffix = options.styled ? QStringLiteral(".html") : QStringLiteral("-plain.html");
-  const QString suggested = suggestedExportPath(suffix);
-  QFileDialog dialog(this, options.styled ? tr("Export HTML") : tr("Export HTML (without styles)"),
-                     suggested, QStringLiteral("HTML (*.html)"));
-  dialog.setAcceptMode(QFileDialog::AcceptSave);
-  dialog.setDefaultSuffix(QStringLiteral("html"));
-  if (dialog.exec() != QDialog::Accepted) return;
-  const QString path = dialog.selectedFiles().value(0);
+  const QString path =
+      replacement ? replacement->stagedPath
+                  : chooseExportFile(
+                        options.styled ? tr("Export HTML") : tr("Export HTML (without styles)"),
+                        suggestedExportPath(suffix), QStringLiteral("HTML (*.html)"),
+                        QStringLiteral("html"));
   if (path.isEmpty()) return;
 
   QList<render::HtmlHeading> headings;
@@ -1650,12 +1711,17 @@ void MainWindow::exportHtmlDocument(const HtmlExportSettings& options) {
     statusBar()->showMessage(error);
     return;
   }
-  finishExport(path, tr("Exported HTML"), [this, options] { exportHtmlDocument(options); });
+  const auto savedPath = completeExportPath(path, replacement);
+  if (savedPath.isEmpty()) return;
+  finishExport(savedPath, tr("Exported HTML"), [this, options](const ExportReplacement* target) {
+    exportHtmlDocument(options, target);
+  });
 }
 
 void MainWindow::exportImage() { exportImageDocument(); }
 
-void MainWindow::exportImageDocument(const platform::ImageExportOptions* previous) {
+void MainWindow::exportImageDocument(const platform::ImageExportOptions* previous,
+                                     const ExportReplacement* replacement) {
   auto* editor = static_cast<ui::Editor*>(m_editor);
   const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
   const auto restore = qScopeGuard(
@@ -1680,15 +1746,13 @@ void MainWindow::exportImageDocument(const platform::ImageExportOptions* previou
 
   const QFileInfo file(m_currentPath);
   const auto directory = platform::exportDirectory(m_currentPath);
-  QFileDialog destination(this, tr("Export Image"), directory, tr("PNG image (*.png)"));
-  destination.setObjectName(QStringLiteral("imageDestination"));
-  destination.setAcceptMode(QFileDialog::AcceptSave);
-  destination.setDefaultSuffix(QStringLiteral("png"));
-  destination.selectFile(m_currentPath.isEmpty()
-                             ? QStringLiteral("untitled.png")
-                             : file.completeBaseName() + QStringLiteral(".png"));
-  if (destination.exec() != QDialog::Accepted) return;
-  const auto path = destination.selectedFiles().value(0);
+  const auto name = m_currentPath.isEmpty() ? QStringLiteral("untitled") : file.completeBaseName();
+  const auto path = replacement
+                        ? replacement->stagedPath
+                        : chooseExportFile(tr("Export Image"),
+                                           QDir(directory).filePath(name + QStringLiteral(".png")),
+                                           tr("PNG image (*.png)"), QStringLiteral("png"),
+                                           QStringLiteral("imageDestination"));
   if (path.isEmpty()) return;
   if (QFileInfo(path).suffix().compare(QStringLiteral("png"), Qt::CaseInsensitive) != 0) {
     statusBar()->showMessage(tr("Choose a filename ending in .png."));
@@ -1727,16 +1791,21 @@ void MainWindow::exportImageDocument(const platform::ImageExportOptions* previou
     case platform::ImageExportError::None:
       break;
   }
+  const auto savedPath = completeExportPath(path, replacement);
+  if (savedPath.isEmpty()) return;
   settings.setValue(key, QVariantMap{{QStringLiteral("width"), options.width},
                                      {QStringLiteral("fontPixels"), options.fontPixels},
                                      {QStringLiteral("scale"), options.scale},
                                      {QStringLiteral("theme"), int(options.theme)}});
-  finishExport(path, tr("Exported PNG image"), [this, options] { exportImageDocument(&options); });
+  finishExport(
+      savedPath, tr("Exported PNG image"),
+      [this, options](const ExportReplacement* target) { exportImageDocument(&options, target); });
 }
 
 void MainWindow::exportPdf() { exportPdfDocument(); }
 
-void MainWindow::exportPdfDocument(const platform::PdfPageOptions* previous) {
+void MainWindow::exportPdfDocument(const platform::PdfPageOptions* previous,
+                                   const ExportReplacement* replacement) {
   const QString suggested = suggestedExportPath(QStringLiteral(".pdf"));
   // PDF always reflects Markdown semantics, so it prints a detached rendered document
   // instead of whatever the editor view is currently showing.
@@ -1757,27 +1826,32 @@ void MainWindow::exportPdfDocument(const platform::PdfPageOptions* previous) {
     if (setup.exec() != QDialog::Accepted) return;
     options = setup.options();
   }
-  QFileDialog destination(this, tr("Export PDF"), QFileInfo(suggested).absolutePath(),
-                          QStringLiteral("PDF (*.pdf)"));
-  destination.setObjectName(QStringLiteral("pdfDestination"));
-  destination.setAcceptMode(QFileDialog::AcceptSave);
-  destination.setDefaultSuffix(QStringLiteral("pdf"));
-  destination.selectFile(QFileInfo(suggested).fileName());
-  if (destination.exec() != QDialog::Accepted || destination.selectedFiles().isEmpty()) return;
-  const auto path = destination.selectedFiles().first();
+  const auto path =
+      replacement ? replacement->stagedPath
+                  : chooseExportFile(tr("Export PDF"), suggested, QStringLiteral("PDF (*.pdf)"),
+                                     QStringLiteral("pdf"), QStringLiteral("pdfDestination"));
+  if (path.isEmpty()) return;
 
   if (!typist::platform::exportPdf(path, &rendered, options, &error)) {
     statusBar()->showMessage(error);
     return;
   }
+  const auto savedPath = completeExportPath(path, replacement);
+  if (savedPath.isEmpty()) return;
   platform::setPdfOptions(options);
-  finishExport(path, tr("Exported PDF"), [this, options] { exportPdfDocument(&options); });
+  finishExport(savedPath, tr("Exported PDF"), [this, options](const ExportReplacement* target) {
+    exportPdfDocument(&options, target);
+  });
 }
 
-void MainWindow::exportDocx() {
-  const QString suggested = suggestedExportPath(QStringLiteral(".docx"));
-  const QString path = QFileDialog::getSaveFileName(this, tr("Export DOCX"), suggested,
-                                                    QStringLiteral("Word document (*.docx)"));
+void MainWindow::exportDocx() { exportDocxDocument(nullptr); }
+
+void MainWindow::exportDocxDocument(const ExportReplacement* replacement) {
+  const QString path =
+      replacement ? replacement->stagedPath
+                  : QFileDialog::getSaveFileName(this, tr("Export DOCX"),
+                                                 suggestedExportPath(QStringLiteral(".docx")),
+                                                 QStringLiteral("Word document (*.docx)"));
   if (path.isEmpty()) return;
 
   // DOCX reflects Markdown semantics directly, so it renders from the source text.
@@ -1789,12 +1863,16 @@ void MainWindow::exportDocx() {
     statusBar()->showMessage(error);
     return;
   }
-  finishExport(path, tr("Exported DOCX"), [this] { exportDocx(); });
+  const auto savedPath = completeExportPath(path, replacement);
+  if (savedPath.isEmpty()) return;
+  finishExport(savedPath, tr("Exported DOCX"),
+               [this](const ExportReplacement* target) { exportDocxDocument(target); });
 }
 
 void MainWindow::exportEpub() { exportEpubDocument(); }
 
-void MainWindow::exportEpubDocument(const platform::EpubOptions* previous) {
+void MainWindow::exportEpubDocument(const platform::EpubOptions* previous,
+                                    const ExportReplacement* replacement) {
   QSettings settings;
   const auto title =
       m_currentPath.isEmpty() ? tr("Untitled") : QFileInfo(m_currentPath).completeBaseName();
@@ -1813,17 +1891,17 @@ void MainWindow::exportEpubDocument(const platform::EpubOptions* previous) {
                metadata.splitChapters()};
   }
   const auto directory = platform::exportDirectory(m_currentPath);
-  QFileDialog destination(this, tr("Export EPUB"), directory, QStringLiteral("EPUB book (*.epub)"));
-  destination.setObjectName(QStringLiteral("epubDestination"));
-  destination.setAcceptMode(QFileDialog::AcceptSave);
-  destination.setDefaultSuffix(QStringLiteral("epub"));
-  destination.selectFile(m_currentPath.isEmpty() ? QStringLiteral("untitled.epub")
-                                                 : QFileInfo(m_currentPath).completeBaseName() +
-                                                       QStringLiteral(".epub"));
-  if (destination.exec() != QDialog::Accepted || destination.selectedFiles().isEmpty()) return;
+  const auto name = m_currentPath.isEmpty() ? QStringLiteral("untitled")
+                                            : QFileInfo(m_currentPath).completeBaseName();
+  const auto path =
+      replacement ? replacement->stagedPath
+                  : chooseExportFile(tr("Export EPUB"),
+                                     QDir(directory).filePath(name + QStringLiteral(".epub")),
+                                     QStringLiteral("EPUB book (*.epub)"), QStringLiteral("epub"),
+                                     QStringLiteral("epubDestination"));
+  if (path.isEmpty()) return;
   QString error;
   QStringList notices;
-  const auto path = destination.selectedFiles().first();
   if (!platform::exportEpub(
           path, currentMarkdown(), options, &error,
           m_currentPath.isEmpty() ? QString() : QFileInfo(m_currentPath).absolutePath(),
@@ -1831,6 +1909,8 @@ void MainWindow::exportEpubDocument(const platform::EpubOptions* previous) {
     QMessageBox::warning(this, tr("Export EPUB"), error);
     return;
   }
+  const auto savedPath = completeExportPath(path, replacement);
+  if (savedPath.isEmpty()) return;
   settings.setValue(QStringLiteral("export/epubAuthor"), options.author);
   settings.setValue(QStringLiteral("export/epubLanguage"), options.language);
   settings.setValue(QStringLiteral("export/epubSplitChapters"), options.splitChapters);
@@ -1842,7 +1922,9 @@ void MainWindow::exportEpubDocument(const platform::EpubOptions* previous) {
     message.setDetailedText(notices.join('\n'));
     message.exec();
   }
-  finishExport(path, tr("Exported EPUB"), [this, options] { exportEpubDocument(&options); });
+  finishExport(savedPath, tr("Exported EPUB"), [this, options](const ExportReplacement* target) {
+    exportEpubDocument(&options, target);
+  });
 }
 
 void MainWindow::autoSaveNow() {

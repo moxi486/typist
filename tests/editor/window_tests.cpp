@@ -3882,9 +3882,10 @@ class WindowTests : public QObject {
     window.show();
     auto* original = actionBySource(window, command);
     auto* repeat = window.findChild<QAction*>(QStringLiteral("repeatExport"));
+    auto* overwrite = window.findChild<QAction*>(QStringLiteral("overwritePreviousExport"));
     auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
-    QVERIFY(original && repeat && editor);
-    QVERIFY(!repeat->isEnabled());
+    QVERIFY(original && repeat && overwrite && editor);
+    QVERIFY(!repeat->isEnabled() && !overwrite->isEnabled());
 
     const auto run = [&](QAction* action, bool expectSetup, const QString& path) {
       bool setupSeen = false, matched = false;
@@ -3948,7 +3949,7 @@ class WindowTests : public QObject {
     const auto initialBytes = initial.readAll();
     QVERIFY(!initialBytes.isEmpty());
     initial.close();
-    QVERIFY(repeat->isEnabled());
+    QVERIFY(repeat->isEnabled() && overwrite->isEnabled());
 
     // Change global defaults to distinguish the replay from a new export.
     settings.setValue(QStringLiteral("export/htmlOutline"), false);
@@ -4002,12 +4003,85 @@ class WindowTests : public QObject {
     } else {
       QVERIFY(bytes.contains("new contents"));
     }
+    repeated.close();
+
+    const auto runOverwrite = [&](bool expectWarning = false) {
+      bool modalSeen = false;
+      bool warningSeen = false;
+      QTimer rejectDialogs;
+      connect(&rejectDialogs, &QTimer::timeout, &window, [&] {
+        if (auto* modal = QApplication::activeModalWidget()) {
+          modalSeen = true;
+          if (const auto* message = qobject_cast<QMessageBox*>(modal))
+            warningSeen = message->icon() == QMessageBox::Warning;
+          modal->close();
+        }
+      });
+      rejectDialogs.start(10);
+      overwrite->trigger();
+      return expectWarning ? warningSeen : !modalSeen;
+    };
+    draft->setPlainText(QStringLiteral("Updated overwrite contents. ") +
+                        QStringLiteral("More lines for the replacement file. ").repeated(55));
+    QVERIFY(runOverwrite());
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    QVERIFY(repeated.open(QIODevice::ReadOnly));
+    const auto overwritten = repeated.readAll();
+    repeated.close();
+    QVERIFY(!overwritten.isEmpty());
+    QVERIFY(overwritten != bytes);
+    if (extension == QLatin1String("png")) {
+      const auto picture = QImage::fromData(overwritten);
+      QCOMPARE(picture.width(), 900);
+      QCOMPARE(picture.pixelColor(0, 0), QColor("#1f2328"));
+      QVERIFY(picture.height() > QImage::fromData(bytes).height());
+    } else if (extension == QLatin1String("pdf")) {
+      static const QRegularExpression mediaBox(QStringLiteral(R"(/MediaBox\s*\[[^\]]+\])"));
+      QCOMPARE(mediaBox.match(QString::fromLatin1(overwritten)).captured(),
+               mediaBox.match(QString::fromLatin1(bytes)).captured());
+    } else {
+      QVERIFY(overwritten.contains("Updated overwrite contents"));
+    }
+    if (extension == QLatin1String("epub")) {
+      QVERIFY(overwritten.contains("<dc:title>Replay Book</dc:title>"));
+      QVERIFY(overwritten.contains("OEBPS/cover.xhtml"));
+      QVERIFY(QFile::remove(coverPath));
+      QVERIFY(runOverwrite(true));
+      QVERIFY(repeated.open(QIODevice::ReadOnly));
+      QCOMPARE(repeated.readAll(), overwritten);
+      repeated.close();
+    } else if (command == QLatin1String("Export HTML")) {
+      QVERIFY(overwritten.contains("<title>repeat</title>"));
+      QVERIFY(overwritten.contains("<nav class=\"export-outline"));
+      auto modified = overwritten;
+      modified[0] = '!';
+      QVERIFY(modified != overwritten);
+      QVERIFY(repeated.open(QIODevice::WriteOnly | QIODevice::Truncate));
+      QCOMPARE(repeated.write(modified), modified.size());
+      repeated.close();
+      QVERIFY(runOverwrite());
+      QVERIFY(window.statusBar()->currentMessage().contains(QStringLiteral("has changed")));
+      QVERIFY(repeated.open(QIODevice::ReadOnly));
+      QCOMPARE(repeated.readAll(), modified);
+      repeated.close();
+      QVERIFY(repeated.remove());
+      QVERIFY(runOverwrite());
+      QVERIFY(!repeated.exists());
+      QVERIFY(repeat->isEnabled());
+      QVERIFY(run(repeat, false, repeatedPath));
+      QVERIFY(runOverwrite());
+      QVERIFY(window.statusBar()->currentMessage().contains(QStringLiteral("Exported HTML")));
+    }
+    QVERIFY(QDir(directory.path())
+                .entryList({QStringLiteral(".typist-export-*")}, QDir::Dirs | QDir::Hidden)
+                .isEmpty());
     QVERIFY(initial.open(QIODevice::ReadOnly));
     QCOMPARE(initial.readAll(), initialBytes);
     QVERIFY(window.openFile(source));
-    QVERIFY(repeat->isEnabled());
+    QVERIFY(repeat->isEnabled() && overwrite->isEnabled());
     QVERIFY(window.openFile(other));
-    QVERIFY(!repeat->isEnabled());
+    QVERIFY(!repeat->isEnabled() && !overwrite->isEnabled());
   }
 
   void exportPreferencesApplyToAllSaveDialogsAndOnlyRememberSuccessfulWrites() {
