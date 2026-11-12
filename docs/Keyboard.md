@@ -10,6 +10,7 @@
 | 导出 HTML（无样式） | 文件 → 导出 HTML（无样式） |
 | 导出 PNG 图片 | 文件 → 导出图片 |
 | 导出 EPUB | 文件 → 导出 EPUB（无默认快捷键） |
+| 默认导出目录 / 导出后打开文件夹 | 设置 → 导出设置 |
 | PDF 页面设置与预览 | Ctrl+Shift+P（选项与逐页预览后选择保存位置） |
 | 导入 HTML / 将 HTML 粘贴为 Markdown | 文件 → 导入 HTML / Ctrl+Alt+V |
 | 撤销 / 重做 | Ctrl+Z / Ctrl+Y（macOS Ctrl+Shift+Z） |
