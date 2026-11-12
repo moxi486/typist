@@ -261,6 +261,7 @@ QString blocks(const std::vector<Block>& nodes, Context& context, bool root) {
         break;
       }
       case BlockType::Footnote:
+      case BlockType::PageBreak:
         break;
       case BlockType::Unsupported:
         context.error = text("Unsupported Markdown block: %1").arg(value);

@@ -64,6 +64,25 @@ int main(int argc, char** argv) {
   for (const auto& file : mdFilesIn(corpus)) checkRoundTrip(file);
   for (const auto& file : mdFilesIn(corpus / "gfm")) checkRoundTrip(file);
 
+  using typist::core::BlockType;
+  const auto pageBreakSource = readFile(corpus / "page-breaks.md");
+  const auto pageBreaks = typist::core::parseMarkdown(pageBreakSource);
+  check(pageBreaks.ok && std::count_if(pageBreaks.blocks.begin(), pageBreaks.blocks.end(),
+                                       [](const auto& block) {
+                                         return block.type == BlockType::PageBreak;
+                                       }) == 2,
+        "only standalone page break divs become page breaks");
+  const auto ordinaryHtml = typist::core::parseMarkdown(
+      "<div style=\"break-after:page\">Visible text</div>\n\n"
+      "<div style=\"page-break-after:avoid\"></div>\n\n"
+      "<div style=\"break-after:page\" class=\"other\"></div>\n\n"
+      "> <div style=\"break-after:page\"></div>\n");
+  check(ordinaryHtml.ok && !containsBlock(ordinaryHtml.blocks, BlockType::PageBreak),
+        "page breaks exclude div content, other declarations, extra attributes and quotes");
+  check(typist::core::toHtml(pageBreakSource).find(typist::core::kPageBreakMarkdown) !=
+            std::string::npos,
+        "HTML export keeps the print page break");
+
   const auto table = typist::core::parseMarkdown(readFile(corpus / "gfm" / "table.md"));
   check(table.ok && containsBlock(table.blocks, typist::core::BlockType::Table),
         "gfm table parsed");

@@ -1,3 +1,4 @@
+#include "DocxWriter.h"
 #include "PdfWriter.h"
 #include "Settings.h"
 #include "editor_document.h"
@@ -159,6 +160,40 @@ class PdfSetupTests : public QObject {
     QCOMPARE(pageCount(read(path)), pages);
     QCOMPARE(typist::editor::serializeDocument(&document), before);
     QCOMPARE(document.availableUndoSteps(), undo);
+  }
+
+  void manualBreaksStartHeadingsAndTablesWithoutBlankPages() {
+    const auto marker = QString::fromLatin1(typist::core::kPageBreakMarkdown) + "\n\n";
+    const auto markdown = marker + "# First chapter\n\nBefore the break.\n\n" + marker + marker +
+                          "# Second chapter\n\nAfter the break.\n\n" + marker +
+                          "| Appendix | Status |\n| --- | --- |\n| Detail | Complete |\n\n" +
+                          marker;
+    QTextDocument document;
+    QString error;
+    QVERIFY2(typist::editor::loadMarkdown(markdown, &document, &error), qPrintable(error));
+    const auto before = typist::editor::serializeDocument(&document);
+    const auto parsed = typist::core::parseMarkdown(markdown.toStdString());
+    const auto saved = typist::core::parseMarkdown(before.toStdString());
+    QVERIFY(typist::core::astEqual(parsed.blocks, saved.blocks));
+    QTemporaryDir directory;
+    const auto output = qEnvironmentVariable("TYPIST_PDF_OUTPUT", directory.path());
+    for (const bool headings : {false, true}) {
+      typist::platform::PdfPageOptions options;
+      options.breakBetweenTopHeadings = headings;
+      options.header = QStringLiteral("Manual page breaks");
+      options.footer = QStringLiteral("Page #");
+      int pages = 0;
+      QVERIFY2(!typist::platform::pdfPagePreview(&document, options, 0, &pages, &error).isNull(),
+               qPrintable(error));
+      QCOMPARE(pages, 3);
+      const auto path = output + (headings ? "/manual-and-heading.pdf" : "/manual-breaks.pdf");
+      QVERIFY2(typist::platform::exportPdf(path, &document, options, &error), qPrintable(error));
+      QCOMPARE(pageCount(read(path)), pages);
+    }
+    QCOMPARE(typist::editor::serializeDocument(&document), before);
+    const auto docx = directory.filePath(QStringLiteral("manual-breaks.docx"));
+    QVERIFY2(typist::platform::exportDocx(docx, before, &error), qPrintable(error));
+    QCOMPARE(read(docx).count("<w:br w:type=\"page\"/>"), 2);
   }
 
   void invalidExportPreservesTarget() {

@@ -413,6 +413,10 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
     case typist::core::BlockType::ThematicBreak:
       insertTaggedBlock(cursor, QStringLiteral("\u2014"), kRuleProperty, QVariant(true), plain);
       break;
+    case typist::core::BlockType::PageBreak:
+      insertTaggedBlock(cursor, QString(QChar(render::kPageBreakMarker)),
+                        render::kPageBreakProperty, QString::fromStdString(block.text), plain);
+      break;
     case typist::core::BlockType::BlockQuote:
       ++ctx.groupCounter;
       for (const typist::core::Block& child : block.children) {
@@ -850,6 +854,20 @@ QString serializeDocument(const QTextDocument* document, int paragraphPosition,
     }
     const QString text = block.text();
 
+    if (format.hasProperty(render::kPageBreakProperty) &&
+        text.contains(QChar(render::kPageBreakMarker))) {
+      // A paste can leave text beside the marker. Keep that text on its own side.
+      const QString body = text.size() == 1 ? text : inlineFromBlock(block);
+      const auto split = body.indexOf(QChar(render::kPageBreakMarker));
+      if (split >= 0) {
+        if (split > 0) out += body.left(split) + QStringLiteral("\n\n");
+        out += format.property(render::kPageBreakProperty).toString() + QStringLiteral("\n\n");
+        if (split + 1 < body.size()) out += body.mid(split + 1) + QStringLiteral("\n\n");
+        prevWasList = false;
+        block = block.next();
+        continue;
+      }
+    }
     if (format.property(kRuleProperty).toBool()) {
       out += QStringLiteral("---\n\n");
       prevWasList = false;

@@ -21,8 +21,11 @@ enum class BlockType {
   Diagram,
   Footnote,
   TableOfContents,
+  PageBreak,
   Unsupported,
 };
+
+inline constexpr char kPageBreakMarkdown[] = "<div style=\"page-break-after:always\"></div>";
 
 // One styled inline span. Nesting collapses to flags, so bold+italic is one run
 // with both flags rather than a nested tree.

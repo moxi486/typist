@@ -420,6 +420,10 @@
         <translation>分隔线</translation>
     </message>
     <message>
+        <source>Insert Page Break</source>
+        <translation>插入分页符</translation>
+    </message>
+    <message>
         <source>Hyperlink</source>
         <translation>超链接</translation>
     </message>
@@ -1076,6 +1080,10 @@
 </context>
 <context>
     <name>Editor</name>
+    <message>
+        <source>Page Break</source>
+        <translation>分页符</translation>
+    </message>
     <message>
         <source>Code Tools</source>
         <translation>代码工具</translation>

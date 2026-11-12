@@ -659,6 +659,12 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
           [editor] { editor->formatParagraph(editor::ParagraphStyle::Code); });
   command(paragraph, QStringLiteral("paragraph_rule"), tr("Horizontal Rule"), QString(),
           [editor] { editor->formatParagraph(editor::ParagraphStyle::Rule); });
+  command(paragraph, QStringLiteral("insert_page_break"), tr("Insert Page Break"), QString(),
+          [this, editor] {
+            if (!editor->insertPageBreak())
+              statusBar()->showMessage(tr("Place the cursor in a normal paragraph or heading"),
+                                       2500);
+          });
   command(paragraph, QStringLiteral("insert_math"), tr("Math Block"),
           QStringLiteral("Ctrl+Shift+M"),
           [editor] { editor->insertAdvancedContent(QStringLiteral("math")); });

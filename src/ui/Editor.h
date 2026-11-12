@@ -125,6 +125,7 @@ class Editor : public QTextEdit {
     updateCodeTabStops();
   }
   void insertAdvancedContent(const QString& type);
+  bool insertPageBreak();
   void setSyntaxHighlight(bool enabled) {
     m_syntaxHighlight = enabled;
     render::installSyntaxHighlighter(document(), !m_rendered, m_dark, enabled);

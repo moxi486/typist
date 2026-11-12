@@ -3324,6 +3324,59 @@ class WindowTests : public QObject {
       QCOMPARE(typist::editor::serializeDocument(&document), before);
     }
   }
+  void pageBreakMenuInsertsAnUndoableMarkdownBlock() {
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] { typist::platform::setLanguagePreference(language); });
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::MainWindow window;
+    window.setBenchMode(true);
+    QTemporaryDir directory;
+    QFile file(directory.filePath(QStringLiteral("chapters.md")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("Before after.\n");
+    file.close();
+    QVERIFY(window.openFile(file.fileName()));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* insert = window.findChild<QAction*>(QStringLiteral("insert_page_break"));
+    QVERIFY(editor && insert);
+    QCOMPARE(insert->text(), QStringLiteral("Insert Page Break"));
+    const auto original = typist::editor::serializeDocument(editor->document());
+    auto cursor = editor->document()->find(QStringLiteral("Before "));
+    QVERIFY(!cursor.isNull());
+    cursor.clearSelection();
+    editor->setTextCursor(cursor);
+    insert->trigger();
+    const auto marker = QString::fromLatin1(typist::core::kPageBreakMarkdown);
+    const auto inserted = typist::editor::serializeDocument(editor->document());
+    QCOMPARE(inserted, QStringLiteral("Before \n\n") + marker + QStringLiteral("\n\nafter.\n\n"));
+    QCOMPARE(editor->textCursor().block().text(), QStringLiteral("after."));
+    editor->undo();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+    QVERIFY(!editor->document()->isUndoAvailable());
+    editor->redo();
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    QCOMPARE(editor->toPlainText().count(marker), 1);
+    editor->moveCursor(QTextCursor::End);
+    insert->trigger();
+    QCOMPARE(editor->toPlainText().count(marker), 2);
+    editor->undo();
+    QCOMPARE(editor->toPlainText().count(marker), 1);
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    auto block = editor->document()->begin().next();
+    QVERIFY(typist::render::isPageBreak(block));
+    QTextCursor selection(block);
+    selection.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+    QCOMPARE(typist::editor::selectedMarkdown(selection), marker);
+    editor->setTextCursor(QTextCursor(block));
+    QTest::keyClick(editor, Qt::Key_Delete);
+    const auto deleted = typist::editor::serializeDocument(editor->document());
+    QVERIFY(!deleted.contains(marker));
+    QVERIFY(deleted.contains(QStringLiteral("Before")) &&
+            deleted.contains(QStringLiteral("after.")));
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(insert->text(), QStringLiteral("插入分页符"));
+  }
+
   void pdfDialogSectionBreaksRefreshPreview() {
     QTextDocument document;
     QVERIFY(typist::editor::loadMarkdown(

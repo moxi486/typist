@@ -121,26 +121,44 @@ QSize physicalPage(const PdfPageOptions& options) {
   return size;
 }
 
-void insertSectionBreaks(QTextDocument& document) {
+void applyPageBreaks(QTextDocument& document, bool breakBetweenTopHeadings) {
   bool seenHeading = false, seenContent = false, inFootnotes = false;
+  bool manualBreak = false;
   QTextCursor cursor(&document);
   cursor.beginEditBlock();
   for (auto it = document.rootFrame()->begin(); !it.atEnd(); ++it) {
-    if (it.currentFrame()) {
+    if (auto* frame = it.currentFrame()) {
+      if (manualBreak) {
+        auto format = frame->frameFormat();
+        format.setPageBreakPolicy(format.pageBreakPolicy() | QTextFormat::PageBreak_AlwaysBefore);
+        frame->setFrameFormat(format);
+        manualBreak = false;
+      }
       seenContent = true;
       inFootnotes = false;
       continue;
     }
-    const auto block = it.currentBlock();
-    if (!block.isValid() || block.text().trimmed().isEmpty()) continue;
+    auto block = it.currentBlock();
+    if (!block.isValid()) continue;
+    if (render::isPageBreak(block)) {
+      block.setVisible(false);
+      manualBreak = seenContent;
+      continue;
+    }
     auto format = block.blockFormat();
+    if (block.text().trimmed().isEmpty() && !format.hasProperty(render::kCodeBlockProperty))
+      continue;
     const bool heading = format.headingLevel() == 1 && !block.textList() &&
                          !format.hasProperty(render::kQuoteProperty);
     const bool footnote = format.hasProperty(render::kFootnoteDefinitionProperty);
-    if ((heading && seenHeading) || (footnote && seenContent && !inFootnotes)) {
+    const bool sectionBreak =
+        breakBetweenTopHeadings &&
+        ((heading && seenHeading) || (footnote && seenContent && !inFootnotes));
+    if (manualBreak || sectionBreak) {
       cursor.setPosition(block.position());
       format.setPageBreakPolicy(format.pageBreakPolicy() | QTextFormat::PageBreak_AlwaysBefore);
       cursor.setBlockFormat(format);
+      manualBreak = false;
     }
     seenHeading = seenHeading || heading;
     seenContent = true;
@@ -179,7 +197,7 @@ bool preparePages(const QTextDocument* document, const PdfPageOptions& options,
   laidOut.documentLayout()->setPaintDevice(device);
   auto* syntax = typist::render::installSyntaxHighlighter(&laidOut, false);
   syntax->rehighlight();
-  if (options.breakBetweenTopHeadings) insertSectionBreaks(laidOut);
+  applyPageBreaks(laidOut, options.breakBetweenTopHeadings);
   // Qt's native paged layout splits on text lines and repeats real table headers.
   constexpr auto codeProperty = render::kCodeBlockProperty;
   QSet<QTextTable*> tables;
@@ -198,14 +216,16 @@ bool preparePages(const QTextDocument* document, const PdfPageOptions& options,
   // Apply keep rules in document order. A heading followed by a code fence is
   // one group; separate forced breaks on both would create nearly empty pages.
   for (QTextBlock block = laidOut.begin(); block.isValid(); block = block.next()) {
-    if (block.blockFormat().pageBreakPolicy().testFlag(QTextFormat::PageBreak_AlwaysBefore))
+    if (!block.isVisible() ||
+        block.blockFormat().pageBreakPolicy().testFlag(QTextFormat::PageBreak_AlwaysBefore))
       continue;
     const QRectF firstRect = layout->blockBoundingRect(block);
     const double pageBottom = (qFloor(firstRect.top() / contentHeight) + 1) * contentHeight;
     double bottom = firstRect.bottom();
     if (block.blockFormat().headingLevel() > 0 && block.next().isValid()) {
       QTextBlock following = block.next();
-      if (following.blockFormat().pageBreakPolicy().testFlag(QTextFormat::PageBreak_AlwaysBefore))
+      if (!following.isVisible() ||
+          following.blockFormat().pageBreakPolicy().testFlag(QTextFormat::PageBreak_AlwaysBefore))
         continue;
       const QVariant code = following.blockFormat().property(codeProperty);
       if (code.isValid()) {

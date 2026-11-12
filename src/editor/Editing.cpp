@@ -252,7 +252,7 @@ bool eraseSelection(QTextCursor& cursor) {
 
 bool atomicBlock(const QTextBlock& block) {
   return block.blockFormat().hasProperty(kSpecialBlockProperty) ||
-         block.blockFormat().hasProperty(kRuleProperty);
+         block.blockFormat().hasProperty(kRuleProperty) || render::isPageBreak(block);
 }
 
 bool eraseBlocks(QTextCursor& cursor, const QTextBlock& first, const QTextBlock& last,
@@ -437,6 +437,7 @@ bool setParagraphStyle(QTextCursor& cursor, ParagraphStyle style, int heading) {
   const QVector<QTextBlock> blocks = selectedBlocks(cursor);
   const int group = ++nextGroup;
   for (QTextBlock block : blocks) {
+    if (render::isPageBreak(block)) continue;
     const bool wasCode = block.blockFormat().hasProperty(kCodeBlockProperty);
     stripTaskMarker(block);
     QTextCursor line(block);
@@ -718,6 +719,16 @@ QString selectedMarkdown(const QTextCursor& cursor) {
   QTextDocument document;
   QTextCursor target(&document);
   target.insertFragment(QTextDocumentFragment(cursor));
+  // A fragment beginning with only the marker can lose the first block format.
+  const auto first = cursor.document()->findBlock(cursor.selectionStart());
+  if (render::isPageBreak(first) &&
+      document.begin().text().startsWith(QChar(render::kPageBreakMarker))) {
+    QTextCursor marker(document.begin());
+    auto format = marker.blockFormat();
+    format.setProperty(render::kPageBreakProperty,
+                       first.blockFormat().property(render::kPageBreakProperty));
+    marker.setBlockFormat(format);
+  }
   return serializeDocument(&document).trimmed();
 }
 }  // namespace typist::editor
