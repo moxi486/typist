@@ -3,6 +3,14 @@
 #include <QStringList>
 
 namespace typist::platform {
+struct EpubPublicationDetails {
+  QString subtitle;
+  QString publisher;
+  QString description;
+  QString identifier;
+  QString rights;
+};
+
 struct EpubOptions {
   static constexpr int defaultTocDepth = 3;
   static constexpr int maxTocDepth = 6;
@@ -14,6 +22,7 @@ struct EpubOptions {
   bool splitChapters = false;  // split at top-level H1 blocks, preserving any preface
   int tocDepth = defaultTocDepth;
   QString customCss = {};
+  EpubPublicationDetails publication = {};
 };
 bool exportEpub(const QString& path, const QString& markdown, const EpubOptions& options,
                 QString* error, const QString& baseDirectory = {}, QStringList* notices = nullptr);

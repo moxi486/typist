@@ -2060,7 +2060,8 @@ void MainWindow::exportEpubDocument(const platform::EpubOptions* previous,
                metadata.coverImage(),
                metadata.splitChapters(),
                metadata.tocDepth(),
-               settings.value(epubCssSetting).toString()};
+               settings.value(epubCssSetting).toString(),
+               metadata.publicationDetails()};
   }
   const auto directory = platform::exportDirectory(m_currentPath);
   const auto name = m_currentPath.isEmpty() ? QStringLiteral("untitled")

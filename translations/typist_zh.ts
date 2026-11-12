@@ -1654,6 +1654,38 @@
         <translation>导出 EPUB</translation>
     </message>
     <message>
+        <source>Book</source>
+        <translation>书籍</translation>
+    </message>
+    <message>
+        <source>Publication details</source>
+        <translation>出版信息</translation>
+    </message>
+    <message>
+        <source>Subtitle</source>
+        <translation>副标题</translation>
+    </message>
+    <message>
+        <source>Publisher</source>
+        <translation>出版社</translation>
+    </message>
+    <message>
+        <source>Description</source>
+        <translation>简介</translation>
+    </message>
+    <message>
+        <source>Book identifier</source>
+        <translation>书籍标识符</translation>
+    </message>
+    <message>
+        <source>Generated automatically if blank</source>
+        <translation>留空时自动生成</translation>
+    </message>
+    <message>
+        <source>Copyright and rights</source>
+        <translation>版权声明</translation>
+    </message>
+    <message>
         <source>Book title</source>
         <translation>书名</translation>
     </message>

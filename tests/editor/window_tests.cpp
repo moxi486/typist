@@ -3313,6 +3313,17 @@ class WindowTests : public QObject {
         dialog->findChild<QCheckBox*>(QStringLiteral("epubSplitChapters"))->setChecked(true);
         defaultDepthSeen = dialog->tocDepth() == 3;
         dialog->findChild<QSpinBox*>(QStringLiteral("epubTocDepth"))->setValue(1);
+        dialog->findChild<QTabWidget*>(QStringLiteral("epubTabs"))->setCurrentIndex(1);
+        dialog->findChild<QLineEdit*>(QStringLiteral("epubSubtitle"))
+            ->setText(QStringLiteral("Menu subtitle"));
+        dialog->findChild<QLineEdit*>(QStringLiteral("epubPublisher"))
+            ->setText(QStringLiteral("Menu press"));
+        dialog->findChild<QPlainTextEdit*>(QStringLiteral("epubDescription"))
+            ->setPlainText(QStringLiteral("A book description.\nSecond line."));
+        dialog->findChild<QLineEdit*>(QStringLiteral("epubIdentifier"))
+            ->setText(QStringLiteral("https://example.org/books/menu"));
+        dialog->findChild<QLineEdit*>(QStringLiteral("epubRights"))
+            ->setText(QStringLiteral("All rights reserved"));
         metadataAccepted = true;
         dialog->accept();
       } else if (auto* destination =
@@ -3340,8 +3351,15 @@ class WindowTests : public QObject {
     QFile file(directory.filePath(QStringLiteral("menu-book.epub")));
     QVERIFY(file.open(QIODevice::ReadOnly));
     const auto bytes = file.readAll();
-    QVERIFY(bytes.contains("<dc:title>Menu book</dc:title>"));
+    QVERIFY(bytes.contains("<dc:title id=\"main-title\">Menu book</dc:title>"));
+    QVERIFY(bytes.contains("<dc:title id=\"subtitle\">Menu subtitle</dc:title>"));
     QVERIFY(bytes.contains("<dc:creator>Writer</dc:creator>"));
+    QVERIFY(bytes.contains("<dc:publisher>Menu press</dc:publisher>"));
+    QVERIFY(bytes.contains("<dc:description>A book description.\nSecond line.</dc:description>"));
+    QVERIFY(
+        bytes.contains("<dc:identifier id=\"book-id\">https://example.org/books/menu"
+                       "</dc:identifier>"));
+    QVERIFY(bytes.contains("<dc:rights>All rights reserved</dc:rights>"));
     QVERIFY(bytes.contains("OEBPS/cover.xhtml"));
     QVERIFY(bytes.contains("OEBPS/chapter-2.xhtml"));
     QCOMPARE(QSettings().value(QStringLiteral("export/epubAuthor")).toString(),
@@ -3356,6 +3374,10 @@ class WindowTests : public QObject {
       if (auto* dialog = qobject_cast<typist::ui::EpubDialog*>(QApplication::activeModalWidget())) {
         remembered =
             dialog->splitChapters() && dialog->coverImage().isEmpty() && dialog->tocDepth() == 1;
+        const auto publication = dialog->publicationDetails();
+        remembered = remembered && publication.subtitle.isEmpty() &&
+                     publication.publisher.isEmpty() && publication.description.isEmpty() &&
+                     publication.identifier.isEmpty() && publication.rights.isEmpty();
         dialog->setTocDepth(6);
         dialog->reject();
       }
@@ -3392,6 +3414,11 @@ class WindowTests : public QObject {
       typist::ui::EpubDialog dialog(QStringLiteral("Writing / 章节"), QStringLiteral("Author"),
                                     QStringLiteral("zh-CN"), &window);
       dialog.show();
+      auto* tabs = dialog.findChild<QTabWidget*>(QStringLiteral("epubTabs"));
+      QVERIFY(tabs);
+      QCOMPARE(tabs->tabText(1), language == QLatin1String("en")
+                                     ? QStringLiteral("Publication details")
+                                     : QStringLiteral("出版信息"));
       auto* input = dialog.findChild<QLineEdit*>(QStringLiteral("epubCover"));
       auto* confirm = dialog.findChild<QPushButton*>(QStringLiteral("confirmEpub"));
       input->setText(directory.filePath(QStringLiteral("missing.png")));
@@ -4111,6 +4138,10 @@ class WindowTests : public QObject {
           epub->findChild<QLineEdit*>(QStringLiteral("epubCover"))->setText(coverPath);
           epub->findChild<QCheckBox*>(QStringLiteral("epubSplitChapters"))->setChecked(true);
           epub->setTocDepth(1);
+          epub->findChild<QLineEdit*>(QStringLiteral("epubSubtitle"))
+              ->setText(QStringLiteral("Replay subtitle"));
+          epub->findChild<QLineEdit*>(QStringLiteral("epubIdentifier"))
+              ->setText(QStringLiteral("https://example.org/books/replay"));
           epub->accept();
         }
       });
@@ -4197,7 +4228,11 @@ class WindowTests : public QObject {
       QVERIFY(!firstBox.isEmpty());
       QCOMPARE(mediaBox.match(QString::fromLatin1(bytes)).captured(), firstBox);
     } else if (extension == QLatin1String("epub")) {
-      QVERIFY(bytes.contains("<dc:title>Replay Book</dc:title>"));
+      QVERIFY(bytes.contains("<dc:title id=\"main-title\">Replay Book</dc:title>"));
+      QVERIFY(bytes.contains("<dc:title id=\"subtitle\">Replay subtitle</dc:title>"));
+      QVERIFY(
+          bytes.contains("<dc:identifier id=\"book-id\">https://example.org/books/replay"
+                         "</dc:identifier>"));
       QVERIFY(bytes.contains("<dc:creator>Replay Author</dc:creator>"));
       QVERIFY(bytes.contains("OEBPS/cover.xhtml"));
       QVERIFY(bytes.contains("OEBPS/chapter-2.xhtml"));
@@ -4258,7 +4293,11 @@ class WindowTests : public QObject {
       QVERIFY(overwritten.contains(footer.toUtf8() + "\n</body>"));
     }
     if (extension == QLatin1String("epub")) {
-      QVERIFY(overwritten.contains("<dc:title>Replay Book</dc:title>"));
+      QVERIFY(overwritten.contains("<dc:title id=\"main-title\">Replay Book</dc:title>"));
+      QVERIFY(overwritten.contains("<dc:title id=\"subtitle\">Replay subtitle</dc:title>"));
+      QVERIFY(
+          overwritten.contains("<dc:identifier id=\"book-id\">https://example.org/books/replay"
+                               "</dc:identifier>"));
       QVERIFY(overwritten.contains("OEBPS/cover.xhtml"));
       QVERIFY(overwritten.contains(stylesheet.toUtf8()));
       QVERIFY(!overwritten.contains(updatedStylesheet.toUtf8()));
