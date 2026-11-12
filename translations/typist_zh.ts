@@ -48,6 +48,42 @@
         <translation>导出 PDF</translation>
     </message>
     <message>
+        <source>Export Image</source>
+        <translation>导出图片</translation>
+    </message>
+    <message>
+        <source>PNG image (*.png)</source>
+        <translation>PNG 图片 (*.png)</translation>
+    </message>
+    <message>
+        <source>Choose a filename ending in .png.</source>
+        <translation>请选择以 .png 结尾的文件名。</translation>
+    </message>
+    <message>
+        <source>Invalid image export settings.</source>
+        <translation>图片导出设置无效。</translation>
+    </message>
+    <message>
+        <source>Content is too wide. Increase the image width or reduce the font size.</source>
+        <translation>内容超出图片宽度。请加宽图片或减小字号。</translation>
+    </message>
+    <message>
+        <source>The image is too large. Lower the resolution scale or export a shorter document.</source>
+        <translation>图片过大。请降低清晰度倍率或导出较短的文档。</translation>
+    </message>
+    <message>
+        <source>Could not render the image.</source>
+        <translation>无法渲染图片。</translation>
+    </message>
+    <message>
+        <source>Could not save the PNG image.</source>
+        <translation>无法保存 PNG 图片。</translation>
+    </message>
+    <message>
+        <source>Exported PNG image</source>
+        <translation>已导出 PNG 图片</translation>
+    </message>
+    <message>
         <source>Export DOCX</source>
         <translation>导出 DOCX</translation>
     </message>
@@ -1984,6 +2020,53 @@
     <message>
         <source>Current section</source>
         <translation>当前章节</translation>
+    </message>
+</context>
+<context>
+    <name>ImageExportDialog</name>
+    <message>
+        <source>Export Image</source>
+        <translation>导出图片</translation>
+    </message>
+    <message>
+        <source>Create one PNG image from the entire document.</source>
+        <translation>将整篇文档导出为一张 PNG 图片。</translation>
+    </message>
+    <message>
+        <source>Width</source>
+        <translation>宽度</translation>
+    </message>
+    <message>
+        <source>Font Size</source>
+        <translation>字号</translation>
+    </message>
+    <message>
+        <source>Resolution Scale</source>
+        <translation>清晰度倍率</translation>
+    </message>
+    <message>
+        <source>Current Theme</source>
+        <translation>当前主题</translation>
+    </message>
+    <message>
+        <source>Light</source>
+        <translation>浅色</translation>
+    </message>
+    <message>
+        <source>Dark</source>
+        <translation>深色</translation>
+    </message>
+    <message>
+        <source>Theme</source>
+        <translation>主题</translation>
+    </message>
+    <message>
+        <source>Export…</source>
+        <translation>导出…</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
     </message>
 </context>
 </TS>

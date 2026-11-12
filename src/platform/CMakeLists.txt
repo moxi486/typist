@@ -2,6 +2,7 @@ add_library(typist_platform STATIC FileWriter.h FileWriter.cpp PdfWriter.h PdfWr
 target_sources(typist_platform PRIVATE ZipArchive.h ZipArchive.cpp EpubWriter.h EpubWriter.cpp)
 target_sources(typist_platform PRIVATE QuickOpen.h QuickOpen.cpp)
 target_sources(typist_platform PRIVATE FolderLocations.h FolderLocations.cpp)
+target_sources(typist_platform PRIVATE ImageWriter.h ImageWriter.cpp)
 add_library(typist::platform ALIAS typist_platform)
 # FolderSearchRunner is a QObject with signals, so its moc output must be generated.
 set_target_properties(typist_platform PROPERTIES AUTOMOC ON)

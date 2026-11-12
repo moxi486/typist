@@ -16,6 +16,7 @@ add_library(typist_ui_viewswitch STATIC ViewSwitch.h ViewSwitch.cpp Editor.h Edi
   LinkNavigation.h LinkNavigation.cpp LinkDialog.h LinkDialog.cpp EpubDialog.h EpubDialog.cpp
   HtmlImportDialog.h HtmlImportDialog.cpp)
 target_sources(typist_ui_viewswitch PRIVATE PdfExportDialog.h PdfExportDialog.cpp)
+target_sources(typist_ui_viewswitch PRIVATE ImageExportDialog.h ImageExportDialog.cpp)
 target_sources(typist_ui_viewswitch PRIVATE QuickOpenDialog.h QuickOpenDialog.cpp)
 target_sources(typist_ui_viewswitch PRIVATE WorkspaceSearchPanel.h WorkspaceSearchPanel.cpp)
 target_sources(typist_ui_viewswitch PRIVATE FolderLocationsMenu.h FolderLocationsMenu.cpp)

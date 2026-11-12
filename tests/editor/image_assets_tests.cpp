@@ -2,6 +2,7 @@
 #include "Editor.h"
 #include "ImageAssets.h"
 #include "ImageResources.h"
+#include "ImageWriter.h"
 #include "MainWindow.h"
 #include "PdfWriter.h"
 #include "Settings.h"
@@ -80,6 +81,89 @@ class ImageAssetsTests : public QObject {
     platform::setLanguagePreference(QStringLiteral("en"));
     platform::setThemePreference(QStringLiteral("light"));
   }
+  void rendersFullDocumentPngWithStableLayoutAtHigherScale() {
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const QColor photoColor("#bb3063");
+    QImage photo(620, 140, QImage::Format_RGB32);
+    photo.fill(photoColor);
+    QVERIFY(photo.save(temp.filePath(QStringLiteral("photo.png"))));
+    const auto source = QStringLiteral(
+        "# 写作指南 · Writing guide\n\n[TOC]\n\n## 内容 Content\n\n"
+        "This paragraph wraps according to the export width. Local images, tables, links and "
+        "formulas keep their place in a single image.\n\n![Photo](photo.png)\n\n"
+        "| Feature | Result |\n| --- | --- |\n| Formula | $E=mc^2$ |\n\n"
+        "```cpp\nconst int size = 640;\n```\n\n"
+        "<div style=\"page-break-after:always\"></div>\n\n## 最后一节\n\n"
+        "A final line after the manual page break.\n");
+    const auto render = [&](QTextDocument& document, bool dark) {
+      document.setBaseUrl(QUrl::fromLocalFile(temp.path() + QLatin1Char('/')));
+      document.setProperty("typistDark", dark);
+      return editor::loadMarkdown(source, &document, nullptr);
+    };
+    QTextDocument light, dark;
+    QVERIFY(render(light, false));
+    QVERIFY(render(dark, true));
+    const QString original = editor::serializeDocument(&light);
+    platform::ImageExportOptions options;
+    const auto lightPath = temp.filePath(QStringLiteral("guide-light.png"));
+    const auto darkPath = temp.filePath(QStringLiteral("guide-dark.png"));
+    QCOMPARE(platform::exportImage(lightPath, light, options, false),
+             platform::ImageExportError::None);
+    options.scale = 2;
+    QCOMPARE(platform::exportImage(darkPath, dark, options, true),
+             platform::ImageExportError::None);
+
+    const QImage lightImage(lightPath), darkImage(darkPath);
+    QVERIFY(!lightImage.isNull() && !darkImage.isNull());
+    QCOMPARE(lightImage.width(), 640);
+    QVERIFY(lightImage.height() > 600);
+    QCOMPARE(darkImage.size(), lightImage.size() * 2);
+    QCOMPARE(lightImage.pixelColor(0, 0), QColor(Qt::white));
+    QCOMPARE(darkImage.pixelColor(0, 0), QColor("#1f2328"));
+    for (const auto& image : {lightImage, darkImage}) {
+      bool hasPhoto = false, hasLastSection = false;
+      for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+          const auto pixel = image.pixelColor(x, y);
+          hasPhoto = hasPhoto || pixel == photoColor;
+          if (y > image.height() * 9 / 10 && pixel != image.pixelColor(0, 0)) hasLastSection = true;
+        }
+      }
+      QVERIFY(hasPhoto && hasLastSection);
+    }
+    QCOMPARE(editor::serializeDocument(&light), original);
+    QCOMPARE(light.availableUndoSteps(), 0);
+    const auto specimens = qEnvironmentVariable("TYPIST_PNG_EXPORT_OUTPUT");
+    if (!specimens.isEmpty()) {
+      QVERIFY(QDir().mkpath(specimens));
+      QVERIFY(QFile::copy(lightPath, QDir(specimens).filePath(QFileInfo(lightPath).fileName())));
+      QVERIFY(QFile::copy(darkPath, QDir(specimens).filePath(QFileInfo(darkPath).fileName())));
+    }
+  }
+
+  void rejectedImageExportPreservesDestination() {
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const auto path = temp.filePath(QStringLiteral("existing.png"));
+    const QByteArray existing("existing destination");
+    QVERIFY(write(path, existing));
+    QTextDocument document;
+    document.setPlainText(QStringLiteral("This is a long document.\n").repeated(2400));
+    platform::ImageExportOptions options;
+    options.scale = 3;
+    QCOMPARE(platform::exportImage(path, document, options, false),
+             platform::ImageExportError::ImageTooLarge);
+    QCOMPARE(read(path), existing);
+    options.width = 0;
+    QCOMPARE(platform::exportImage(path, document, options, false),
+             platform::ImageExportError::InvalidOptions);
+    QCOMPARE(read(path), existing);
+    document.setPlainText(QStringLiteral("A short document."));
+    QCOMPARE(platform::exportImage(temp.path(), document, {}, false),
+             platform::ImageExportError::Write);
+  }
+
   void storesAlphaAndDeduplicatesWithoutOverwriting() {
     QTemporaryDir temp;
     const auto doc = temp.filePath(QStringLiteral("报告 (final) #1.md"));

@@ -17,6 +17,7 @@
 #include "HtmlImportDialog.h"
 #include "HtmlImporter.h"
 #include "ImageAssets.h"
+#include "ImageExportDialog.h"
 #include "ImageResources.h"
 #include "LinkDialog.h"
 #include "LinkEditing.h"
@@ -311,6 +312,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   auto* plainHtmlAction = fileMenu->addAction(tr("Export HTML (without styles)"));
   plainHtmlAction->setObjectName(QStringLiteral("exportPlainHtml"));
   connect(plainHtmlAction, &QAction::triggered, this, [this] { exportHtmlDocument(false); });
+  auto* imageExport = fileMenu->addAction(tr("Export Image"));
+  imageExport->setObjectName(QStringLiteral("exportImage"));
+  connect(imageExport, &QAction::triggered, this, &MainWindow::exportImage);
 
   QAction* exportPdfAction = new QAction(tr("Export PDF"), this);
   exportPdfAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+P")));
@@ -1474,6 +1478,81 @@ void MainWindow::exportHtmlDocument(bool styled) {
     return;
   }
   statusBar()->showMessage(tr("Exported HTML"));
+}
+
+void MainWindow::exportImage() {
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+  const auto restore = qScopeGuard(
+      [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
+  QSettings settings;
+  const auto key = QStringLiteral("export/image");
+  const auto saved = settings.value(key).toMap();
+  using Theme = platform::ImageExportOptions::Theme;
+  const platform::ImageExportOptions defaults;
+  ui::ImageExportDialog setup(
+      {saved.value(QStringLiteral("width"), defaults.width).toInt(),
+       saved.value(QStringLiteral("fontPixels"), defaults.fontPixels).toInt(),
+       saved.value(QStringLiteral("scale"), defaults.scale).toInt(),
+       Theme(saved.value(QStringLiteral("theme"), int(defaults.theme)).toInt())},
+      this);
+  if (setup.exec() != QDialog::Accepted) return;
+
+  const QFileInfo file(m_currentPath);
+  const auto directory = m_currentPath.isEmpty() ? QDir::homePath() : file.absolutePath();
+  QFileDialog destination(this, tr("Export Image"), directory, tr("PNG image (*.png)"));
+  destination.setObjectName(QStringLiteral("imageDestination"));
+  destination.setAcceptMode(QFileDialog::AcceptSave);
+  destination.setDefaultSuffix(QStringLiteral("png"));
+  destination.selectFile(m_currentPath.isEmpty()
+                             ? QStringLiteral("untitled.png")
+                             : file.completeBaseName() + QStringLiteral(".png"));
+  if (destination.exec() != QDialog::Accepted) return;
+  const auto path = destination.selectedFiles().value(0);
+  if (path.isEmpty()) return;
+  if (QFileInfo(path).suffix().compare(QStringLiteral("png"), Qt::CaseInsensitive) != 0) {
+    statusBar()->showMessage(tr("Choose a filename ending in .png."));
+    return;
+  }
+
+  const auto options = setup.options();
+  const bool dark = options.theme == Theme::Dark ||
+                    (options.theme == Theme::Current &&
+                     ui::resolveTheme(themePreference(), systemPrefersDark()) == ui::Theme::Dark);
+  QTextDocument document;
+  document.setBaseUrl(m_view->rendered()->baseUrl());
+  document.setProperty("typistDark", dark);
+  QString error;
+  if (!typist::editor::loadMarkdown(currentMarkdown(), &document, &error)) {
+    statusBar()->showMessage(error);
+    return;
+  }
+  switch (platform::exportImage(path, document, options, dark)) {
+    case platform::ImageExportError::InvalidOptions:
+      statusBar()->showMessage(tr("Invalid image export settings."));
+      return;
+    case platform::ImageExportError::ContentTooWide:
+      statusBar()->showMessage(
+          tr("Content is too wide. Increase the image width or reduce the font size."));
+      return;
+    case platform::ImageExportError::ImageTooLarge:
+      statusBar()->showMessage(
+          tr("The image is too large. Lower the resolution scale or export a shorter document."));
+      return;
+    case platform::ImageExportError::Render:
+      statusBar()->showMessage(tr("Could not render the image."));
+      return;
+    case platform::ImageExportError::Write:
+      statusBar()->showMessage(tr("Could not save the PNG image."));
+      return;
+    case platform::ImageExportError::None:
+      break;
+  }
+  settings.setValue(key, QVariantMap{{QStringLiteral("width"), options.width},
+                                     {QStringLiteral("fontPixels"), options.fontPixels},
+                                     {QStringLiteral("scale"), options.scale},
+                                     {QStringLiteral("theme"), int(options.theme)}});
+  statusBar()->showMessage(tr("Exported PNG image"));
 }
 
 void MainWindow::exportPdf() {
