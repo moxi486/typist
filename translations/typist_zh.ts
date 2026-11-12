@@ -40,6 +40,10 @@
         <translation>导出 HTML（无样式）</translation>
     </message>
     <message>
+        <source>Export with Previous Settings</source>
+        <translation>按上次设置导出</translation>
+    </message>
+    <message>
         <source>Include Outline in HTML Export</source>
         <translation>HTML 导出包含大纲</translation>
     </message>

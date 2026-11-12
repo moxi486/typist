@@ -46,6 +46,7 @@
 #include <QMimeData>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScopeGuard>
 #include <QScopedPointer>
 #include <QScrollBar>
@@ -3812,6 +3813,201 @@ class WindowTests : public QObject {
     QVERIFY(!width->isVisible() && !height->isVisible());
     QTRY_VERIFY(exportButton->isEnabled());
     QCOMPARE(dialog.options().paper, QStringLiteral("a5"));
+  }
+
+  void repeatExportUsesSuccessfulOptionsAndCurrentDraft_data() {
+    QTest::addColumn<QString>("command");
+    QTest::addColumn<QString>("extension");
+    QTest::addColumn<bool>("setupRequired");
+    QTest::newRow("HTML") << QStringLiteral("Export HTML") << QStringLiteral("html") << false;
+    QTest::newRow("plain HTML") << QStringLiteral("Export HTML (without styles)")
+                                << QStringLiteral("html") << false;
+    QTest::newRow("PNG") << QStringLiteral("Export Image") << QStringLiteral("png") << true;
+    QTest::newRow("PDF") << QStringLiteral("Export PDF") << QStringLiteral("pdf") << true;
+    QTest::newRow("DOCX") << QStringLiteral("Export DOCX") << QStringLiteral("docx") << false;
+    QTest::newRow("EPUB") << QStringLiteral("Export EPUB") << QStringLiteral("epub") << true;
+  }
+
+  void repeatExportUsesSuccessfulOptionsAndCurrentDraft() {
+    QFETCH(QString, command);
+    QFETCH(QString, extension);
+    QFETCH(bool, setupRequired);
+    QSettings settings;
+    QMap<QString, QVariant> oldValues;
+    for (const auto& key :
+         {QStringLiteral("export/preferences"), QStringLiteral("export/lastDirectory"),
+          QStringLiteral("export/htmlOutline"), QStringLiteral("export/image"),
+          QStringLiteral("pdfPaper"), QStringLiteral("pdfMarginMm"),
+          QStringLiteral("pdf/customSizeMm"), QStringLiteral("pdf/landscape"),
+          QStringLiteral("pdf/repeatTableHeader"), QStringLiteral("pdf/breakBetweenTopHeadings"),
+          QStringLiteral("pdf/header"), QStringLiteral("pdf/footer"),
+          QStringLiteral("export/epubAuthor"), QStringLiteral("export/epubLanguage"),
+          QStringLiteral("export/epubSplitChapters")})
+      oldValues.insert(key, settings.value(key));
+    const auto language = typist::platform::languagePreference();
+    const auto theme = typist::platform::themePreference();
+    const bool native = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+    const auto restore = qScopeGuard([&] {
+      for (auto it = oldValues.cbegin(); it != oldValues.cend(); ++it) {
+        if (it.value().isValid())
+          settings.setValue(it.key(), it.value());
+        else
+          settings.remove(it.key());
+      }
+      typist::platform::setLanguagePreference(language);
+      typist::platform::setThemePreference(theme);
+      QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native);
+    });
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::platform::setThemePreference(QStringLiteral("dark"));
+    typist::platform::setExportPreferences({});
+    settings.setValue(QStringLiteral("export/htmlOutline"), true);
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto source = directory.filePath(QStringLiteral("source.md"));
+    const auto other = directory.filePath(QStringLiteral("other.md"));
+    for (const auto& path : {source, other}) {
+      QFile file(path);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      QVERIFY(file.write("# First\n\nSome text.\n\n# Second\n\nOld paragraph.\n") > 0);
+    }
+    const auto coverPath = directory.filePath(QStringLiteral("cover.png"));
+    QImage cover(64, 100, QImage::Format_RGB32);
+    cover.fill(QColor("#326a83"));
+    QVERIFY(cover.save(coverPath));
+    typist::MainWindow window(nullptr, true);
+    QVERIFY(window.openFile(source));
+    window.show();
+    auto* original = actionBySource(window, command);
+    auto* repeat = window.findChild<QAction*>(QStringLiteral("repeatExport"));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(original && repeat && editor);
+    QVERIFY(!repeat->isEnabled());
+
+    const auto run = [&](QAction* action, bool expectSetup, const QString& path) {
+      bool setupSeen = false, matched = false;
+      QTimer automation, safety;
+      automation.setInterval(10);
+      connect(&automation, &QTimer::timeout, &window, [&] {
+        auto* modal = QApplication::activeModalWidget();
+        if (!modal) return;
+        if (auto* file = qobject_cast<QFileDialog*>(modal)) {
+          automation.stop();
+          auto* name = file->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
+          matched = name && file->windowTitle() == command && setupSeen == expectSetup;
+          if (!matched || path.isEmpty()) {
+            file->reject();
+            return;
+          }
+          name->setText(path);
+          QMetaObject::invokeMethod(file, "accept", Qt::DirectConnection);
+          matched = file->result() == QDialog::Accepted;
+        } else if (!expectSetup) {
+          modal->close();
+        } else if (auto* image = qobject_cast<typist::ui::ImageExportDialog*>(modal)) {
+          setupSeen = true;
+          image->findChild<QSpinBox*>(QStringLiteral("imageWidth"))->setValue(450);
+          image->findChild<QComboBox*>(QStringLiteral("imageScale"))->setCurrentIndex(1);
+          image->findChild<QComboBox*>(QStringLiteral("imageTheme"))->setCurrentIndex(2);
+          image->accept();
+        } else if (auto* pdf = qobject_cast<typist::ui::PdfExportDialog*>(modal)) {
+          setupSeen = true;
+          auto* paper = pdf->findChild<QComboBox*>(QStringLiteral("pdfPaper"));
+          paper->setCurrentIndex(paper->findData(QStringLiteral("a5")));
+          pdf->accept();
+        } else if (auto* epub = qobject_cast<typist::ui::EpubDialog*>(modal)) {
+          setupSeen = true;
+          epub->findChild<QLineEdit*>(QStringLiteral("epubTitle"))
+              ->setText(QStringLiteral("Replay Book"));
+          epub->findChild<QLineEdit*>(QStringLiteral("epubAuthor"))
+              ->setText(QStringLiteral("Replay Author"));
+          epub->findChild<QLineEdit*>(QStringLiteral("epubLanguage"))
+              ->setText(QStringLiteral("en"));
+          epub->findChild<QLineEdit*>(QStringLiteral("epubCover"))->setText(coverPath);
+          epub->findChild<QCheckBox*>(QStringLiteral("epubSplitChapters"))->setChecked(true);
+          epub->accept();
+        }
+      });
+      safety.setSingleShot(true);
+      connect(&safety, &QTimer::timeout, &window, [] {
+        if (auto* modal = QApplication::activeModalWidget()) modal->close();
+      });
+      automation.start();
+      safety.start(3000);
+      action->trigger();
+      return matched;
+    };
+
+    const auto initialPath = directory.filePath(QStringLiteral("initial.") + extension);
+    const auto repeatedPath = directory.filePath(QStringLiteral("repeat.") + extension);
+    QVERIFY(run(original, setupRequired, initialPath));
+    QFile initial(initialPath);
+    QVERIFY(initial.open(QIODevice::ReadOnly));
+    const auto initialBytes = initial.readAll();
+    QVERIFY(!initialBytes.isEmpty());
+    initial.close();
+    QVERIFY(repeat->isEnabled());
+
+    // Change global defaults to distinguish the replay from a new export.
+    settings.setValue(QStringLiteral("export/htmlOutline"), false);
+    settings.setValue(QStringLiteral("export/image"), QVariantMap{{QStringLiteral("width"), 640}});
+    typist::platform::setPdfPaper(QStringLiteral("letter"));
+    settings.setValue(QStringLiteral("export/epubAuthor"), QStringLiteral("Different author"));
+    window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();
+    editor->moveCursor(QTextCursor::End);
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(draft);
+    draft->setPlainText(
+        QStringLiteral("Pending **new contents**. ") +
+        QStringLiteral("A longer paragraph wraps across more lines. ").repeated(14));
+    const auto before = typist::editor::serializeDocument(editor->document());
+    QVERIFY(run(repeat, false, {}));
+    QVERIFY(repeat->isEnabled() && editor->paragraphSourceActive());
+    if (extension == QLatin1String("png")) {
+      QVERIFY(run(repeat, false, directory.filePath(QStringLiteral("rejected.jpg"))));
+      QVERIFY(!QFileInfo::exists(directory.filePath(QStringLiteral("rejected.jpg"))));
+      QVERIFY(repeat->isEnabled());
+    }
+    QVERIFY(run(repeat, false, repeatedPath));
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    QFile repeated(repeatedPath);
+    QVERIFY(repeated.open(QIODevice::ReadOnly));
+    const auto bytes = repeated.readAll();
+    QVERIFY(!bytes.isEmpty());
+    if (extension == QLatin1String("html")) {
+      QVERIFY(bytes.contains("<nav class=\"export-outline"));
+      QVERIFY(bytes.contains("new contents"));
+      QCOMPARE(bytes.contains("<style>"), command == QLatin1String("Export HTML"));
+      if (command == QLatin1String("Export HTML")) QVERIFY(bytes.contains("#1f2328"));
+    } else if (extension == QLatin1String("png")) {
+      const auto picture = QImage::fromData(bytes);
+      QCOMPARE(picture.width(), 900);
+      QCOMPARE(picture.pixelColor(0, 0), QColor("#1f2328"));
+      QVERIFY(picture.height() > QImage::fromData(initialBytes).height());
+    } else if (extension == QLatin1String("pdf")) {
+      static const QRegularExpression mediaBox(QStringLiteral(R"(/MediaBox\s*\[[^\]]+\])"));
+      const auto firstBox = mediaBox.match(QString::fromLatin1(initialBytes)).captured();
+      QVERIFY(!firstBox.isEmpty());
+      QCOMPARE(mediaBox.match(QString::fromLatin1(bytes)).captured(), firstBox);
+    } else if (extension == QLatin1String("epub")) {
+      QVERIFY(bytes.contains("<dc:title>Replay Book</dc:title>"));
+      QVERIFY(bytes.contains("<dc:creator>Replay Author</dc:creator>"));
+      QVERIFY(bytes.contains("OEBPS/cover.xhtml"));
+      QVERIFY(bytes.contains("OEBPS/chapter-2.xhtml"));
+      QVERIFY(bytes.contains("new contents"));
+    } else {
+      QVERIFY(bytes.contains("new contents"));
+    }
+    QVERIFY(initial.open(QIODevice::ReadOnly));
+    QCOMPARE(initial.readAll(), initialBytes);
+    QVERIFY(window.openFile(source));
+    QVERIFY(repeat->isEnabled());
+    QVERIFY(window.openFile(other));
+    QVERIFY(!repeat->isEnabled());
   }
 
   void exportPreferencesApplyToAllSaveDialogsAndOnlyRememberSuccessfulWrites() {

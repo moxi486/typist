@@ -11,6 +11,7 @@
 #include <QPalette>
 #include <QString>
 #include <QUrl>
+#include <functional>
 
 class QAction;
 class QCloseEvent;
@@ -32,8 +33,9 @@ struct HtmlImportResult;
 }
 
 namespace typist::platform {
+struct ImageExportOptions;
 struct StartupTarget;
-}
+}  // namespace typist::platform
 
 namespace typist::ui {
 class AutoSave;
@@ -111,6 +113,7 @@ class MainWindow : public QMainWindow {
   void exportPdf();
   void exportDocx();
   void exportEpub();
+  void repeatExport();
   void cycleTheme();
   void autoSaveNow();
   void toggleFindBar();
@@ -173,9 +176,20 @@ class MainWindow : public QMainWindow {
   void insertTableDialog();
   void configureCodeFences();
   void configureWritingArea();
+  struct HtmlExportSettings {
+    bool styled;
+    bool dark;
+    bool includeOutline;
+    bool collapsible;
+  };
   void exportHtmlDocument(bool styled);
+  void exportHtmlDocument(const HtmlExportSettings& options);
+  void exportImageDocument(const platform::ImageExportOptions* previous = nullptr);
+  void exportPdfDocument(const platform::PdfPageOptions* previous = nullptr);
+  void exportEpubDocument(const platform::EpubOptions* previous = nullptr);
   QString suggestedExportPath(const QString& suffix) const;
-  void finishExport(const QString& path, const QString& status);
+  void finishExport(const QString& path, const QString& status, std::function<void()> repeat);
+  void resetPreviousExport();
   void insertLinkDialog();
   void showDocumentStatistics();
   void replaceOne();
@@ -199,6 +213,8 @@ class MainWindow : public QMainWindow {
   QAction* m_folderSearchAction = nullptr;
   QAction* m_sidebarAction = nullptr;
   QAction* m_folderAction = nullptr;
+  QAction* m_repeatExportAction = nullptr;
+  std::function<void()> m_previousExport;
   ui::AutoSave* m_autoSave = nullptr;
   QMenu* m_recentMenu = nullptr;
   ui::OutlinePanel* m_outlinePanel = nullptr;
