@@ -112,6 +112,195 @@ class WindowTests : public QObject {
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settings.path());
   }
 
+  void startupOptionsResolveExistingPathsAndKeepBenchmarksIsolated() {
+    using namespace typist::platform;
+    QSettings settings;
+    const auto optionsKey = QStringLiteral("startup/options");
+    const auto savedOptions = settings.value(optionsKey);
+    const auto savedTarget = lastClosedTarget();
+    const auto restore = qScopeGuard([&] {
+      if (savedOptions.isValid())
+        settings.setValue(optionsKey, savedOptions);
+      else
+        settings.remove(optionsKey);
+      setLastClosedTarget(savedTarget);
+    });
+    settings.remove(optionsKey);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto folder = directory.filePath(QStringLiteral("工作 区"));
+    QVERIFY(QDir().mkpath(folder));
+    const auto file = directory.filePath(QStringLiteral("记录 #1.md"));
+    const auto html = directory.filePath(QStringLiteral("import.HTML"));
+    for (const auto& path : {file, html}) {
+      QFile input(path);
+      QVERIFY(input.open(QIODevice::WriteOnly));
+      QVERIFY(input.write("Input") > 0);
+    }
+    setLastClosedTarget({file, folder});
+    QCOMPARE(launchOptions().mode, LaunchMode::NewDocument);
+    QVERIFY(startupTarget({}).file.isEmpty() && startupTarget({}).folder.isEmpty());
+
+    setLaunchOptions({LaunchMode::LastFolder, {}});
+    QCOMPARE(startupTarget({}).folder, folder);
+    QVERIFY(startupTarget({}).file.isEmpty());
+    setLaunchOptions({LaunchMode::LastFileAndFolder, {}});
+    QCOMPARE(startupTarget({}).file, file);
+    QCOMPARE(startupTarget({}).folder, folder);
+    QVERIFY(startupTarget({QStringLiteral("--new")}).file.isEmpty());
+    QVERIFY(startupTarget({QStringLiteral("--new")}).folder.isEmpty());
+    const auto explicitFile = startupTarget({QStringLiteral("--new"), html});
+    QCOMPARE(explicitFile.file, html);
+    QVERIFY(explicitFile.folder.isEmpty() && explicitFile.importHtml);
+    QCOMPARE(startupTarget({folder}).folder, folder);
+    QVERIFY(startupTarget({folder}).file.isEmpty());
+    const auto missing = directory.filePath(QStringLiteral("missing.md"));
+    QVERIFY(startupTarget({missing}).file.isEmpty() && startupTarget({missing}).folder.isEmpty());
+    QVERIFY(startupTarget({}, true).file.isEmpty() && startupTarget({}, true).folder.isEmpty());
+    const auto benchInput = startupTarget({file}, true, html);
+    QCOMPARE(benchInput.file, html);
+    QVERIFY(benchInput.importHtml);
+    QCOMPARE(startupTarget({file}, false, html).file, file);
+
+    setLaunchOptions({LaunchMode::CustomFolder, folder});
+    QCOMPARE(startupTarget({}).folder, folder);
+    QVERIFY(startupTarget({}).file.isEmpty());
+    const auto reopened = startupTarget({QStringLiteral("--reopen-file")});
+    QCOMPARE(reopened.file, file);
+    QCOMPARE(reopened.folder, folder);
+    QVERIFY(QFile::remove(file));
+    const auto missingFile = startupTarget({QStringLiteral("--reopen-file")});
+    QVERIFY(missingFile.file.isEmpty());
+    QCOMPARE(missingFile.folder, folder);
+    QVERIFY(QDir().rmdir(folder));
+    QVERIFY(startupTarget({}).folder.isEmpty());
+  }
+
+  void launchMenuPersistsChoicesAndRestoresOnlyAfterAcceptedClose() {
+    using namespace typist::platform;
+    QSettings settings;
+    const auto priorOptions = launchOptions();
+    const auto priorTarget = lastClosedTarget();
+    const auto autoSave = QStringLiteral("editor/autoSave");
+    const auto geometry = QStringLiteral("window/geometry");
+    const auto priorAutoSave = settings.value(autoSave);
+    const auto priorGeometry = settings.value(geometry);
+    const auto priorLanguage = languagePreference();
+    const bool native = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+    const auto restore = qScopeGuard([&] {
+      setLaunchOptions(priorOptions);
+      setLastClosedTarget(priorTarget);
+      setLanguagePreference(priorLanguage);
+      for (const auto& entry :
+           {qMakePair(autoSave, priorAutoSave), qMakePair(geometry, priorGeometry)}) {
+        if (entry.second.isValid())
+          settings.setValue(entry.first, entry.second);
+        else
+          settings.remove(entry.first);
+      }
+      QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native);
+    });
+    const FolderHistoryGuard folders;
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+    setLanguagePreference(QStringLiteral("en"));
+    setLaunchOptions({});
+    setLastClosedTarget({});
+    settings.setValue(autoSave, false);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto workspace = directory.filePath(QStringLiteral("workspace"));
+    const auto customFolder = directory.filePath(QStringLiteral("custom startup"));
+    QVERIFY(QDir().mkpath(workspace));
+    QVERIFY(QDir().mkpath(customFolder));
+    const auto canonicalWorkspace = QFileInfo(workspace).canonicalFilePath();
+    const auto path = directory.filePath(QStringLiteral("saved.md"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write("Saved body.\n"), 12);
+    file.close();
+
+    typist::MainWindow window;
+    QVERIFY(window.openFile(path));
+    QVERIFY(window.openFolderPath(workspace));
+    window.show();
+    auto* empty = window.findChild<QAction*>(QStringLiteral("launchNewDocument"));
+    auto* last = window.findChild<QAction*>(QStringLiteral("launchLastFileAndFolder"));
+    auto* custom = window.findChild<QAction*>(QStringLiteral("launchCustomFolder"));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(empty && last && custom && editor && empty->isChecked());
+    QCOMPARE(last->text(), QStringLiteral("Restore Last File and Folder"));
+    last->trigger();
+    QCOMPARE(launchOptions().mode, LaunchMode::LastFileAndFolder);
+    const auto chooseFolder = [&](bool accept) {
+      bool found = false;
+      QTimer automation, safety;
+      automation.setInterval(10);
+      connect(&automation, &QTimer::timeout, &window, [&] {
+        auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        automation.stop();
+        auto* input = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
+        found = input && dialog->fileMode() == QFileDialog::Directory;
+        if (accept && found) {
+          input->setText(customFolder);
+          QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
+        } else {
+          dialog->reject();
+        }
+      });
+      safety.setSingleShot(true);
+      connect(&safety, &QTimer::timeout, &window, [] {
+        if (auto* modal = QApplication::activeModalWidget()) modal->close();
+      });
+      automation.start();
+      safety.start(3000);
+      custom->trigger();
+      return found;
+    };
+    QVERIFY(chooseFolder(false));
+    QVERIFY(last->isChecked());
+    QCOMPARE(launchOptions().mode, LaunchMode::LastFileAndFolder);
+    QVERIFY(chooseFolder(true));
+    QVERIFY(custom->isChecked());
+    QCOMPARE(launchOptions().mode, LaunchMode::CustomFolder);
+    QCOMPARE(QFileInfo(launchOptions().customFolder).canonicalFilePath(),
+             QFileInfo(customFolder).canonicalFilePath());
+    last->trigger();
+    auto* chinese = window.findChild<QAction*>(QStringLiteral("language_zh"));
+    QVERIFY(chinese);
+    chinese->trigger();
+    QCOMPARE(last->text(), QStringLiteral("恢复上次的文件和文件夹"));
+
+    editor->insertPlainText(QStringLiteral("Unsaved "));
+    const auto closeWith = [&](QMessageBox::StandardButton choice) {
+      QTimer::singleShot(0, &window, [choice] {
+        if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+          box->button(choice)->click();
+      });
+      return window.close();
+    };
+    QVERIFY(!closeWith(QMessageBox::Cancel));
+    QVERIFY(lastClosedTarget().file.isEmpty() && lastClosedTarget().folder.isEmpty());
+    QVERIFY(editor->toPlainText().contains(QStringLiteral("Unsaved")));
+    QVERIFY(closeWith(QMessageBox::Discard));
+    QCOMPARE(lastClosedTarget().file, path);
+    QCOMPARE(lastClosedTarget().folder, canonicalWorkspace);
+
+    typist::MainWindow reopened;
+    reopened.setBenchMode(true);
+    QVERIFY(reopened.openStartupTarget(startupTarget({})));
+    reopened.show();
+    const auto* restoredTree = reopened.findChild<typist::ui::FileTree*>();
+    const auto* restoredEditor =
+        reopened.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(restoredTree && restoredEditor);
+    QCOMPARE(restoredTree->rootPath(), canonicalWorkspace);
+    QVERIFY(restoredTree->isVisible());
+    QCOMPARE(restoredEditor->toPlainText(), QStringLiteral("Saved body."));
+    QVERIFY(reopened.close());
+    QCOMPARE(lastClosedTarget().file, path);
+  }
+
   void quickOpenPreservesDraftOnCancelAndWorkspaceOnOpen() {
     QTemporaryDir directory;
     const auto original = directory.filePath(QStringLiteral("original.md"));

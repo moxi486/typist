@@ -31,6 +31,10 @@ namespace typist::editor {
 struct HtmlImportResult;
 }
 
+namespace typist::platform {
+struct StartupTarget;
+}
+
 namespace typist::ui {
 class AutoSave;
 class FileTree;
@@ -53,6 +57,7 @@ class MainWindow : public QMainWindow {
   bool openFile(const QString& path);
   bool openFolderPath(const QString& path);
   bool importHtmlFile(const QString& path);
+  bool openStartupTarget(const platform::StartupTarget& target);
 
  public slots:
   void followLink(const QString& target);
@@ -132,6 +137,7 @@ class MainWindow : public QMainWindow {
   void toggleSidebar();
   void openFolder();
   void openTreeEntry(const QString& path);
+  void openNewWindow(const QString& path = {});
   void treeFileRenamed(const QString& oldPath, const QString& newPath);
   void treeFileRemoved(const QString& path);
 
@@ -152,6 +158,7 @@ class MainWindow : public QMainWindow {
   void retranslateUi();
   void updateSearchFocusGuard();
   void createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMenu* settings);
+  void createLaunchMenu(QMenu* settings);
   bool maybeSaveBeforeNavigate();
   bool adoptHtmlImport(const editor::HtmlImportResult& result);
   bool pasteImages(const QMimeData* source);

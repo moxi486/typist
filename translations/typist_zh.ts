@@ -516,6 +516,38 @@
         <translation>新建窗口</translation>
     </message>
     <message>
+        <source>On Launch</source>
+        <translation>启动时</translation>
+    </message>
+    <message>
+        <source>Open a Blank Document</source>
+        <translation>打开空白文档</translation>
+    </message>
+    <message>
+        <source>Restore Last Folder</source>
+        <translation>恢复上次的文件夹</translation>
+    </message>
+    <message>
+        <source>Restore Last File and Folder</source>
+        <translation>恢复上次的文件和文件夹</translation>
+    </message>
+    <message>
+        <source>Open a Custom Folder…</source>
+        <translation>打开指定文件夹…</translation>
+    </message>
+    <message>
+        <source>Choose Startup Folder</source>
+        <translation>选择启动文件夹</translation>
+    </message>
+    <message>
+        <source>The file or folder is no longer available.</source>
+        <translation>文件或文件夹已不可用。</translation>
+    </message>
+    <message>
+        <source>Cannot open a new window.</source>
+        <translation>无法打开新窗口。</translation>
+    </message>
+    <message>
         <source>Normal Paragraph</source>
         <translation>正文</translation>
     </message>
@@ -961,6 +993,10 @@
 </context>
 <context>
     <name>FileTree</name>
+    <message>
+        <source>Open in New Window</source>
+        <translation>在新窗口打开</translation>
+    </message>
     <message>
         <source>Workspace Root</source>
         <translation>工作区根目录</translation>
