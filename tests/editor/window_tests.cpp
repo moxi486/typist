@@ -2791,6 +2791,106 @@ class WindowTests : public QObject {
     QVERIFY(crlf->isChecked());
   }
 
+  void trashCurrentFileKeepsDraftUndoAndRelativeImages() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto oldPath = directory.filePath(QStringLiteral("中文 & note.MD"));
+    const auto imagePath = directory.filePath(QStringLiteral("image.png"));
+    QImage image(5, 5, QImage::Format_RGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(imagePath));
+    QFile original(oldPath);
+    QVERIFY(original.open(QIODevice::WriteOnly));
+    const QByteArray originalBytes("# Title\r\n\r\n![image](image.png)\r\n");
+    QCOMPARE(original.write(originalBytes), originalBytes.size());
+    original.close();
+
+    typist::MainWindow window(nullptr, true);
+    QVERIFY(window.openFile(oldPath));
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView"));
+    auto* tree = window.findChild<typist::ui::FileTree*>();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(tree && editor);
+    tree->setRoot(directory.path());
+    tree->selectPath(oldPath);
+    editor->moveCursor(QTextCursor::End);
+    editor->insertPlainText(QStringLiteral("\nDraft line\n"));
+    auto selection = editor->textCursor();
+    selection.movePosition(QTextCursor::PreviousBlock);
+    selection.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+    editor->setTextCursor(selection);
+    const auto before = editor->toPlainText();
+    const auto undo = editor->document()->availableUndoSteps();
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] { typist::platform::setLanguagePreference(language); });
+    auto* chinese = window.findChild<QAction*>(QStringLiteral("language_zh"));
+    QVERIFY(chinese);
+    chinese->trigger();
+    QScopedPointer<QMenu> menu(tree->createContextMenu());
+    auto* trash = menu->findChild<QAction*>(QStringLiteral("fileMoveToTrash"));
+    QVERIFY(trash && trash->isEnabled());
+    QCOMPARE(trash->text(), QStringLiteral("移到废纸篓"));
+
+    bool accepted = false;
+    bool warned = false;
+    QTimer dialogs;
+    connect(&dialogs, &QTimer::timeout, &window, [&] {
+      auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+      if (!box) return;
+      if (box->icon() == QMessageBox::Question) {
+        for (auto* button : box->buttons()) {
+          if (box->buttonRole(button) != QMessageBox::AcceptRole) continue;
+          accepted = true;
+          button->click();
+          break;
+        }
+      } else {
+        warned = true;
+        box->accept();
+      }
+    });
+    dialogs.start(10);
+    trash->trigger();
+    dialogs.stop();
+    QVERIFY(accepted);
+    if (warned) {
+      const auto probe = directory.filePath(QStringLiteral("trash-probe.md"));
+      QVERIFY(QFile::copy(oldPath, probe));
+      QVERIFY2(!QFile::moveToTrash(probe), "System trash is available for the test workspace");
+      QVERIFY(original.open(QIODevice::ReadOnly));
+      QCOMPARE(original.readAll(), originalBytes);
+      original.close();
+      QCOMPARE(editor->toPlainText(), before);
+      QVERIFY(QFile::remove(oldPath));
+      tree->refresh();
+      // CI without a trash service can still exercise the post-removal editor state.
+      emit tree->fileRemoved(oldPath);
+    }
+    QVERIFY(!QFileInfo::exists(oldPath));
+    QCOMPARE(tree->entryCount(), 0);
+    QCOMPARE(editor->toPlainText(), before);
+    QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("Draft line"));
+    QCOMPARE(editor->document()->availableUndoSteps(), undo);
+    QVERIFY(window.windowTitle().startsWith(QStringLiteral("未命名 *")));
+    QVERIFY(QMetaObject::invokeMethod(&window, "autoSaveNow"));
+    QVERIFY(!QFileInfo::exists(oldPath));
+
+    QVERIFY(QDir().mkdir(directory.filePath(QStringLiteral("elsewhere"))));
+    const auto savedPath = directory.filePath(QStringLiteral("elsewhere/new.md"));
+    QVERIFY(window.saveDocumentAs(savedPath));
+    QFile saved(savedPath);
+    QVERIFY(saved.open(QIODevice::ReadOnly));
+    const auto bytes = saved.readAll();
+    QVERIFY(bytes.contains("Draft line\r\n"));
+    QVERIFY(bytes.contains("![image](new.assets/"));
+    const auto resources =
+        QDir(directory.filePath(QStringLiteral("elsewhere/new.assets"))).entryList(QDir::Files);
+    QCOMPARE(resources.size(), 1);
+    QCOMPARE(
+        QImage(directory.filePath(QStringLiteral("elsewhere/new.assets/") + resources.first())),
+        image);
+  }
+
   void paragraphSourceSaveAutosaveAndViewSwitch() {
     QTemporaryDir directory;
     const QString path = directory.filePath(QStringLiteral("paragraph.md"));

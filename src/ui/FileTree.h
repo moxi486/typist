@@ -71,7 +71,7 @@ class FileTree : public QTreeWidget {
   void newFolderIn(const QString& dir);
   void duplicateFile(const QString& path);
   void renameFile(const QString& path);
-  void deleteFile(const QString& path);
+  void moveFileToTrash(const QString& path);
   QString askName(const QString& title, const QString& label, const QString& value);
   QString operationError(const QString& error) const;
 

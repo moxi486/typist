@@ -1727,7 +1727,10 @@ void MainWindow::saveAs() {
 bool MainWindow::saveDocumentAs(const QString& path) {
   if (path.isEmpty()) return false;
   static_cast<ui::Editor*>(m_editor)->finishParagraphSourceEdit();
-  const auto relocated = platform::relocateImages(currentMarkdown(), m_currentPath, path);
+  const auto source = currentMarkdown();
+  const auto relocated =
+      m_currentPath == path ? platform::RelocatedImages{source, {}, {}}
+                            : platform::relocateImages(source, m_view->rendered()->baseUrl(), path);
   if (!relocated.error.isEmpty()) {
     statusBar()->showMessage(relocated.error);
     return false;
@@ -2332,20 +2335,23 @@ void MainWindow::treeFileRenamed(const QString& oldPath, const QString& newPath)
 }
 
 void MainWindow::treeFileRemoved(const QString& path) {
-  if (m_currentPath != path) return;
-  // The buffer under the deleted file becomes an unnamed document.
-  QString error;
-  m_view->loadMarkdownIntoBoth(QString(), &error);
-  m_document = m_view->active();
-  m_view->showActiveIn(m_editor);
-  m_outlinePanel->setDocument(m_document, true);
+  if (m_currentPath.isEmpty()) return;
+  const QFileInfo current(m_currentPath);
+  const QFileInfo removed(path);
+  if (current.absoluteDir().canonicalPath() != removed.absoluteDir().canonicalPath() ||
+      (current.fileName() != removed.fileName() &&
+       (current.fileName().compare(removed.fileName(), Qt::CaseInsensitive) || current.exists())))
+    return;
+  // Keep the document and its base URL so relative images still resolve for Save As.
+  m_autoSave->cancelPending();
+  if (!m_benchMode) ui::removeDraft(m_currentPath);
   m_currentPath.clear();
-  m_lineEnding.reset();
   resetPreviousExport();
   m_savedMarkdown.clear();
-  markClean();
+  m_dirty = true;
+  if (!m_benchMode) m_autoSave->notifyChanged();
   updateTitleAndStatus();
-  statusBar()->showMessage(tr("Deleted file; buffer is now unsaved"));
+  statusBar()->showMessage(tr("File moved to Trash. Use Save As to keep this document."));
 }
 
 bool MainWindow::openDroppedFiles(const QList<QUrl>& urls) {

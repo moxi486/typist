@@ -128,13 +128,9 @@ QString imageMarkdown(const QString& target, QString alt) {
   alt.replace('\r', ' ');
   return QStringLiteral("![") + alt + QStringLiteral("](") + target + ')';
 }
-RelocatedImages relocateImages(const QString& markdown, const QString& oldDocument,
+RelocatedImages relocateImages(const QString& markdown, const QUrl& base,
                                const QString& newDocument) {
   RelocatedImages result{markdown, {}, {}};
-  if (oldDocument == newDocument) return result;
-  const QUrl base = oldDocument.isEmpty()
-                        ? QUrl()
-                        : QUrl::fromLocalFile(QFileInfo(oldDocument).absolutePath() + '/');
   const auto source = markdown.toUtf8();
   const auto images =
       core::imageSources(std::string_view(source.constData(), std::size_t(source.size())));

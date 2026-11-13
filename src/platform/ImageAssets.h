@@ -18,6 +18,6 @@ struct RelocatedImages {
   QString markdown, error;
   QMap<QString, QString> targets;
 };
-RelocatedImages relocateImages(const QString& markdown, const QString& oldDocument,
+RelocatedImages relocateImages(const QString& markdown, const QUrl& base,
                                const QString& newDocument);
 }  // namespace typist::platform

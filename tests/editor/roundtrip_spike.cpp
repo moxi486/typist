@@ -85,7 +85,7 @@ class EditorSpike : public QObject {
   void fileTreeGroupsFilesByDirectory();
   void fileTreeDirectoryCountMatchesSubdirectories();
   void fileTreeRebuildSeesNewFile();
-  void platformFileOpsCreateRenameDelete();
+  void platformFileOpsCreateAndRename();
   void platformCreateRejectsDuplicateName();
   void platformRenameAppendsMarkdownSuffix();
   void fileTreeRefreshDetectsAddedFile();
@@ -882,9 +882,10 @@ void EditorSpike::fileTreeRebuildSeesNewFile() {
   QDir(dir).removeRecursively();
 }
 
-void EditorSpike::platformFileOpsCreateRenameDelete() {
-  const QString dir = QDir(QDir::tempPath()).filePath(QStringLiteral("typist_ops_a"));
-  QDir().mkpath(dir);
+void EditorSpike::platformFileOpsCreateAndRename() {
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+  const auto dir = directory.path();
   QString error;
   QVERIFY2(typist::platform::createMarkdownFile(dir, QStringLiteral("note"), &error),
            error.toLatin1().constData());
@@ -904,11 +905,6 @@ void EditorSpike::platformFileOpsCreateRenameDelete() {
   QFile reopened(renamed);
   QVERIFY(reopened.open(QIODevice::ReadOnly));
   QCOMPARE(QString::fromUtf8(reopened.readAll()), QStringLiteral("body\n"));
-  reopened.close();
-
-  QVERIFY2(typist::platform::deleteFile(renamed, &error), error.toLatin1().constData());
-  QVERIFY(!QFileInfo::exists(renamed));
-  QDir(dir).removeRecursively();
 }
 
 void EditorSpike::platformCreateRejectsDuplicateName() {

@@ -200,8 +200,8 @@
         <translation>渲染视图</translation>
     </message>
     <message>
-        <source>Deleted file; buffer is now unsaved</source>
-        <translation>已删除文件，缓冲区尚未保存</translation>
+        <source>File moved to Trash. Use Save As to keep this document.</source>
+        <translation>文件已移到废纸篓，可使用「另存为」保留当前文档。</translation>
     </message>
     <message>
         <source>Theme: %1</source>
@@ -1226,8 +1226,8 @@
         <translation>无法重命名文件，请检查名称和权限。</translation>
     </message>
     <message>
-        <source>Cannot delete the file. Check file permissions.</source>
-        <translation>无法删除文件，请检查文件权限。</translation>
+        <source>Cannot move the file to the system trash.</source>
+        <translation>无法将文件移到系统废纸篓。</translation>
     </message>
     <message>
         <source>New Markdown File</source>
@@ -1238,8 +1238,8 @@
         <translation>重命名</translation>
     </message>
     <message>
-        <source>Delete</source>
-        <translation>删除</translation>
+        <source>Move to Trash</source>
+        <translation>移到废纸篓</translation>
     </message>
     <message>
         <source>File name</source>
@@ -1254,12 +1254,8 @@
         <translation>新名称</translation>
     </message>
     <message>
-        <source>Delete File</source>
-        <translation>删除文件</translation>
-    </message>
-    <message>
-        <source>Delete %1?</source>
-        <translation>删除 %1？</translation>
+        <source>Move %1 to the system trash?</source>
+        <translation>将 %1 移到系统废纸篓？</translation>
     </message>
     <message>
         <source>File Tree</source>
