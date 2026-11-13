@@ -12,9 +12,12 @@ target_link_libraries(typist_platform PUBLIC typist::core typist_render Qt6::Cor
 
 if(WIN32)
   target_link_libraries(typist_platform PRIVATE shell32 ole32)
-elseif(TARGET Qt6::DBus)
-  target_link_libraries(typist_platform PRIVATE Qt6::DBus)
-  target_compile_definitions(typist_platform PRIVATE TYPIST_HAS_FILE_MANAGER_DBUS=1)
+elseif(UNIX AND NOT APPLE)
+  find_package(Qt6DBus QUIET)
+  if(TARGET Qt6::DBus)
+    target_link_libraries(typist_platform PRIVATE Qt6::DBus)
+    target_compile_definitions(typist_platform PRIVATE TYPIST_HAS_FILE_MANAGER_DBUS=1)
+  endif()
 endif()
 
 if(Qt6PrintSupport_FOUND)
