@@ -3212,10 +3212,11 @@ class WindowTests : public QObject {
       const auto buttons = box->buttons();
       QVERIFY(box->defaultButton() && box->defaultButton() == box->escapeButton());
       QCOMPARE(box->textFormat(), Qt::PlainText);
-      QCOMPARE(box->windowTitle(), QStringLiteral("创建链接中的 Markdown 文件"));
+      QVERIFY(box->text().startsWith(QStringLiteral("创建并打开此 Markdown 文件？")));
       QVERIFY(box->text().contains(QDir::toNativeSeparators(path)));
       for (auto* button : buttons) {
         if (box->buttonRole(button) != QMessageBox::AcceptRole) continue;
+        QCOMPARE(button->text(), QStringLiteral("创建文件"));
         if (step == Occupied) {
           QFile competing(path);
           QVERIFY(competing.open(QIODevice::WriteOnly | QIODevice::NewOnly));
