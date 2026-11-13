@@ -170,8 +170,9 @@ class MainWindow : public QMainWindow {
   bool writeMarkdownFile(const QString& path, const QString& markdown);
   void createExportMenu(QMenu* settings);
   QString chooseDirectory(const QString& title, const QString& initial);
-  bool maybeSaveBeforeNavigate();
-  bool openFileReplacingCurrent(const QString& path, bool rememberCurrent);
+  bool maybeSaveBeforeNavigate(bool discardImmediately = true);
+  bool openFileReplacingCurrent(const QString& path, bool rememberCurrent,
+                                bool createMissing = false);
   void clearRecentHistory();
   bool adoptHtmlImport(const editor::HtmlImportResult& result);
   bool pasteImages(const QMimeData* source);

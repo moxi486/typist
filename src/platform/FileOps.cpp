@@ -41,13 +41,19 @@ bool availableDirectory(const QString& dir, QString* error) {
 bool createMarkdownFile(const QString& dir, const QString& name, QString* error) {
   if (error) error->clear();
   if (!availableDirectory(dir, error) || !validName(name.trimmed(), error)) return false;
-  const QString fileName = withMarkdownSuffix(name.trimmed());
-  if (fileName == QStringLiteral(".md")) {
+  return createEmptyFile(QDir(dir).filePath(withMarkdownSuffix(name.trimmed())), error);
+}
+
+bool createEmptyFile(const QString& path, QString* error) {
+  if (error) error->clear();
+  const QFileInfo info(path);
+  if (!availableDirectory(info.absolutePath(), error) || !validName(info.fileName(), error))
+    return false;
+  if (info.fileName().compare(QLatin1String(".md"), Qt::CaseInsensitive) == 0) {
     if (error) *error = QStringLiteral("File name is empty");
     return false;
   }
-  const QString path = QDir(dir).filePath(fileName);
-  if (QFileInfo::exists(path)) {
+  if (info.exists() || info.isSymLink()) {
     if (error) *error = QStringLiteral("A file with that name already exists");
     return false;
   }

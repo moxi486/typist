@@ -1299,7 +1299,7 @@ void MainWindow::configureEpubStylesheet() {
     settings.setValue(epubCssSetting, stylesheet);
 }
 
-bool MainWindow::maybeSaveBeforeNavigate() {
+bool MainWindow::maybeSaveBeforeNavigate(bool discardImmediately) {
   if (!m_dirty || m_benchMode) return true;
   if (!m_currentPath.isEmpty() && m_autoSaveEnabled) {
     m_autoSave->flushNow();
@@ -1314,9 +1314,11 @@ bool MainWindow::maybeSaveBeforeNavigate() {
     save();
     return !m_dirty;
   }
-  m_autoSave->cancelPending();
-  ui::removeDraft(m_currentPath);
-  m_dirty = false;
+  if (discardImmediately) {
+    m_autoSave->cancelPending();
+    ui::removeDraft(m_currentPath);
+    m_dirty = false;
+  }
   return true;
 }
 
@@ -1507,6 +1509,20 @@ void MainWindow::followLink(const QString& target) {
       statusBar()->showMessage(tr("Heading not found: %1").arg(destination.fragment), 4000);
     return;
   }
+  if (destination.kind == ui::LinkDestination::MissingMarkdown) {
+    QMessageBox confirm(QMessageBox::Question, tr("Create Linked Markdown File"),
+                        tr("Create and open this Markdown file?") + QLatin1Char('\n') +
+                            QDir::toNativeSeparators(destination.path),
+                        QMessageBox::NoButton, this);
+    confirm.setTextFormat(Qt::PlainText);
+    auto* create = confirm.addButton(tr("Create File"), QMessageBox::AcceptRole);
+    auto* cancel = confirm.addButton(tr("Cancel"), QMessageBox::RejectRole);
+    confirm.setDefaultButton(cancel);
+    confirm.setEscapeButton(cancel);
+    confirm.exec();
+    if (confirm.clickedButton() == create) openFileReplacingCurrent(destination.path, true, true);
+    return;
+  }
   if (destination.kind == ui::LinkDestination::Markdown) {
     if (QFileInfo(destination.path) != QFileInfo(m_currentPath)) openFile(destination.path);
     if (QFileInfo(destination.path) == QFileInfo(m_currentPath) &&
@@ -1579,12 +1595,17 @@ bool MainWindow::openStartupTarget(const platform::StartupTarget& target) {
 
 bool MainWindow::openFile(const QString& path) { return openFileReplacingCurrent(path, true); }
 
-bool MainWindow::openFileReplacingCurrent(const QString& path, bool rememberCurrent) {
-  if (!QFileInfo(path).isFile()) {
+bool MainWindow::openFileReplacingCurrent(const QString& path, bool rememberCurrent,
+                                          bool createMissing) {
+  if (!createMissing && !QFileInfo(path).isFile()) {
     statusBar()->showMessage(tr("Cannot open file"));
     return false;
   }
-  if (!maybeSaveBeforeNavigate()) return false;
+  if (!maybeSaveBeforeNavigate(!createMissing)) return false;
+  if (createMissing && !platform::createEmptyFile(path, nullptr)) {
+    statusBar()->showMessage(tr("Cannot create linked file: %1").arg(path), 4000);
+    return false;
+  }
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly)) {
     statusBar()->showMessage(tr("Cannot open file"));
@@ -1608,6 +1629,10 @@ bool MainWindow::openFileReplacingCurrent(const QString& path, bool rememberCurr
   m_view->showActiveIn(m_editor);
   m_editor->moveCursor(QTextCursor::Start);
   m_sourceMode = m_view->isSourceMode();
+  if (createMissing && !m_benchMode) {
+    m_autoSave->cancelPending();
+    ui::removeDraft(m_currentPath);
+  }
   if (!m_benchMode) platform::updateClosedFiles(rememberCurrent ? m_currentPath : QString(), path);
   if (QFileInfo(m_currentPath) != QFileInfo(path)) resetPreviousExport();
   m_currentPath = path;
@@ -1625,6 +1650,8 @@ bool MainWindow::openFileReplacingCurrent(const QString& path, bool rememberCurr
     if (m_tree->rootPath().isEmpty() || relative == QLatin1String("..") ||
         relative.startsWith(QLatin1String("../")) || QDir::isAbsolutePath(relative))
       m_tree->setRoot(QFileInfo(path).absolutePath());
+    else if (createMissing)
+      m_tree->refresh();
     m_tree->selectPath(path);
   }
   m_outlinePanel->setDocument(m_document, true);
