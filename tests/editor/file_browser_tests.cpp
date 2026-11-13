@@ -361,10 +361,6 @@ class FileBrowserTests : public QObject {
     QCOMPARE(QApplication::clipboard()->text(), QDir::toNativeSeparators(path));
     menu->findChild<QAction*>("fileCopyRelativePath")->trigger();
     QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("sub/note.md"));
-    FolderReceiver receiver;
-    QDesktopServices::setUrlHandler("file", &receiver, "capture");
-    menu->findChild<QAction*>("fileReveal")->trigger();
-    QCOMPARE(receiver.last, QUrl::fromLocalFile(directory.filePath("sub")));
     menu->findChild<QAction*>("fileDuplicate")->trigger();
     QCOMPARE(tree.selectedPath(), directory.filePath("sub/note-copy.md"));
     QCOMPARE(tree.entryCount(), 3);
@@ -394,6 +390,52 @@ class FileBrowserTests : public QObject {
     QVERIFY(!menu->findChild<QAction*>("fileNewFolder")->isEnabled());
     QVERIFY(!menu->findChild<QAction*>("fileCopyPath")->isEnabled());
     QVERIFY(!menu->findChild<QAction*>("fileReveal")->isEnabled());
+  }
+
+  void fileManagerMenuOpensTheChosenFolderAndHandlesMissingFiles() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto folder = directory.filePath(QStringLiteral("中文 folder"));
+    const auto path = QDir(folder).filePath(QStringLiteral("note #1.md"));
+    QVERIFY(writeFile(path));
+    FileTree tree;
+    tree.setRoot(directory.path());
+    tree.selectPath(path);
+    QScopedPointer<QMenu> fileMenu(tree.createContextMenu());
+    auto* fileAction = fileMenu->findChild<QAction*>("fileReveal");
+    QVERIFY(fileAction && fileAction->isEnabled());
+    QCOMPARE(fileAction->text(), QStringLiteral("Reveal in File Manager"));
+
+    auto* folderItem = itemForPath(tree, folder);
+    QVERIFY(folderItem);
+    tree.setCurrentItem(folderItem);
+    QScopedPointer<QMenu> folderMenu(tree.createContextMenu());
+    tree.setCurrentItem(nullptr);
+    QScopedPointer<QMenu> rootMenu(tree.createContextMenu());
+    FolderReceiver receiver;
+    QDesktopServices::setUrlHandler("file", &receiver, "capture");
+    auto* folderAction = folderMenu->findChild<QAction*>("fileReveal");
+    QVERIFY(folderAction && folderAction->isEnabled());
+    QCOMPARE(folderAction->text(), QStringLiteral("Open Folder"));
+    folderAction->trigger();
+    QCOMPARE(receiver.last, QUrl::fromLocalFile(folder));
+    auto* rootAction = rootMenu->findChild<QAction*>("fileReveal");
+    QVERIFY(rootAction && rootAction->isEnabled());
+    rootAction->trigger();
+    QCOMPARE(receiver.last, QUrl::fromLocalFile(directory.path()));
+
+    QVERIFY(QFile::remove(path));
+    bool showedError = false;
+    QTimer::singleShot(0, &tree, [&] {
+      if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+        showedError = box->text() == QStringLiteral("Cannot show the file in the file manager.");
+        box->accept();
+      }
+    });
+    receiver.last.clear();
+    fileAction->trigger();
+    QVERIFY(showedError);
+    QVERIFY(receiver.last.isEmpty());
   }
 
   void trashRejectsUnavailablePathsAndDirectories() {

@@ -10,6 +10,13 @@ target_include_directories(typist_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # QPdfWriter lives in Qt6::Gui, so PDF export needs no PrintSupport module.
 target_link_libraries(typist_platform PUBLIC typist::core typist_render Qt6::Core Qt6::Gui)
 
+if(WIN32)
+  target_link_libraries(typist_platform PRIVATE shell32 ole32)
+elseif(TARGET Qt6::DBus)
+  target_link_libraries(typist_platform PRIVATE Qt6::DBus)
+  target_compile_definitions(typist_platform PRIVATE TYPIST_HAS_FILE_MANAGER_DBUS=1)
+endif()
+
 if(Qt6PrintSupport_FOUND)
   target_link_libraries(typist_platform PUBLIC Qt6::PrintSupport)
   target_compile_definitions(typist_platform PUBLIC TYPIST_HAS_PRINTSUPPORT=1)
