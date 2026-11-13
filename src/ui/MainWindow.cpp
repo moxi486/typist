@@ -228,7 +228,7 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
       [this](const QMimeData* source) { return pasteImages(source); });
   connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::markdownFileDropped, this,
           &MainWindow::openFile);
-  connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::tablePasteRejected, this,
+  connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::pasteRejected, this,
           [this](const QString& error) { statusBar()->showMessage(error, 4000); });
   connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::linkActivated, this,
           &MainWindow::followLink);
@@ -2853,21 +2853,10 @@ void MainWindow::pasteHtmlAsMarkdown() {
     writingEditor->insertPlainText(mime->text());
     return;
   }
-  const auto imported = editor::importHtml(mime->html());
-  if (!imported.ok()) {
-    statusBar()->showMessage(imported.error);
+  const auto error = writingEditor->insertHtmlAsMarkdown(mime->html());
+  if (!error.isEmpty()) {
+    statusBar()->showMessage(error);
     return;
-  }
-  if (m_sourceMode || literal) {
-    writingEditor->insertPlainText(imported.markdown);
-  } else {
-    auto cursor = m_editor->textCursor();
-    QString error;
-    if (!editor::insertMarkdownAtCursor(imported.markdown, cursor, &error)) {
-      statusBar()->showMessage(error);
-      return;
-    }
-    m_editor->setTextCursor(cursor);
   }
   statusBar()->showMessage(tr("Pasted HTML as Markdown; web page styling is simplified"), 6000);
 }

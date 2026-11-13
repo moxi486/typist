@@ -365,7 +365,7 @@ class TableWorkflowTests : public QObject {
     auto* table = firstTable(editor.document());
     choose(editor, table, 1, 0);
     const auto original = view.currentMarkdown();
-    QSignalSpy failures(&editor, &ui::Editor::tablePasteRejected);
+    QSignalSpy failures(&editor, &ui::Editor::pasteRejected);
     paste(editor, QStringLiteral("one\t\"unfinished"));
     QCOMPARE(failures.size(), 1);
     QCOMPARE(view.currentMarkdown(), original);
@@ -374,6 +374,7 @@ class TableWorkflowTests : public QObject {
     QCOMPARE(view.currentMarkdown(), original);
     auto* mime = new QMimeData;
     mime->setText(QStringLiteral("a\tb\nc\td"));
+    mime->setHtml(QStringLiteral("<h2>Web title</h2>"));
     QImage image(10, 10, QImage::Format_RGB32);
     image.fill(Qt::red);
     mime->setImageData(image);

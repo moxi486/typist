@@ -4152,6 +4152,115 @@ class WindowTests : public QObject {
     QCOMPARE(draft->toPlainText(), QStringLiteral("Pending **snapshot**."));
     window.setBenchMode(true);
   }
+  void defaultPastePrefersHtmlAndKeepsExplicitMarkdownPaste() {
+    typist::MainWindow window(nullptr, true);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* paste = window.findChild<QAction*>(QStringLiteral("paste"));
+    QVERIFY(editor && paste);
+    auto* clipboard = QApplication::clipboard();
+    auto* mime = new QMimeData;
+    mime->setHtml(
+        QStringLiteral("<h2>Web title</h2><p><strong>Bold</strong> "
+                       "<a href=\"https://example.com/guide\">Guide</a></p>"));
+    mime->setText(QStringLiteral("**Clipboard text**"));
+    clipboard->setMimeData(mime);
+    editor->insertPlainText(QStringLiteral("Before TAIL"));
+    auto cursor = editor->textCursor();
+    cursor.setPosition(7);
+    editor->setTextCursor(cursor);
+    const auto before = typist::editor::serializeDocument(editor->document());
+
+    paste->trigger();
+    const auto pasted = typist::editor::serializeDocument(editor->document());
+    QVERIFY(pasted.contains(QStringLiteral("## Web title")));
+    QVERIFY(pasted.contains(QStringLiteral("**Bold** [Guide](https://example.com/guide)")));
+    QVERIFY(pasted.contains(QStringLiteral("TAIL")));
+    QVERIFY(!pasted.contains(QStringLiteral("Clipboard text")));
+    editor->undo();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    editor->redo();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), pasted);
+    editor->undo();
+
+    QScopedPointer<QMenu> menu(editor->createStandardContextMenu());
+    QAction* contextPaste = nullptr;
+    for (auto* action : menu->actions())
+      if (action->objectName() == QStringLiteral("edit-paste")) contextPaste = action;
+    QVERIFY(contextPaste && contextPaste->isEnabled());
+    editor->setTextCursor(cursor);
+    contextPaste->trigger();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), pasted);
+    editor->undo();
+
+    editor->setTextCursor(cursor);
+    const auto shortcut = QKeySequence(QKeySequence::Paste)[0];
+    QTest::keyClick(editor, shortcut.key(), shortcut.keyboardModifiers());
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), pasted);
+    editor->undo();
+
+    QVERIFY(QMetaObject::invokeMethod(&window, "pasteAsMarkdown"));
+    const auto explicitPaste = typist::editor::serializeDocument(editor->document());
+    QVERIFY(explicitPaste.contains(QStringLiteral("**Clipboard text**")));
+    QVERIFY(!explicitPaste.contains(QStringLiteral("Web title")));
+    editor->undo();
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView"));
+    editor->selectAll();
+    paste->trigger();
+    QCOMPARE(editor->toPlainText(), QStringLiteral("**Clipboard text**"));
+  }
+  void defaultHtmlPasteFallsBackToPlainAndKeepsCodeLiteral() {
+    typist::MainWindow window(nullptr, true);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(editor);
+    auto* clipboard = QApplication::clipboard();
+    auto* mime = new QMimeData;
+    mime->setHtml(QStringLiteral("<script>Nothing readable</script>"));
+    mime->setText(QStringLiteral("**Fallback**"));
+    clipboard->setMimeData(mime);
+    editor->paste();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()).trimmed(),
+             QStringLiteral("**Fallback**"));
+    editor->undo();
+    auto* htmlOnly = new QMimeData;
+    htmlOnly->setHtml(QStringLiteral("<h3>HTML only</h3>"));
+    clipboard->setMimeData(htmlOnly);
+    editor->paste();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()).trimmed(),
+             QStringLiteral("### HTML only"));
+    editor->undo();
+    auto* unreadable = new QMimeData;
+    unreadable->setHtml(QStringLiteral("<script>Nothing readable</script>"));
+    clipboard->setMimeData(unreadable);
+    editor->paste();
+    QVERIFY(editor->toPlainText().isEmpty());
+    QVERIFY(!editor->document()->isUndoAvailable());
+
+    editor->formatParagraph(typist::editor::ParagraphStyle::Code);
+    mime = new QMimeData;
+    mime->setHtml(QStringLiteral("<h2>Heading</h2>"));
+    mime->setText(QStringLiteral("# Heading\n  **literal**"));
+    clipboard->setMimeData(mime);
+    editor->paste();
+    QVERIFY(typist::editor::serializeDocument(editor->document())
+                .contains(QStringLiteral("# Heading\n  **literal**")));
+    QVERIFY(editor->textCursor().blockFormat().hasProperty(typist::editor::kCodeBlockProperty));
+  }
+  void defaultPastePreservesTypistMarkdownCopy() {
+    typist::MainWindow window(nullptr, true);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* preference = window.findChild<QAction*>(QStringLiteral("copyMarkdownAsPlainText"));
+    QVERIFY(editor && preference);
+    const bool previous = preference->isChecked();
+    const auto restore = qScopeGuard([&] { preference->setChecked(previous); });
+    preference->setChecked(true);
+    const auto markdown = QStringLiteral("A **bold** [relative link](notes.md).");
+    QVERIFY(typist::editor::loadMarkdown(markdown, editor->document(), nullptr));
+    editor->selectAll();
+    editor->copy();
+    QVERIFY(QApplication::clipboard()->mimeData()->hasHtml());
+    editor->paste();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()).trimmed(), markdown);
+  }
   void htmlClipboardPasteUndoAndLiteralContexts() {
     typist::MainWindow window;
     window.setBenchMode(true);
@@ -4211,6 +4320,11 @@ class WindowTests : public QObject {
     mime->setHtml(QStringLiteral("<script>Nothing readable</script>"));
     mime->setText(QStringLiteral("Literal <tag> & **Markdown**"));
     QApplication::clipboard()->setMimeData(mime);
+    editor->paste();
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Literal <tag> & **Markdown**"));
+    QVERIFY(QMetaObject::invokeMethod(&window, "undo", Qt::DirectConnection));
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Original paragraph"));
+    draft->selectAll();
     QVERIFY(QMetaObject::invokeMethod(&window, "pasteHtmlAsMarkdown", Qt::DirectConnection));
     QCOMPARE(draft->toPlainText(), QStringLiteral("Literal <tag> & **Markdown**"));
     QVERIFY(QMetaObject::invokeMethod(&window, "undo", Qt::DirectConnection));
