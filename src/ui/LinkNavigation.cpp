@@ -4,6 +4,7 @@
 #include "editor_document.h"
 #include "markdown.h"
 
+#include <QDir>
 #include <QFileInfo>
 #include <QTextBlock>
 
@@ -36,25 +37,42 @@ LinkDestination resolveLink(const QString& destination, const QUrl& base) {
   }
   const auto pathPart = target.section('#', 0, 0);
   if (QFileInfo(pathPart).isAbsolute()) {
-    url = QUrl::fromLocalFile(QUrl::fromPercentEncoding(pathPart.toUtf8()));
+    const auto decoded = QUrl::fromPercentEncoding(pathPart.toUtf8());
+    if (decoded.contains(QChar::Null)) return {};
+    url = QUrl::fromLocalFile(decoded);
     url.setFragment(fragment);
   } else if (url.isRelative() && base.isLocalFile())
     url = base.resolved(url);
-  if (!url.isLocalFile()) return {};
+  if (!url.isValid() || !url.isLocalFile()) return {};
   QString path = url.toLocalFile();
-  if (!QFileInfo::exists(path) && QFileInfo(path).suffix().isEmpty())
+  if (!QDir::isAbsolutePath(path) || path.contains(QChar::Null)) return {};
+  QFileInfo file(path);
+  const bool extensionless = file.suffix().isEmpty() && !file.fileName().endsWith('.');
+  if (!file.exists() && !file.isSymLink() && extensionless && !path.endsWith('/')) {
     for (const auto* extension : {".md", ".markdown", ".mdown", ".mkd"})
       if (QFileInfo::exists(path + extension)) {
         path += extension;
         break;
       }
-  if (!QFileInfo::exists(path)) return {};
-  const auto suffix = QFileInfo(path).suffix().toLower();
+    file.setFile(path);
+  }
+  if (file.isSymLink() && !file.exists()) return {};
+  const auto suffix = file.suffix().toLower();
   const bool markdown = suffix == QLatin1String("md") || suffix == QLatin1String("markdown") ||
                         suffix == QLatin1String("mdown") || suffix == QLatin1String("mkd");
+  auto kind = LinkDestination::LocalFile;
+  if (file.exists()) {
+    if (markdown && file.isFile()) kind = LinkDestination::Markdown;
+  } else {
+    if ((!markdown && !extensionless) || path.endsWith('/') || path.endsWith('\\') ||
+        !QFileInfo(file.absolutePath()).isDir() || !url.host().isEmpty() || url.hasQuery() ||
+        pathPart.contains('?'))
+      return {};
+    if (!markdown) path += QStringLiteral(".md");
+    kind = LinkDestination::MissingMarkdown;
+  }
   auto fileUrl = QUrl::fromLocalFile(path);
   fileUrl.setFragment(fragment);
-  return {markdown ? LinkDestination::Markdown : LinkDestination::LocalFile, fileUrl, path,
-          fragment};
+  return {kind, fileUrl, path, fragment};
 }
 }  // namespace typist::ui

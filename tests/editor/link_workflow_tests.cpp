@@ -245,7 +245,15 @@ class LinkWorkflowTests : public QObject {
     QCOMPARE(resolved.kind, ui::LinkDestination::Markdown);
     QCOMPARE(ui::resolveLink(QUrl::fromLocalFile(path).toString(), {}).path, path);
     QCOMPARE(ui::resolveLink(path, {}).path, path);
-    QCOMPARE(ui::resolveLink("missing.md", base).kind, ui::LinkDestination::Invalid);
+    auto missing = ui::resolveLink("missing.md", base);
+    QCOMPARE(missing.kind, ui::LinkDestination::MissingMarkdown);
+    QCOMPARE(missing.path, directory.filePath("missing.md"));
+    missing = ui::resolveLink("another%20note", base);
+    QCOMPARE(missing.kind, ui::LinkDestination::MissingMarkdown);
+    QCOMPARE(missing.path, directory.filePath("another note.md"));
+    for (const auto* link : {"missing/note.md", "missing.png", "folder/", "a.md?x=1", "bad%00.md",
+                             "//example.test/missing.md", "file:relative.md"})
+      QCOMPARE(ui::resolveLink(QString::fromLatin1(link), base).kind, ui::LinkDestination::Invalid);
     QCOMPARE(ui::resolveLink("relative.md", {}).kind, ui::LinkDestination::Invalid);
     QCOMPARE(ui::resolveLink("javascript:alert(1)", base).kind, ui::LinkDestination::Invalid);
     QCOMPARE(ui::resolveLink("#target", {}).kind, ui::LinkDestination::Heading);

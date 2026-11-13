@@ -9,7 +9,7 @@ struct HeadingLink {
 };
 QList<HeadingLink> documentHeadingLinks(QTextDocument* document);
 struct LinkDestination {
-  enum Kind { Invalid, Heading, Markdown, External, LocalFile } kind = Invalid;
+  enum Kind { Invalid, Heading, Markdown, MissingMarkdown, External, LocalFile } kind = Invalid;
   QUrl url;
   QString path, fragment;
 };

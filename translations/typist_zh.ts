@@ -1000,6 +1000,22 @@
         <translation>无法打开链接：%1</translation>
     </message>
     <message>
+        <source>Create Linked Markdown File</source>
+        <translation>创建链接中的 Markdown 文件</translation>
+    </message>
+    <message>
+        <source>Create and open this Markdown file?</source>
+        <translation>创建并打开此 Markdown 文件？</translation>
+    </message>
+    <message>
+        <source>Create File</source>
+        <translation>创建文件</translation>
+    </message>
+    <message>
+        <source>Cannot create linked file: %1</source>
+        <translation>无法创建链接中的文件：%1</translation>
+    </message>
+    <message>
         <source>Heading not found: %1</source>
         <translation>未找到标题：%1</translation>
     </message>

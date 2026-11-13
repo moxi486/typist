@@ -3157,6 +3157,109 @@ class WindowTests : public QObject {
     window.setBenchMode(true);
     QSettings().setValue(QStringLiteral("editor/autoSave"), true);
   }
+
+  void missingMarkdownLinkCreatesOnlyAfterConfirmationAndSaveProtection() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto original = directory.filePath("original.md");
+    QFile source(original);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QCOMPARE(source.write("# Original\n"), 11);
+    source.close();
+
+    QSettings settings;
+    const auto autoSave = QStringLiteral("editor/autoSave");
+    const auto prior = settings.value(autoSave);
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] {
+      if (prior.isValid())
+        settings.setValue(autoSave, prior);
+      else
+        settings.remove(autoSave);
+      typist::platform::setLanguagePreference(language);
+    });
+    settings.setValue(autoSave, false);
+    typist::platform::setLanguagePreference(QStringLiteral("zh"));
+    typist::MainWindow window;
+    QVERIFY(window.openFile(original));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* tree = window.findChild<typist::ui::FileTree*>();
+    QVERIFY(editor && tree);
+    tree->setRoot(directory.path());
+    editor->moveCursor(QTextCursor::End);
+    editor->insertPlainText(QStringLiteral(" draft"));
+    const auto before = editor->toPlainText();
+    const auto undo = editor->document()->availableUndoSteps();
+    const auto caret = editor->textCursor().position();
+    const auto link = QStringLiteral("中文%20笔记");
+    const auto path = directory.filePath(QStringLiteral("中文 笔记.md"));
+
+    QTimer dialogTimer;
+    enum Step { CancelCreate, CancelNavigate, Occupied, Create } step = CancelCreate;
+    bool sawCreate = false;
+    bool sawNavigate = false;
+    connect(&dialogTimer, &QTimer::timeout, &window, [&] {
+      auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+      if (!box) return;
+      dialogTimer.stop();
+      if (auto* discard = box->button(QMessageBox::Discard)) {
+        sawNavigate = true;
+        (step == CancelNavigate ? box->button(QMessageBox::Cancel) : discard)->click();
+        return;
+      }
+      sawCreate = true;
+      QTimer::singleShot(1000, box, &QDialog::reject);
+      const auto buttons = box->buttons();
+      QVERIFY(box->defaultButton() && box->defaultButton() == box->escapeButton());
+      QCOMPARE(box->textFormat(), Qt::PlainText);
+      QVERIFY(box->text().startsWith(QStringLiteral("创建并打开此 Markdown 文件？")));
+      QVERIFY(box->text().contains(QDir::toNativeSeparators(path)));
+      for (auto* button : buttons) {
+        if (box->buttonRole(button) != QMessageBox::AcceptRole) continue;
+        QCOMPARE(button->text(), QStringLiteral("创建文件"));
+        if (step == Occupied) {
+          QFile competing(path);
+          QVERIFY(competing.open(QIODevice::WriteOnly | QIODevice::NewOnly));
+          QCOMPARE(competing.write("keep"), 4);
+        }
+        dialogTimer.start(10);
+        (step == CancelCreate ? box->escapeButton() : button)->click();
+        return;
+      }
+      box->reject();
+    });
+    for (const auto attempt : {CancelCreate, CancelNavigate, Occupied, Create}) {
+      step = attempt;
+      sawCreate = sawNavigate = false;
+      dialogTimer.start(10);
+      window.followLink(link);
+      dialogTimer.stop();
+      QVERIFY(sawCreate);
+      QCOMPARE(sawNavigate, step != CancelCreate);
+      if (step == Create) break;
+      QCOMPARE(editor->toPlainText(), before);
+      QCOMPARE(editor->document()->availableUndoSteps(), undo);
+      QCOMPARE(editor->textCursor().position(), caret);
+      QVERIFY(window.windowTitle().contains('*'));
+      if (step == Occupied) {
+        QFile competing(path);
+        QVERIFY(competing.open(QIODevice::ReadOnly));
+        QCOMPARE(competing.readAll(), QByteArray("keep"));
+        competing.close();
+        QVERIFY(QFile::remove(path));
+      } else {
+        QVERIFY(!QFileInfo::exists(path));
+      }
+    }
+    QVERIFY(QFileInfo(path).isFile());
+    QCOMPARE(QFileInfo(path).size(), 0);
+    QVERIFY(editor->toPlainText().isEmpty());
+    QVERIFY(!editor->document()->isUndoAvailable());
+    QCOMPARE(tree->selectedPath(), path);
+    QVERIFY(source.open(QIODevice::ReadOnly));
+    QCOMPARE(source.readAll(), QByteArray("# Original\n"));
+  }
+
   void linkDialogLanguagePreservesRichTextAndUndo() {
     typist::platform::setLanguagePreference(QStringLiteral("en"));
     typist::MainWindow window;
