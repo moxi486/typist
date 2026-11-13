@@ -6,6 +6,8 @@
 
 #include <QByteArray>
 #include <QDateTime>
+#include <QFileInfo>
+#include <QHash>
 #include <QMarginsF>
 #include <QPageSize>
 #include <QPainter>
@@ -143,24 +145,46 @@ QByteArray documentMetadata(const PdfPageOptions& options, const QString& title,
   return xml.hasError() ? QByteArray() : packet;
 }
 
-QString expandBand(const QString& pattern, const PdfPageOptions& options, int page, int count) {
-  static const QRegularExpression variable(
-      QStringLiteral(R"(\$\{(?:title|author|pageNo|pageCount|totalPages)\}|\{title\}|#)"));
+QHash<QString, QString> bandVariables(const PdfPageOptions& options, const QString& outputPath) {
+  QHash<QString, QString> values{
+      {QStringLiteral("title"), documentTitle(options)},
+      {QStringLiteral("author"), options.author.trimmed()},
+      {QStringLiteral("today"), QDate::currentDate().toString(Qt::ISODate)},
+  };
+  const QFileInfo source(options.sourcePath);
+  values.insert(QStringLiteral("currentPath"),
+                options.sourcePath.isEmpty() ? QString() : source.absoluteFilePath());
+  values.insert(QStringLiteral("currentFileName"), source.completeBaseName());
+  values.insert(QStringLiteral("currentFileFullName"), source.fileName());
+  values.insert(QStringLiteral("currentFolder"),
+                options.sourcePath.isEmpty() ? QString() : source.absolutePath());
+  if (!outputPath.isEmpty()) {
+    const QFileInfo output(outputPath);
+    values.insert(QStringLiteral("outputPath"), output.absoluteFilePath());
+    values.insert(QStringLiteral("outputFileName"), output.completeBaseName());
+    values.insert(QStringLiteral("outputFileFullName"), output.fileName());
+  }
+  return values;
+}
+
+QString expandBand(const QString& pattern, const QHash<QString, QString>& variables, int page,
+                   int count) {
+  static const QRegularExpression variable(QStringLiteral(R"(\$\{([^{}]*)\}|\{title\}|#)"));
   QString text;
   qsizetype start = 0;
   auto matches = variable.globalMatch(pattern);
   while (matches.hasNext()) {
     const auto match = matches.next();
     text += QStringView(pattern).mid(start, match.capturedStart() - start);
+    const auto name = match.capturedView(1);
     const auto token = match.capturedView();
-    if (token == u"${title}" || token == u"{title}")
-      text += documentTitle(options);
-    else if (token == u"${author}")
-      text += options.author.trimmed();
-    else if (token == u"${pageNo}" || token == u"#")
+    if (name == u"pageNo" || token == u"#")
       text += QString::number(page);
-    else
+    else if (name == u"pageCount" || name == u"totalPages")
       text += QString::number(count);
+    else
+      text += variables.value(token == u"{title}" ? QStringLiteral("title") : name.toString(),
+                              token.toString());
     start = match.capturedEnd();
   }
   text += QStringView(pattern).mid(start);
@@ -169,7 +193,7 @@ QString expandBand(const QString& pattern, const PdfPageOptions& options, int pa
 }
 
 void drawBands(QPainter& painter, const QRectF& pageRect, int page, int count,
-               const PdfPageOptions& options) {
+               const PdfPageOptions& options, const QHash<QString, QString>& variables) {
   painter.save();
   painter.setClipping(false);
   painter.setPen(QColor("#667085"));
@@ -177,7 +201,7 @@ void drawBands(QPainter& painter, const QRectF& pageRect, int page, int count,
   font.setPointSizeF(9);
   painter.setFont(font);
   const auto bandText = [&](const QString& pattern) {
-    return painter.fontMetrics().elidedText(expandBand(pattern, options, page, count),
+    return painter.fontMetrics().elidedText(expandBand(pattern, variables, page, count),
                                             Qt::ElideRight, qFloor(pageRect.width()));
   };
   if (!options.header.isEmpty())
@@ -383,7 +407,7 @@ bool preparePages(const QTextDocument* document, const PdfPageOptions& options,
 }
 
 void paintPage(QPainter& painter, const PreparedPages& pages, int page, int count,
-               const PdfPageOptions& options) {
+               const PdfPageOptions& options, const QHash<QString, QString>& variables) {
   painter.save();
   // PaintContext::clip is a layout hint; a real painter clip also protects the bands.
   painter.setClipRect(QRectF(pages.pageRect.left(), pages.pageRect.top() + pages.headerBand,
@@ -400,7 +424,7 @@ void paintPage(QPainter& painter, const PreparedPages& pages, int page, int coun
   context.clip = QRectF(0, page * pages.contentHeight, pages.pageRect.width(), pages.contentHeight);
   pages.document->documentLayout()->draw(&painter, context);
   painter.restore();
-  drawBands(painter, pages.pageRect, page + 1, count, options);
+  drawBands(painter, pages.pageRect, page + 1, count, options, variables);
 }
 }  // namespace
 
@@ -425,13 +449,13 @@ QImage pdfPagePreview(const QTextDocument* document, const PdfPageOptions& optio
   const int count = qMax(1, pages.document->pageCount());
   if (pageCount) *pageCount = count;
   QPainter painter(&image);
-  paintPage(painter, pages, qBound(0, page, count - 1), count, options);
+  paintPage(painter, pages, qBound(0, page, count - 1), count, options, bandVariables(options, {}));
   painter.end();
   return image;
 }
 
 bool exportPdf(const QString& path, const QTextDocument* document, const PdfPageOptions& options,
-               QString* error) {
+               QString* error, const QString& outputPath) {
   const auto paper = paperFor(options);
   if (!paper.isValid()) {
     if (error) *error = QStringLiteral("Invalid paper size");
@@ -483,12 +507,13 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
       return false;
     }
     const int count = qMax(1, pages.document->pageCount());
+    const auto variables = bandVariables(options, outputPath.isEmpty() ? path : outputPath);
     for (int page = 0; page < count; ++page) {
       if (page > 0 && !writer.newPage()) {
         if (error) *error = QStringLiteral("Cannot create PDF page");
         return false;
       }
-      paintPage(painter, pages, page, count, options);
+      paintPage(painter, pages, page, count, options, variables);
     }
     painter.end();
   }

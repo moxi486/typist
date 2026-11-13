@@ -3,7 +3,9 @@
 #include "Settings.h"
 #include "editor_document.h"
 
+#include <QDate>
 #include <QFile>
+#include <QFileInfo>
 #include <QPageSize>
 #include <QRegularExpression>
 #include <QSettings>
@@ -152,6 +154,47 @@ class PdfSetupTests : public QObject {
     QVERIFY2(typist::platform::exportPdf(path, &document, options, &error), qPrintable(error));
     QCOMPARE(pageCount(read(path)), count);
   }
+  void fileVariablesUseTheSourceAndFinalDestination() {
+    QTextDocument document;
+    document.setPlainText(QStringLiteral("Markdown body"));
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    typist::platform::PdfPageOptions options;
+    options.paper = QStringLiteral("custom");
+    options.customSizeMm = QSizeF(350.0, 210.0);
+    options.sourcePath = directory.filePath(QStringLiteral("笔记/source.v2.md"));
+    options.header = QStringLiteral("${currentFileName} | ${currentFileFullName} | ${today}");
+    options.footer = QStringLiteral("${outputFileName} | ${outputFileFullName} | ${unknown}");
+    auto expected = options;
+    expected.header =
+        QStringLiteral("source.v2 | source.v2.md | ") + QDate::currentDate().toString(Qt::ISODate);
+    const auto preview = typist::platform::pdfPagePreview(&document, options, 0, nullptr, nullptr);
+    QVERIFY(!preview.isNull());
+    QCOMPARE(preview, typist::platform::pdfPagePreview(&document, expected, 0, nullptr, nullptr));
+
+    options.header = QStringLiteral("${currentPath} | ${currentFolder}");
+    expected.header =
+        options.sourcePath + QStringLiteral(" | ") + QFileInfo(options.sourcePath).absolutePath();
+    QCOMPARE(typist::platform::pdfPagePreview(&document, options, 0, nullptr, nullptr),
+             typist::platform::pdfPagePreview(&document, expected, 0, nullptr, nullptr));
+    options.sourcePath.clear();
+    options.header = QStringLiteral(
+        "Draft${currentPath}${currentFileName}${currentFileFullName}${currentFolder}");
+    expected.header = QStringLiteral("Draft");
+    QCOMPARE(typist::platform::pdfPagePreview(&document, options, 0, nullptr, nullptr),
+             typist::platform::pdfPagePreview(&document, expected, 0, nullptr, nullptr));
+
+    const auto output = qEnvironmentVariable("TYPIST_PDF_OUTPUT", directory.path());
+    const auto staged = output + QStringLiteral("/staged.pdf");
+    const auto destination = directory.filePath(QStringLiteral("导出/report.v2.pdf"));
+    options.header = QStringLiteral("${outputPath}");
+    QString error;
+    QVERIFY2(typist::platform::exportPdf(staged, &document, options, &error, destination),
+             qPrintable(error));
+    QCOMPARE(pageCount(read(staged)), 1);
+    QVERIFY(!QFileInfo::exists(destination));
+  }
+
   void documentPropertiesInPreviewAndExport() {
     QTextDocument document;
     QVERIFY(typist::editor::loadMarkdown(QStringLiteral("# Chapter One\n\n正文内容。\n"), &document,

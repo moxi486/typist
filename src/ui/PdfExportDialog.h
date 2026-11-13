@@ -32,6 +32,7 @@ class PdfExportDialog : public QDialog {
   void showImage();
   const QTextDocument* m_document;
   QString m_title;
+  QString m_sourcePath;
   QComboBox *m_paper, *m_orientation;
   QDoubleSpinBox *m_margin, *m_width, *m_height;
   QLineEdit *m_header, *m_footer;

@@ -35,15 +35,17 @@ struct PdfPageOptions {
   QString creator = {};
   QString subject = {};
   QString keywords = {};
+  QString sourcePath = {};  // used by header/footer variables
 };
 
 // Renders the document to a PDF file. Printing lays out the whole document, so callers
 // pass a document that reflects Markdown semantics rather than whatever view mode the
 // editor is currently in. Returns false and leaves the target untouched when the output
-// cannot be produced.
+// cannot be produced. For a staged write, outputPath supplies the final destination
+// for header/footer variables.
 bool exportPdf(const QString& path, const QTextDocument* document, QString* error);
 bool exportPdf(const QString& path, const QTextDocument* document, const PdfPageOptions& options,
-               QString* error);
+               QString* error, const QString& outputPath = {});
 
 // One 96 DPI page, rendered with the same layout and painting path as export.
 // page is zero-based and clamped; pageCount receives the full count without rasterizing all pages.

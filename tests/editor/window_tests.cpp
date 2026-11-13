@@ -4132,6 +4132,8 @@ class WindowTests : public QObject {
               ->setText(QStringLiteral("Replay PDF title"));
           pdf->findChild<QLineEdit*>(QStringLiteral("pdfAuthor"))
               ->setText(QStringLiteral("Replay PDF author"));
+          pdf->findChild<QLineEdit*>(QStringLiteral("pdfHeader"))
+              ->setText(QStringLiteral("${currentFileFullName} to ${outputFileFullName}"));
           pdf->accept();
         } else if (auto* epub = qobject_cast<typist::ui::EpubDialog*>(modal)) {
           setupSeen = true;
@@ -4298,6 +4300,16 @@ class WindowTests : public QObject {
                mediaBox.match(QString::fromLatin1(bytes)).captured());
       QVERIFY(overwritten.contains("Replay PDF title"));
       QVERIFY(overwritten.contains("Replay PDF author"));
+      const auto sampleFolder = qEnvironmentVariable("TYPIST_PDF_OUTPUT");
+      if (!sampleFolder.isEmpty()) {
+        for (const auto& sample : {qMakePair(QStringLiteral("initial"), initialBytes),
+                                   qMakePair(QStringLiteral("repeated"), bytes),
+                                   qMakePair(QStringLiteral("overwritten"), overwritten)}) {
+          QFile file(QDir(sampleFolder).filePath(sample.first + QStringLiteral(".pdf")));
+          QVERIFY(file.open(QIODevice::WriteOnly));
+          QCOMPARE(file.write(sample.second), sample.second.size());
+        }
+      }
     } else {
       QVERIFY(overwritten.contains("Updated overwrite contents"));
     }
