@@ -1683,6 +1683,11 @@ void Editor::keyPressEvent(QKeyEvent* event) {
       m_rendered && (cursor.blockFormat().hasProperty(editor::kSpecialBlockProperty) ||
                      render::isPageBreak(cursor.block()));
   const bool returnKey = event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter;
+  if (!m_rendered && !isReadOnly() && returnKey && plain &&
+      !event->modifiers().testFlag(Qt::ShiftModifier) && editor::continueSourceList(cursor)) {
+    setTextCursor(cursor);
+    return;
+  }
   if (m_rendered && control && event->key() == Qt::Key_Space &&
       event->modifiers().testFlag(Qt::ShiftModifier) &&
       !event->modifiers().testFlag(Qt::AltModifier) && changeTaskStatus(editor::TaskStatus::Toggle))

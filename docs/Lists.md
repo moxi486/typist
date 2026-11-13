@@ -23,4 +23,6 @@
 
 当前有序列表仍按 1 开始重新编号；自定义起始编号、列表项拖动排序以及多段落条目的结构化编辑留待后续实现。
 
+在完整源码视图中，`Enter` 继续当前列表项，保留行首缩进和项目符号。有序项按当前数字递增，保留 `.` 或 `)`，后面的已有条目仍保留原编号。新任务使用 `[ ]`。空列表项按 `Enter` 移除标记，`Shift+Enter` 可直接换行。整次续写可一步撤销。 [Typora 源码编辑说明](https://support.typora.io/What's-New-1.5/#code-block--source-code-mode)
+
 行为参考：[Typora 快捷键](https://support.typora.io/Shortcut-Keys/)与[任务状态菜单](https://support.typora.io/Task-List/)。

@@ -71,6 +71,8 @@ struct ParseResult {
 };
 
 ParseResult parseMarkdown(std::string_view source, const ParseOptions& options = {});
+// Whether a CommonMark list item starts on this one-based source line.
+bool startsSourceListItem(std::string_view source, int line);
 
 // Serializes a block tree back to Markdown, re-emitting emphasis, inline code,
 // links and images from the inline runs, including table column alignment.

@@ -674,6 +674,23 @@ std::string codeFence(std::string_view code, std::string_view info) {
   return std::string(std::max(std::size_t(3), longest + 1), marker);
 }
 
+bool startsSourceListItem(std::string_view source, int line) {
+  std::unique_ptr<cmark_node, decltype(&cmark_node_free)> root(
+      cmark_parse_document(source.data(), source.size(), CMARK_OPT_DEFAULT), &cmark_node_free);
+  if (!root) return false;
+  std::unique_ptr<cmark_iter, decltype(&cmark_iter_free)> iterator(cmark_iter_new(root.get()),
+                                                                   &cmark_iter_free);
+  if (!iterator) return false;
+  for (auto event = cmark_iter_next(iterator.get()); event != CMARK_EVENT_DONE;
+       event = cmark_iter_next(iterator.get())) {
+    if (event != CMARK_EVENT_ENTER) continue;
+    auto* node = cmark_iter_get_node(iterator.get());
+    if (cmark_node_get_type(node) == CMARK_NODE_ITEM && cmark_node_get_start_line(node) == line)
+      return true;
+  }
+  return false;
+}
+
 std::vector<ImageSource> imageSources(std::string_view source) {
   std::vector<std::size_t> lines{0};
   for (std::size_t i = 0; i < source.size(); ++i)
