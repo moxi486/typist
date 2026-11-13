@@ -18,6 +18,7 @@ class ParagraphSourcePanel : public QFrame {
   void focusLeft();
   void imagePasteRequested();
   void clipboardRequested(bool cut);
+  void indentRequested(bool outdent);
 
  protected:
   bool eventFilter(QObject* object, QEvent* event) override;

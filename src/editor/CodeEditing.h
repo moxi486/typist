@@ -23,6 +23,8 @@ const QStringList& codeLanguages();
 const QRegularExpression& codeLanguagePattern();
 bool setCodeLanguage(QTextCursor& cursor, const QString& identifier);
 bool indentCode(QTextCursor& cursor, bool outdent, int indentSize);
+// Adjusts the leading whitespace of the logical lines touched by the cursor.
+void indentTextLines(QTextCursor& cursor, bool outdent, int indentSize);
 bool supportsCodeAutoIndent(const QString& language);
 bool autoIndentCode(QTextCursor& cursor, int indentSize);
 bool backspaceCodeIndent(QTextCursor& cursor, int indentSize);
