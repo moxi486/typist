@@ -101,6 +101,7 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QWindow>
 #include <functional>
 
 namespace typist {
@@ -877,9 +878,12 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
                                 QStringLiteral("F9"), [] {});
   QAction* fullscreen =
       command(view, QStringLiteral("fullscreen"), tr("Fullscreen"), QStringLiteral("F11"), [] {});
+  QAction* alwaysOnTop =
+      command(view, QStringLiteral("alwaysOnTop"), tr("Always on Top"), QString(), [] {});
   focus->setCheckable(true);
   typewriter->setCheckable(true);
   fullscreen->setCheckable(true);
+  alwaysOnTop->setCheckable(true);
   connect(focus, &QAction::toggled, this, [editor](bool enabled) {
     editor->setFocusMode(enabled);
     QSettings().setValue(QStringLiteral("editor/focusMode"), enabled);
@@ -893,6 +897,11 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
       showFullScreen();
     else
       showNormal();
+  });
+  connect(alwaysOnTop, &QAction::toggled, this, [this](bool enabled) {
+    // Setting the hint on QWidget would hide the editor and cancel workspace searches.
+    winId();
+    windowHandle()->setFlag(Qt::WindowStaysOnTopHint, enabled);
   });
   focus->setChecked(QSettings().value(QStringLiteral("editor/focusMode"), false).toBool());
   typewriter->setChecked(

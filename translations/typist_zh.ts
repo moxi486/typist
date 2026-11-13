@@ -480,6 +480,10 @@
         <translation>全屏</translation>
     </message>
     <message>
+        <source>Always on Top</source>
+        <translation>窗口置顶</translation>
+    </message>
+    <message>
         <source>Heading %1</source>
         <translation>%1 级标题</translation>
     </message>

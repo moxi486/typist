@@ -39,6 +39,10 @@
 
 自动缩进适用于 C、C++、Go、JSON、CSS 和 SCSS 的渲染代码块。打开「设置 → Shift+Tab 自动缩进代码」后，可在这些代码块中用快捷键执行相同操作。该偏好默认关闭，其他代码语言中的 Shift+Tab 继续取消一级缩进。[Typora 自动缩进代码](https://support.typora.io/Code-Fences/#auto-indent-contents)
 
+## 窗口置顶
+
+通过「视图 → 窗口置顶」将当前编辑窗口保持在普通窗口上方。再次选择可取消。置顶状态按窗口独立设置，新窗口默认关闭置顶。切换时保留窗口的普通、最大化或全屏状态，并保留当前选区和撤销历史。实际堆叠顺序由操作系统或窗口管理器处理。 [Typora 窗口置顶说明](https://support.typora.io/Typora-on-Windows/#pin-window)
+
 ## 选择与定位
 
 「编辑 → 选择范围」提供四种选择命令：

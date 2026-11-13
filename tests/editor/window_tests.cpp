@@ -63,8 +63,13 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QTreeWidget>
+#include <QWindow>
 #include <QXmlStreamReader>
 #include <QtTest>
+
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
 
 namespace {
 struct FolderHistoryGuard {
@@ -1442,6 +1447,83 @@ class WindowTests : public QObject {
     window.findChild<QAction*>(QStringLiteral("newDocument"))->trigger();
     QCOMPARE(editor->toPlainText(), QString());
     QVERIFY(!editor->document()->isUndoAvailable());
+  }
+
+  void alwaysOnTopPreservesWindowAndEditingState() {
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] { typist::platform::setLanguagePreference(language); });
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::MainWindow window(nullptr, true);
+    typist::MainWindow other(nullptr, true);
+    auto* pin = window.findChild<QAction*>(QStringLiteral("alwaysOnTop"));
+    auto* otherPin = other.findChild<QAction*>(QStringLiteral("alwaysOnTop"));
+    auto* fullscreen = window.findChild<QAction*>(QStringLiteral("fullscreen"));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(pin && otherPin && fullscreen && editor);
+    QVERIFY(pin->isCheckable() && !pin->isChecked());
+    QCOMPARE(pin->text(), QStringLiteral("Always on Top"));
+
+    window.showNormal();
+    window.resize(650, 450);
+    window.activateWindow();
+    editor->setFocus();
+    editor->insertPlainText(QStringLiteral("Selected text"));
+    editor->selectAll();
+    const auto undo = editor->document()->availableUndoSteps();
+    QVERIFY(undo > 0);
+    const auto title = window.windowTitle();
+    const auto geometry = window.geometry();
+    auto* handle = window.windowHandle();
+    QVERIFY(handle && !handle->flags().testFlag(Qt::WindowStaysOnTopHint));
+    QSignalSpy visibility(handle, &QWindow::visibilityChanged);
+
+    pin->trigger();
+    QVERIFY(pin->isChecked() && window.isVisible());
+    QVERIFY(handle->flags().testFlag(Qt::WindowStaysOnTopHint));
+    QVERIFY(!otherPin->isChecked());
+    QVERIFY(visibility.isEmpty());
+    QCOMPARE(window.geometry(), geometry);
+    QCOMPARE(window.focusWidget(), editor);
+    QCOMPARE(window.windowTitle(), title);
+    QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("Selected text"));
+    QCOMPARE(editor->document()->availableUndoSteps(), undo);
+#ifdef Q_OS_WIN
+    if (QGuiApplication::platformName() == QStringLiteral("windows")) {
+      const auto hwnd = reinterpret_cast<HWND>(window.winId());
+      QVERIFY(GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST);
+    }
+#endif
+
+    window.showMaximized();
+    pin->trigger();
+    QVERIFY(!pin->isChecked() && window.isVisible() && window.isMaximized());
+    QVERIFY(!handle->flags().testFlag(Qt::WindowStaysOnTopHint));
+#ifdef Q_OS_WIN
+    if (QGuiApplication::platformName() == QStringLiteral("windows")) {
+      const auto hwnd = reinterpret_cast<HWND>(window.winId());
+      QVERIFY(!(GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST));
+    }
+#endif
+
+    fullscreen->trigger();
+    pin->trigger();
+    QVERIFY(window.isVisible() && window.isFullScreen());
+    QVERIFY(handle->flags().testFlag(Qt::WindowStaysOnTopHint));
+    fullscreen->trigger();
+    QVERIFY(window.isVisible() && !window.isFullScreen());
+    QVERIFY(handle->flags().testFlag(Qt::WindowStaysOnTopHint));
+
+    auto* chinese = window.findChild<QAction*>(QStringLiteral("language_zh"));
+    QVERIFY(chinese);
+    chinese->trigger();
+    QCOMPARE(pin->text(), QStringLiteral("窗口置顶"));
+    QVERIFY(pin->isChecked());
+    editor->undo();
+    QVERIFY(editor->toPlainText().isEmpty());
+
+    otherPin->trigger();
+    QVERIFY(!other.isVisible());
+    QVERIFY(other.windowHandle()->flags().testFlag(Qt::WindowStaysOnTopHint));
   }
 
   void outlineFiltersHierarchyAndNavigates() {
