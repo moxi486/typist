@@ -9,6 +9,7 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTextDocument>
+#include <QXmlStreamReader>
 #include <QtTest>
 #include <limits>
 
@@ -151,6 +152,66 @@ class PdfSetupTests : public QObject {
     QVERIFY2(typist::platform::exportPdf(path, &document, options, &error), qPrintable(error));
     QCOMPARE(pageCount(read(path)), count);
   }
+  void documentPropertiesInPreviewAndExport() {
+    QTextDocument document;
+    QVERIFY(typist::editor::loadMarkdown(QStringLiteral("# Chapter One\n\n正文内容。\n"), &document,
+                                         nullptr));
+    typist::platform::PdfPageOptions options;
+    options.title = QStringLiteral("Fallback");
+    options.metadataTitle = QStringLiteral("  Report <2026>  ");
+    options.author = QStringLiteral("李明 & Mei");
+    options.creator = QStringLiteral("Example Studio");
+    options.subject = QStringLiteral("主题 <sample>");
+    options.keywords = QStringLiteral("编辑, PDF & metadata");
+    options.header = QStringLiteral("${title} / ${author}");
+    options.footer = QStringLiteral("Page ${pageNo} / ${pageCount}");
+    QString error;
+    const auto preview = typist::platform::pdfPagePreview(&document, options, 0, nullptr, &error);
+    QVERIFY2(!preview.isNull(), qPrintable(error));
+    auto literal = options;
+    literal.header = QStringLiteral("Report <2026> / 李明 & Mei");
+    literal.footer = QStringLiteral("Page 1 / 1");
+    QCOMPARE(preview, typist::platform::pdfPagePreview(&document, literal, 0, nullptr, nullptr));
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto output = qEnvironmentVariable("TYPIST_PDF_OUTPUT", directory.path());
+    const auto path = output + QStringLiteral("/document-properties.pdf");
+    QVERIFY2(typist::platform::exportPdf(path, &document, options, &error), qPrintable(error));
+    const auto pdf = read(path);
+    QCOMPARE(pageCount(pdf), 1);
+    const auto start = pdf.indexOf("<?xpacket");
+    const auto end = pdf.indexOf("\nendstream", start);
+    QVERIFY(start >= 0 && end > start);
+    QXmlStreamReader xml(pdf.mid(start, end - start));
+    QString title, author, subject, creator, keywords;
+    while (!xml.atEnd()) {
+      xml.readNext();
+      if (!xml.isStartElement()) continue;
+      const auto name = xml.qualifiedName().toString();
+      if (name == QLatin1String("dc:title"))
+        title = xml.readElementText(QXmlStreamReader::IncludeChildElements);
+      else if (name == QLatin1String("dc:creator"))
+        author = xml.readElementText(QXmlStreamReader::IncludeChildElements);
+      else if (name == QLatin1String("dc:description"))
+        subject = xml.readElementText(QXmlStreamReader::IncludeChildElements);
+      else if (name == QLatin1String("xmp:CreatorTool"))
+        creator = xml.readElementText();
+      else if (name == QLatin1String("pdf:Keywords"))
+        keywords = xml.readElementText();
+    }
+    QVERIFY2(!xml.hasError(), qPrintable(xml.errorString()));
+    QCOMPARE(title, options.metadataTitle.trimmed());
+    QCOMPARE(author, options.author);
+    QCOMPARE(subject, options.subject);
+    QCOMPARE(creator, options.creator);
+    QCOMPARE(keywords, options.keywords);
+
+    options.subject.append(QChar(1));
+    QVERIFY(!typist::platform::exportPdf(path, &document, options, &error));
+    QCOMPARE(read(path), pdf);
+  }
+
   void previewDrawsUnderline() {
     QTextDocument plain, marked;
     QVERIFY(typist::editor::loadMarkdown(QStringLiteral("Same words\n"), &plain, nullptr));

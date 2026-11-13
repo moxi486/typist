@@ -1910,6 +1910,34 @@
         <translation>导出 PDF</translation>
     </message>
     <message>
+        <source>Page Setup</source>
+        <translation>页面设置</translation>
+    </message>
+    <message>
+        <source>Document Properties</source>
+        <translation>文档属性</translation>
+    </message>
+    <message>
+        <source>Title</source>
+        <translation>标题</translation>
+    </message>
+    <message>
+        <source>Author</source>
+        <translation>作者</translation>
+    </message>
+    <message>
+        <source>Creator</source>
+        <translation>创建者</translation>
+    </message>
+    <message>
+        <source>Subject</source>
+        <translation>主题</translation>
+    </message>
+    <message>
+        <source>Keywords</source>
+        <translation>关键词</translation>
+    </message>
+    <message>
         <source>Paper size</source>
         <translation>纸张大小</translation>
     </message>
@@ -1958,8 +1986,8 @@
         <translation>留空则隐藏</translation>
     </message>
     <message>
-        <source>Use ${title} for the document name, ${pageNo} for the page number and ${pageCount} for the total.</source>
-        <translation>${title} 插入文档名称，${pageNo} 插入当前页码，${pageCount} 插入总页数。</translation>
+        <source>Use ${title} and ${author} for document properties, and ${pageNo} and ${pageCount} for page numbers.</source>
+        <translation>${title} 和 ${author} 插入标题和作者，${pageNo} 和 ${pageCount} 插入当前页码和总页数。</translation>
     </message>
     <message>
         <source>Repeat table headers</source>
@@ -2000,6 +2028,13 @@
     <message>
         <source>Cannot preview this document: %1</source>
         <translation>无法预览此文档：%1</translation>
+    </message>
+</context>
+<context>
+    <name>PdfWriter</name>
+    <message>
+        <source>PDF metadata contains invalid characters</source>
+        <translation>PDF 元数据包含无效字符</translation>
     </message>
 </context>
 <context>
