@@ -376,6 +376,10 @@
         <translation>自动配对括号与引号</translation>
     </message>
     <message>
+        <source>Copy and Cut Whole Line</source>
+        <translation>复制和剪切整行</translation>
+    </message>
+    <message>
         <source>Auto Save</source>
         <translation>自动保存</translation>
     </message>

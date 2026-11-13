@@ -2329,6 +2329,96 @@ class WindowTests : public QObject {
     editor->finishParagraphSourceEdit(false);
   }
 
+  void wholeLineClipboardUsesTheActiveEditorAndPreservesCodeFences() {
+    QSettings settings;
+    const auto key = QStringLiteral("editor/copyCutWholeLine");
+    const auto previous = settings.value(key);
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] {
+      if (previous.isValid())
+        settings.setValue(key, previous);
+      else
+        settings.remove(key);
+      typist::platform::setLanguagePreference(language);
+    });
+    settings.remove(key);
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QFile file(directory.filePath(QStringLiteral("clipboard-lines.md")));
+    const QByteArray original("First paragraph.\n\n```cpp\n  first\n  middle\n  last\n```\n\nTail");
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write(original), original.size());
+    file.close();
+    typist::MainWindow window(nullptr, true);
+    QVERIFY(window.openFile(file.fileName()));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* preference = window.findChild<QAction*>(QStringLiteral("copyCutWholeLine"));
+    auto* copy = window.findChild<QAction*>(QStringLiteral("copy"));
+    auto* cut = window.findChild<QAction*>(QStringLiteral("cut"));
+    QVERIFY(editor && preference && copy && cut && !preference->isChecked());
+    auto* clipboard = QApplication::clipboard();
+    clipboard->setText(QStringLiteral("Keep clipboard"));
+    editor->setTextCursor(editor->document()->find(QStringLiteral("middle")));
+    editor->moveCursor(QTextCursor::PreviousCharacter);
+    copy->trigger();
+    QCOMPARE(clipboard->text(), QStringLiteral("Keep clipboard"));
+    preference->trigger();
+    copy->trigger();
+    QCOMPARE(clipboard->text(), QStringLiteral("  middle\n"));
+    QVERIFY(!editor->textCursor().hasSelection());
+    cut->trigger();
+    QVERIFY(editor->markdownWithParagraphDraft().contains("```cpp\n  first\n  last\n```"));
+    editor->undo();
+    QVERIFY(
+        editor->markdownWithParagraphDraft().contains("```cpp\n  first\n  middle\n  last\n```"));
+    for (const auto* word : {"last", "first", "middle"}) {
+      editor->setTextCursor(editor->document()->find(QString::fromLatin1(word), 0,
+                                                     QTextDocument::FindCaseSensitively));
+      QVERIFY(editor->textCursor().hasSelection());
+      auto caret = editor->textCursor();
+      caret.setPosition(caret.selectionStart());
+      editor->setTextCursor(caret);
+      cut->trigger();
+    }
+    const auto emptyFence = editor->markdownWithParagraphDraft();
+    QVERIFY2(emptyFence.contains("```cpp\n```"), qPrintable(emptyFence));
+    QVERIFY(editor->toPlainText().contains(QStringLiteral("Tail")));
+    editor->undo();
+    QVERIFY(editor->markdownWithParagraphDraft().contains("```cpp\n  middle\n```"));
+
+    QVERIFY(window.openFile(file.fileName()));
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView"));
+    editor->moveCursor(QTextCursor::End);
+    QTest::keyClick(editor, Qt::Key_X, Qt::ControlModifier);
+    QCOMPARE(clipboard->text(), QStringLiteral("Tail"));
+    QVERIFY(editor->toPlainText().endsWith(QStringLiteral("```\n")));
+    editor->undo();
+    QCOMPARE(editor->toPlainText(), QString::fromUtf8(original));
+    editor->setTextCursor(editor->document()->find(QStringLiteral("paragraph")));
+    copy->trigger();
+    QCOMPARE(clipboard->text(), QStringLiteral("paragraph"));
+
+    QVERIFY(window.openFile(file.fileName()));
+    editor->setTextCursor(editor->document()->find(QStringLiteral("First")));
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(draft);
+    draft->setPlainText(QStringLiteral("Draft first\nDraft last"));
+    draft->moveCursor(QTextCursor::End);
+    QTest::keyClick(draft, Qt::Key_X, Qt::ControlModifier);
+    QCOMPARE(clipboard->text(), QStringLiteral("Draft last"));
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Draft first"));
+    QVERIFY(editor->paragraphSourceActive());
+    draft->undo();
+    QCOMPARE(draft->toPlainText(), QStringLiteral("Draft first\nDraft last"));
+    editor->finishParagraphSourceEdit(false);
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(preference->text(), QStringLiteral("复制和剪切整行"));
+    typist::MainWindow next(nullptr, true);
+    QVERIFY(next.findChild<QAction*>(QStringLiteral("copyCutWholeLine"))->isChecked());
+  }
+
   void clipboardFormatsUseTheSelectionAcrossViewsAndLanguages() {
     const auto language = typist::platform::languagePreference();
     const auto theme = typist::platform::themePreference();
