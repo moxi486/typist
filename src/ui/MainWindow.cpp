@@ -109,7 +109,15 @@ namespace {
 
 const auto htmlOutlineSetting = QStringLiteral("export/htmlOutline");
 const auto htmlContentSetting = QStringLiteral("export/htmlContent");
+const auto htmlThemeSetting = QStringLiteral("export/htmlTheme");
 const auto epubCssSetting = QStringLiteral("export/epubCss");
+
+QString htmlExportThemePreference(const QSettings& settings) {
+  const auto saved = settings.value(htmlThemeSetting).toString();
+  return saved == QLatin1String("light") || saved == QLatin1String("dark")
+             ? saved
+             : QStringLiteral("current");
+}
 
 QUrl exportedFileUrl(const QString& path, platform::ExportFormat format) {
   const QFileInfo file(path);
@@ -1150,6 +1158,29 @@ void MainWindow::createExportMenu(QMenu* settings) {
   syncFiles();
   connect(openFileMenu, &QMenu::aboutToShow, openFileMenu, syncFiles);
   menu->addSeparator();
+  auto* htmlTheme = menu->addMenu(tr("HTML Export Theme"));
+  htmlTheme->setObjectName(QStringLiteral("htmlExportTheme"));
+  auto* themes = new QActionGroup(htmlTheme);
+  const auto addTheme = [htmlTheme, themes](const QString& mode, const QString& label) {
+    auto* action = htmlTheme->addAction(label);
+    action->setObjectName(QStringLiteral("htmlExportTheme_") + mode);
+    action->setData(mode);
+    action->setCheckable(true);
+    themes->addAction(action);
+  };
+  addTheme(QStringLiteral("current"), tr("Use Editor Theme"));
+  addTheme(QStringLiteral("light"), tr("Light"));
+  addTheme(QStringLiteral("dark"), tr("Dark"));
+  const auto syncThemes = [themes] {
+    const auto preference = htmlExportThemePreference(QSettings());
+    for (auto* action : themes->actions())
+      action->setChecked(action->data().toString() == preference);
+  };
+  syncThemes();
+  connect(htmlTheme, &QMenu::aboutToShow, themes, syncThemes);
+  connect(themes, &QActionGroup::triggered, this,
+          [](QAction* action) { QSettings().setValue(htmlThemeSetting, action->data()); });
+
   auto* htmlContent = menu->addAction(tr("Additional HTML Content…"));
   htmlContent->setObjectName(QStringLiteral("htmlExportContent"));
   connect(htmlContent, &QAction::triggered, this, &MainWindow::configureHtmlExportContent);
@@ -1828,8 +1859,10 @@ void MainWindow::runPreviousExport(const ExportReplacement* replacement) {
 }
 
 void MainWindow::exportHtmlDocument(bool styled) {
-  const auto theme = ui::resolveTheme(themePreference(), systemPrefersDark());
   QSettings settings;
+  const auto preference = htmlExportThemePreference(settings);
+  const auto theme = ui::resolveTheme(
+      preference == QLatin1String("current") ? themePreference() : preference, systemPrefersDark());
   const auto extra = settings.value(htmlContentSetting).toMap();
   exportHtmlDocument({styled, theme == ui::Theme::Dark,
                       settings.value(htmlOutlineSetting, false).toBool(),

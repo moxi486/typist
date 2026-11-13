@@ -584,6 +584,14 @@
         <translation>附加 HTML 内容…</translation>
     </message>
     <message>
+        <source>HTML Export Theme</source>
+        <translation>HTML 导出主题</translation>
+    </message>
+    <message>
+        <source>Use Editor Theme</source>
+        <translation>跟随编辑器主题</translation>
+    </message>
+    <message>
         <source>Additional HTML Content</source>
         <translation>附加 HTML 内容</translation>
     </message>
