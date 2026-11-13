@@ -2019,6 +2019,7 @@ void MainWindow::exportPdfDocument(const platform::PdfPageOptions* previous,
       m_currentPath.isEmpty() ? tr("Untitled") : QFileInfo(m_currentPath).completeBaseName();
   auto options = previous ? *previous : platform::pdfOptions(title);
   options.title = title;
+  options.sourcePath = m_currentPath;
   if (!previous) {
     ui::PdfExportDialog setup(&rendered, options, this);
     if (setup.exec() != QDialog::Accepted) return;
@@ -2030,7 +2031,8 @@ void MainWindow::exportPdfDocument(const platform::PdfPageOptions* previous,
                                      QStringLiteral("pdf"), QStringLiteral("pdfDestination"));
   if (path.isEmpty()) return;
 
-  if (!typist::platform::exportPdf(path, &rendered, options, &error)) {
+  if (!typist::platform::exportPdf(path, &rendered, options, &error,
+                                   replacement ? replacement->destination.path : path)) {
     statusBar()->showMessage(error);
     return;
   }

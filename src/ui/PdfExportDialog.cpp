@@ -19,7 +19,10 @@
 namespace typist::ui {
 PdfExportDialog::PdfExportDialog(const QTextDocument* document,
                                  const platform::PdfPageOptions& initial, QWidget* parent)
-    : QDialog(parent), m_document(document), m_title(initial.title) {
+    : QDialog(parent),
+      m_document(document),
+      m_title(initial.title),
+      m_sourcePath(initial.sourcePath) {
   if (parent) setPalette(parent->palette());
   setObjectName(QStringLiteral("pdfExportDialog"));
   resize(980, 760);
@@ -223,6 +226,7 @@ platform::PdfPageOptions PdfExportDialog::options() const {
   result.repeatTableHeader = m_repeat->isChecked();
   result.breakBetweenTopHeadings = m_sectionBreaks->isChecked();
   result.title = m_title;
+  result.sourcePath = m_sourcePath;
   result.metadataTitle = m_metadataTitle->text().trimmed();
   result.author = m_author->text().trimmed();
   result.creator = m_creator->text().trimmed();
@@ -279,8 +283,13 @@ void PdfExportDialog::retranslate() {
   m_header->setPlaceholderText(tr("Leave empty to hide"));
   m_footer->setPlaceholderText(tr("Leave empty to hide"));
   m_hint->setText(
-      tr("Use ${title} and ${author} for document properties, and ${pageNo} and ${pageCount} "
-         "for page numbers."));
+      tr("Use ${title}, ${author}, ${pageNo}, ${pageCount}, or ${today}. Output names appear "
+         "after you choose a save location."));
+  const auto variables =
+      tr("Source: ${currentPath}, ${currentFileName}, ${currentFileFullName}, ${currentFolder}\n"
+         "Output: ${outputPath}, ${outputFileName}, ${outputFileFullName}");
+  m_header->setToolTip(variables);
+  m_footer->setToolTip(variables);
   m_repeat->setText(tr("Repeat table headers"));
   m_sectionBreaks->setText(tr("Break between level 1 headings"));
   m_sectionBreaks->setToolTip(

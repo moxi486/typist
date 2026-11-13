@@ -1986,8 +1986,14 @@
         <translation>留空则隐藏</translation>
     </message>
     <message>
-        <source>Use ${title} and ${author} for document properties, and ${pageNo} and ${pageCount} for page numbers.</source>
-        <translation>${title} 和 ${author} 插入标题和作者，${pageNo} 和 ${pageCount} 插入当前页码和总页数。</translation>
+        <source>Use ${title}, ${author}, ${pageNo}, ${pageCount}, or ${today}. Output names appear after you choose a save location.</source>
+        <translation>可用 ${title}、${author}、${pageNo}、${pageCount} 或 ${today}。选择保存位置后填入输出文件名。</translation>
+    </message>
+    <message>
+        <source>Source: ${currentPath}, ${currentFileName}, ${currentFileFullName}, ${currentFolder}
+Output: ${outputPath}, ${outputFileName}, ${outputFileFullName}</source>
+        <translation>源文件：${currentPath}、${currentFileName}、${currentFileFullName}、${currentFolder}
+输出文件：${outputPath}、${outputFileName}、${outputFileFullName}</translation>
     </message>
     <message>
         <source>Repeat table headers</source>

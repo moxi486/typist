@@ -12,6 +12,19 @@
 
 在导出窗口的「文档属性」页填写标题、作者、创建者、主题和关键词。留空时，标题使用文档名，创建者使用 Typist。属性写入 PDF 的 XMP 元数据，可在支持 XMP 的阅读器中查看。普通导出可为当前文档重新填写，重复导出和覆盖导出沿用上次成功时填写的属性。 [Typora PDF 元数据说明](https://support.typora.io/Export/#pdf-metadata)
 
+## 文件和日期变量
+
+| 变量 | 页眉页脚中的内容 |
+| --- | --- |
+| `${currentPath}` | Markdown 文件的完整路径 |
+| `${currentFileName}` / `${currentFileFullName}` | Markdown 文件名，分别省略和包含扩展名 |
+| `${currentFolder}` | Markdown 文件所在文件夹的完整路径 |
+| `${outputPath}` | 实际导出的 PDF 完整路径 |
+| `${outputFileName}` / `${outputFileFullName}` | PDF 文件名，分别省略和包含扩展名 |
+| `${today}` | 本地日期，格式为 `YYYY-MM-DD` |
+
+未命名文档的源文件变量展开为空。输出路径在保存时确定，预览中会保留输出变量的原文。重复导出时，文件变量按本次实际路径展开，覆盖导出使用最终目标路径。 [Typora 导出变量说明](https://support.typora.io/Export/#variables)
+
 ## 手动分页
 
 选择 **段落 → 插入分页符**，让当前位置之后的内容从新页开始。渲染视图显示一条标有「分页符」的虚线。可以选中它删除，也可以撤销插入。源码中用上下各一个空行隔开的 `<div style="page-break-after:always"></div>` 表示。也支持同一个空 `div` 中的 `break-after: page`，两种声明可同时使用。[Typora 手动分页参考](https://support.typora.io/Page-Breaks/#html-and-inline-css)
