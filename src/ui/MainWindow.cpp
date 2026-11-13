@@ -1038,6 +1038,18 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
     editor->setCopyCutWholeLine(enabled);
     QSettings().setValue(copyCutWholeLineKey, enabled);
   });
+  auto* copyMarkdownAsPlainText =
+      command(settings, QStringLiteral("copyMarkdownAsPlainText"),
+              tr("Copy Markdown Source as Plain Text"), QString(), [] {});
+  const auto copyMarkdownKey = QStringLiteral("editor/copyMarkdownAsPlainText");
+  copyMarkdownAsPlainText->setCheckable(true);
+  copyMarkdownAsPlainText->setChecked(QSettings().value(copyMarkdownKey, false).toBool());
+  editor->setCopyMarkdownAsPlainText(copyMarkdownAsPlainText->isChecked());
+  connect(copyMarkdownAsPlainText, &QAction::toggled, this,
+          [editor, copyMarkdownKey](bool enabled) {
+            editor->setCopyMarkdownAsPlainText(enabled);
+            QSettings().setValue(copyMarkdownKey, enabled);
+          });
   QAction* autoSave =
       command(settings, QStringLiteral("autoSave"), tr("Auto Save"), QString(), [] {});
   autoSave->setCheckable(true);

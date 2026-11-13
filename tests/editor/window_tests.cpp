@@ -2476,6 +2476,61 @@ class WindowTests : public QObject {
     QVERIFY(next.findChild<QAction*>(QStringLiteral("copyCutWholeLine"))->isChecked());
   }
 
+  void defaultCopyCanPublishMarkdownAndRichTextTogether() {
+    QSettings settings;
+    const auto key = QStringLiteral("editor/copyMarkdownAsPlainText");
+    const auto previous = settings.value(key);
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] {
+      if (previous.isValid())
+        settings.setValue(key, previous);
+      else
+        settings.remove(key);
+      typist::platform::setLanguagePreference(language);
+    });
+    settings.remove(key);
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::MainWindow window(nullptr, true);
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* preference = window.findChild<QAction*>(QStringLiteral("copyMarkdownAsPlainText"));
+    auto* copy = window.findChild<QAction*>(QStringLiteral("copy"));
+    auto* cut = window.findChild<QAction*>(QStringLiteral("cut"));
+    QVERIFY(editor && preference && copy && cut && !preference->isChecked());
+    const QString markdown = QStringLiteral("**Bold** [Link](notes.md)");
+    QVERIFY(typist::editor::loadMarkdown(markdown, editor->document(), nullptr));
+    editor->selectAll();
+    const auto selection = editor->textCursor();
+    auto* clipboard = QApplication::clipboard();
+    copy->trigger();
+    QCOMPARE(clipboard->text().trimmed(), QStringLiteral("Bold Link"));
+    QVERIFY(clipboard->mimeData()->hasHtml());
+    const auto rich = clipboard->mimeData()->html();
+    QVERIFY(rich.contains(QStringLiteral("href=\"notes.md\"")));
+
+    preference->trigger();
+    copy->trigger();
+    QCOMPARE(clipboard->mimeData()->html(), rich);
+    QCOMPARE(clipboard->text(), markdown);
+    QCOMPARE(editor->textCursor().selectionStart(), selection.selectionStart());
+    QCOMPARE(editor->textCursor().selectionEnd(), selection.selectionEnd());
+    QVERIFY(!editor->document()->isUndoAvailable());
+    cut->trigger();
+    QCOMPARE(clipboard->text(), markdown);
+    QCOMPARE(clipboard->mimeData()->html(), rich);
+    QVERIFY(editor->toPlainText().isEmpty());
+    editor->undo();
+    QCOMPARE(editor->toPlainText().trimmed(), QStringLiteral("Bold Link"));
+
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView"));
+    editor->selectAll();
+    copy->trigger();
+    QCOMPARE(clipboard->text(), editor->toPlainText());
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(preference->text(), QStringLiteral("将 Markdown 源码作为纯文本复制"));
+    typist::MainWindow reopened(nullptr, true);
+    QVERIFY(reopened.findChild<QAction*>(QStringLiteral("copyMarkdownAsPlainText"))->isChecked());
+  }
+
   void clipboardFormatsUseTheSelectionAcrossViewsAndLanguages() {
     const auto language = typist::platform::languagePreference();
     const auto theme = typist::platform::themePreference();

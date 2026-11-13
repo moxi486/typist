@@ -11,6 +11,10 @@
 
 从网页复制后粘贴为 Markdown 的操作见 [HTML 导入与网页粘贴](Import.md)。复制格式参考 [Typora 复制粘贴文档](https://support.typora.io/Copy-and-Paste/)。
 
+## 默认复制格式
+
+启用「设置 → 将 Markdown 源码作为纯文本复制」后，渲染视图中的普通复制和剪切会同时提供 Markdown 纯文本和原有的富文本格式。纯文本应用可以粘贴 Markdown 标记，富文本应用可以粘贴带格式的内容。该选项默认关闭，设置会保留。源码视图和段落源码复制所选原文，代码选区和表格矩形选区分别使用代码原文和 TSV。 [Typora 默认复制行为](https://support.typora.io/Copy-and-Paste/#default-copy-behavior)
+
 ## 复制和剪切整行
 
 在「设置 → 复制和剪切整行」启用后，可在源码视图、段落源码编辑框或渲染视图的代码块中，通过「编辑」菜单或复制、剪切快捷键操作光标所在行。自动折行的文字仍算一行。已有选区时按选区操作。
