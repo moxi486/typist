@@ -149,6 +149,11 @@ bool indentCode(QTextCursor& cursor, bool outdent, int indentSize) {
     cursor.insertText(QString(width, ' '));
     return true;
   }
+  indentTextLines(cursor, outdent, indentSize);
+  return true;
+}
+
+void indentTextLines(QTextCursor& cursor, bool outdent, int indentSize) {
   const bool selected = cursor.hasSelection(), forward = cursor.position() >= cursor.anchor();
   int start = cursor.selectionStart(), end = cursor.selectionEnd();
   const int lastPosition = selected ? end - 1 : end;
@@ -178,7 +183,6 @@ bool indentCode(QTextCursor& cursor, bool outdent, int indentSize) {
   cursor.setPosition(selected && !forward ? end : start);
   cursor.setPosition(selected && !forward ? start : end,
                      selected ? QTextCursor::KeepAnchor : QTextCursor::MoveAnchor);
-  return true;
 }
 
 bool supportsCodeAutoIndent(const QString& info) {

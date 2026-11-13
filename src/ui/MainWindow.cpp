@@ -785,10 +785,14 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
           [editor] { editor->insertAdvancedContent(QStringLiteral("mermaid")); });
   command(paragraph, QStringLiteral("insert_toc"), tr("Table of Contents"), QString(),
           [editor] { editor->insertAdvancedContent(QStringLiteral("toc")); });
-  command(paragraph, QStringLiteral("indent"), tr("Indent"), QStringLiteral("Ctrl+["),
-          [editor] { editor->changeListIndent(1); });
-  command(paragraph, QStringLiteral("outdent"), tr("Outdent"), QStringLiteral("Ctrl+]"),
-          [editor] { editor->changeListIndent(-1); });
+  auto* indent = command(paragraph, QStringLiteral("indent"), tr("Indent"),
+                         QStringLiteral("Ctrl+["), [editor] { editor->changeListIndent(1); });
+  auto* outdent = command(paragraph, QStringLiteral("outdent"), tr("Outdent"),
+                          QStringLiteral("Ctrl+]"), [editor] { editor->changeListIndent(-1); });
+  for (auto* action : {indent, outdent}) {
+    action->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    editor->addAction(action);
+  }
   auto* taskStatus = paragraph->addMenu(tr("Task Status"));
   command(taskStatus, QStringLiteral("task_toggle"), tr("Toggle Task Status"),
           QStringLiteral("Ctrl+Shift+Space"),

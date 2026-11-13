@@ -98,6 +98,14 @@ bool ParagraphSourcePanel::eventFilter(QObject* object, QEvent* event) {
   if (object == m_input &&
       (event->type() == QEvent::KeyPress || event->type() == QEvent::ShortcutOverride)) {
     auto* key = static_cast<QKeyEvent*>(event);
+    if ((key->key() == Qt::Key_Tab || key->key() == Qt::Key_Backtab) &&
+        !(key->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier))) {
+      event->accept();
+      if (event->type() == QEvent::KeyPress)
+        emit indentRequested(key->key() == Qt::Key_Backtab ||
+                             key->modifiers().testFlag(Qt::ShiftModifier));
+      return true;
+    }
     if (key->matches(QKeySequence::Copy) || key->matches(QKeySequence::Cut)) {
       event->accept();
       if (event->type() == QEvent::KeyPress)

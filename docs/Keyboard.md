@@ -36,6 +36,7 @@
 | 打开渲染视图中的链接 | Ctrl+单击（macOS Cmd+单击） |
 | 代码块 / 引用 | Ctrl+Shift+K / Ctrl+Shift+Q |
 | 代码块缩进 / 取消缩进（支持多行选区） | Tab / Shift+Tab |
+| 源码视图和段落源码缩进 / 取消缩进 | Tab / Shift+Tab（也可 Ctrl+[ / Ctrl+]） |
 | 自动缩进代码（当前代码块或选中行） | 段落 → 自动缩进代码，或启用「Shift+Tab 自动缩进代码」 |
 | 退出代码块、继续正文 | Ctrl+Enter |
 | 有序列表 / 无序列表 | Ctrl+Shift+[ / Ctrl+Shift+] |

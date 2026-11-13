@@ -321,6 +321,8 @@ bool Editor::startParagraphSourceEdit() {
             [this] { finishParagraphSourceEdit(false); });
     connect(m_paragraphPanel, &ParagraphSourcePanel::imagePasteRequested, this,
             [this] { paste(); });
+    connect(m_paragraphPanel, &ParagraphSourcePanel::indentRequested, this,
+            [this](bool outdent) { changeListIndent(outdent ? -1 : 1); });
     connect(m_paragraphPanel, &ParagraphSourcePanel::clipboardRequested, this,
             [this](bool cutRequested) {
               if (cutRequested)
@@ -1493,7 +1495,16 @@ bool Editor::changeTable(editor::TableCommand command) {
 }
 
 void Editor::changeListIndent(int delta) {
-  finishParagraphSourceEdit();
+  constexpr int sourceIndent = 2;
+  if (m_paragraphSourceActive) {
+    auto* input = m_paragraphPanel->input();
+    if (input->isReadOnly()) return;
+    auto cursor = input->textCursor();
+    editor::indentTextLines(cursor, delta < 0, sourceIndent);
+    input->setTextCursor(cursor);
+    return;
+  }
+  if (isReadOnly()) return;
   QTextCursor cursor = textCursor();
   if (m_rendered) {
     if (cursor.blockFormat().hasProperty(editor::kCodeBlockProperty))
@@ -1501,29 +1512,7 @@ void Editor::changeListIndent(int delta) {
     else
       editor::indentList(cursor, delta);
   } else {
-    const int end = cursor.hasSelection() ? cursor.selectionEnd() - 1 : cursor.position();
-    QVector<QTextBlock> lines;
-    for (QTextBlock block = document()->findBlock(cursor.selectionStart());
-         block.isValid() && block.position() <= end; block = block.next())
-      lines.append(block);
-    cursor.beginEditBlock();
-    for (int index = lines.size() - 1; index >= 0; --index) {
-      QTextCursor leading(lines.at(index));
-      if (delta > 0)
-        leading.insertText(QStringLiteral("  "));
-      else {
-        const QString text = lines.at(index).text();
-        const int spaces = text.startsWith(QStringLiteral("  ")) ? 2
-                           : text.startsWith(QLatin1Char(' ')) || text.startsWith(QLatin1Char('\t'))
-                               ? 1
-                               : 0;
-        if (spaces > 0) {
-          leading.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor, spaces);
-          leading.removeSelectedText();
-        }
-      }
-    }
-    cursor.endEditBlock();
+    editor::indentTextLines(cursor, delta < 0, sourceIndent);
   }
   setTextCursor(cursor);
 }
@@ -1685,6 +1674,11 @@ void Editor::keyPressEvent(QKeyEvent* event) {
     }
   }
   const bool plain = !control && !event->modifiers().testFlag(Qt::AltModifier);
+  if (!m_rendered && plain && (event->key() == Qt::Key_Tab || event->key() == Qt::Key_Backtab)) {
+    changeListIndent(
+        event->key() == Qt::Key_Backtab || event->modifiers().testFlag(Qt::ShiftModifier) ? -1 : 1);
+    return;
+  }
   const bool special =
       m_rendered && (cursor.blockFormat().hasProperty(editor::kSpecialBlockProperty) ||
                      render::isPageBreak(cursor.block()));

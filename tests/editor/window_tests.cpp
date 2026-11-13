@@ -2329,6 +2329,63 @@ class WindowTests : public QObject {
     editor->finishParagraphSourceEdit(false);
   }
 
+  void sourceIndentKeepsReverseSelectionAndParagraphDraft() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QFile file(directory.filePath(QStringLiteral("indent.md")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    const QByteArray original("First\n\n- item\n\tcontinued\nTail");
+    QCOMPARE(file.write(original), original.size());
+    file.close();
+
+    typist::MainWindow window(nullptr, true);
+    QVERIFY(window.openFile(file.fileName()));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* indent = window.findChild<QAction*>(QStringLiteral("indent"));
+    auto* outdent = window.findChild<QAction*>(QStringLiteral("outdent"));
+    QVERIFY(editor && indent && outdent);
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView"));
+    const auto source = editor->toPlainText();
+    auto cursor = editor->textCursor();
+    const int start = source.indexOf(QStringLiteral("- item"));
+    const int tail = source.indexOf(QStringLiteral("Tail"));
+    QVERIFY(start >= 0 && tail > start);
+    cursor.setPosition(tail);
+    cursor.setPosition(start, QTextCursor::KeepAnchor);
+    editor->setTextCursor(cursor);
+    QTest::keyClick(editor, Qt::Key_Tab);
+    QCOMPARE(editor->toPlainText(), QStringLiteral("First\n\n  - item\n  \tcontinued\nTail"));
+    QVERIFY(editor->textCursor().position() < editor->textCursor().anchor());
+    QCOMPARE(editor->textCursor().anchor(), editor->toPlainText().indexOf(QStringLiteral("Tail")));
+    QTest::keyClick(editor, Qt::Key_Tab, Qt::ShiftModifier);
+    QCOMPARE(editor->toPlainText(), source);
+    editor->undo();
+    QVERIFY(editor->toPlainText().contains(QStringLiteral("  - item\n  \tcontinued")));
+    editor->undo();
+    QCOMPARE(editor->toPlainText(), source);
+
+    QVERIFY(window.openFile(file.fileName()));
+    editor->setTextCursor(editor->document()->find(QStringLiteral("First")));
+    const auto rendered = editor->toPlainText();
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(draft);
+    draft->setPlainText(QStringLiteral("\tfirst\n second"));
+    draft->selectAll();
+    QTest::keyClick(draft, Qt::Key_Backtab);
+    QCOMPARE(draft->toPlainText(), QStringLiteral("first\nsecond"));
+    QVERIFY(draft->textCursor().hasSelection());
+    indent->trigger();
+    QCOMPARE(draft->toPlainText(), QStringLiteral("  first\n  second"));
+    outdent->trigger();
+    QCOMPARE(draft->toPlainText(), QStringLiteral("first\nsecond"));
+    draft->undo();
+    QCOMPARE(draft->toPlainText(), QStringLiteral("  first\n  second"));
+    QVERIFY(editor->paragraphSourceActive());
+    QCOMPARE(editor->toPlainText(), rendered);
+    editor->finishParagraphSourceEdit(false);
+  }
+
   void wholeLineClipboardUsesTheActiveEditorAndPreservesCodeFences() {
     QSettings settings;
     const auto key = QStringLiteral("editor/copyCutWholeLine");
