@@ -567,12 +567,18 @@ QMenu* FileTree::createContextMenu(QWidget* parent) {
   relative->setEnabled(!path.isEmpty() && !root.isEmpty());
   connect(relative, &QAction::triggered, this,
           [path, root] { QApplication::clipboard()->setText(QDir(root).relativeFilePath(path)); });
-  auto* reveal = add("fileReveal", tr("Open Containing Folder"));
+  auto* reveal = add("fileReveal", onDirectory ? tr("Open Folder") : tr("Reveal in File Manager"));
   reveal->setEnabled(!platform::containingDirectoryUrl(path).isEmpty());
-  connect(reveal, &QAction::triggered, this, [this, path] {
-    const auto url = platform::containingDirectoryUrl(path);
-    if (url.isEmpty() || !QDesktopServices::openUrl(url))
-      QMessageBox::warning(this, tr("Open Containing Folder"),
+  connect(reveal, &QAction::triggered, this, [this, path, onDirectory] {
+    if (!onDirectory) {
+      platform::revealFile(path, this, [this] {
+        QMessageBox::warning(this, tr("Reveal in File Manager"),
+                             tr("Cannot show the file in the file manager."));
+      });
+      return;
+    }
+    if (!QFileInfo(path).isDir() || !QDesktopServices::openUrl(QUrl::fromLocalFile(path)))
+      QMessageBox::warning(this, tr("Open Folder"),
                            tr("Cannot open the folder in the file manager."));
   });
   return menu;

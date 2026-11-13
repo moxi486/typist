@@ -2,6 +2,9 @@
 
 #include <QString>
 #include <QUrl>
+#include <functional>
+
+class QObject;
 
 namespace typist::platform {
 
@@ -16,6 +19,8 @@ bool createDirectory(const QString& dir, const QString& name, QString* error);
 QString duplicateMarkdownFile(const QString& path, QString* error);
 // Existing directory itself, or the parent of an existing file; empty for unavailable paths.
 QUrl containingDirectoryUrl(const QString& path);
+// Selects an existing file in the system file manager, or opens its parent as a fallback.
+void revealFile(const QString& path, QObject* context, std::function<void()> onFailure);
 
 // First local .md path among dropped URLs; empty when none applies.
 QString firstMarkdownPath(const QList<QUrl>& urls);

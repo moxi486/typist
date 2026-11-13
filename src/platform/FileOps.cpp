@@ -1,9 +1,22 @@
 #include "FileOps.h"
 
+#include <QDesktopServices>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QUrl>
+
+#if defined(Q_OS_WIN)
+#include <qt_windows.h>
+#include <shlobj.h>
+#elif defined(Q_OS_MACOS)
+#include <QProcess>
+#elif defined(TYPIST_HAS_FILE_MANAGER_DBUS)
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusPendingCallWatcher>
+#include <QStringList>
+#endif
 
 namespace typist::platform {
 
@@ -141,6 +154,62 @@ QUrl containingDirectoryUrl(const QString& path) {
   const QFileInfo info(path);
   if (!info.exists()) return {};
   return QUrl::fromLocalFile(info.isDir() ? info.absoluteFilePath() : info.absolutePath());
+}
+
+void revealFile(const QString& path, QObject* context, std::function<void()> onFailure) {
+  const QFileInfo info(path);
+  if (!info.isFile()) {
+    onFailure();
+    return;
+  }
+  const auto openParent = [dir = QUrl::fromLocalFile(info.absolutePath()), onFailure] {
+    if (!QDesktopServices::openUrl(dir)) onFailure();
+  };
+#if defined(Q_OS_WIN)
+  Q_UNUSED(context);
+  const auto apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  bool selected = false;
+  if (SUCCEEDED(apartment) || apartment == RPC_E_CHANGED_MODE) {
+    const auto nativePath = QDir::toNativeSeparators(info.absoluteFilePath()).toStdWString();
+    PIDLIST_ABSOLUTE item = nullptr;
+    if (SUCCEEDED(SHParseDisplayName(nativePath.c_str(), nullptr, &item, 0, nullptr)) && item)
+      selected = SUCCEEDED(SHOpenFolderAndSelectItems(item, 0, nullptr, 0));
+    CoTaskMemFree(item);
+    if (SUCCEEDED(apartment)) CoUninitialize();
+  }
+  if (!selected) openParent();
+#elif defined(Q_OS_MACOS)
+  auto* process = new QProcess(context);
+  QObject::connect(process, &QProcess::finished, context,
+                   [process, openParent](int code, QProcess::ExitStatus status) {
+                     process->deleteLater();
+                     if (status != QProcess::NormalExit || code != 0) openParent();
+                   });
+  QObject::connect(process, &QProcess::errorOccurred, context,
+                   [process, openParent](QProcess::ProcessError error) {
+                     if (error != QProcess::FailedToStart) return;
+                     process->deleteLater();
+                     openParent();
+                   });
+  process->start(QStringLiteral("/usr/bin/open"), {QStringLiteral("-R"), info.absoluteFilePath()});
+#elif defined(TYPIST_HAS_FILE_MANAGER_DBUS)
+  auto message = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.FileManager1"),
+                                                QStringLiteral("/org/freedesktop/FileManager1"),
+                                                QStringLiteral("org.freedesktop.FileManager1"),
+                                                QStringLiteral("ShowItems"));
+  const auto url = QUrl::fromLocalFile(info.absoluteFilePath());
+  message << QStringList{url.toString(QUrl::FullyEncoded)} << QString();
+  auto* watcher =
+      new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(message, 5000), context);
+  QObject::connect(watcher, &QDBusPendingCallWatcher::finished, context,
+                   [openParent](QDBusPendingCallWatcher* reply) {
+                     reply->deleteLater();
+                     if (reply->isError()) openParent();
+                   });
+#else
+  Q_UNUSED(context);
+  openParent();
+#endif
 }
 
 QString firstMarkdownPath(const QList<QUrl>& urls) {

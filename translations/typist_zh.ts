@@ -1190,8 +1190,16 @@
         <translation>复制相对路径</translation>
     </message>
     <message>
-        <source>Open Containing Folder</source>
-        <translation>打开所在文件夹</translation>
+        <source>Open Folder</source>
+        <translation>打开文件夹</translation>
+    </message>
+    <message>
+        <source>Reveal in File Manager</source>
+        <translation>在文件管理器中显示</translation>
+    </message>
+    <message>
+        <source>Cannot show the file in the file manager.</source>
+        <translation>无法在文件管理器中显示此文件。</translation>
     </message>
     <message>
         <source>Cannot open the folder in the file manager.</source>
