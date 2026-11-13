@@ -78,9 +78,16 @@ bool renameFile(const QString& path, const QString& newName, QString* error) {
   return true;
 }
 
-bool deleteFile(const QString& path, QString* error) {
-  if (!QFile::remove(path)) {
-    if (error) *error = QStringLiteral("Delete failed");
+bool moveMarkdownToTrash(const QString& path, QString* error) {
+  if (error) error->clear();
+  const QFileInfo file(path);
+  if (!file.isFile() || file.isSymLink() ||
+      file.suffix().compare(QLatin1String("md"), Qt::CaseInsensitive)) {
+    if (error) *error = QStringLiteral("File unavailable");
+    return false;
+  }
+  if (!QFile::moveToTrash(file.absoluteFilePath())) {
+    if (error) *error = QStringLiteral("Trash failed");
     return false;
   }
   return true;

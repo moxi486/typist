@@ -426,7 +426,9 @@ class ImageAssetsTests : public QObject {
     const QString source = QStringLiteral("中文 ") + link + QStringLiteral("\n\n```md\n") + link +
                            QStringLiteral("\n```\n");
     QVERIFY(QDir().mkpath(temp.filePath("elsewhere")));
-    const auto moved = platform::relocateImages(source, old, temp.filePath("elsewhere/renamed.md"));
+    const auto base = QUrl::fromLocalFile(QFileInfo(old).absolutePath() + '/');
+    const auto moved =
+        platform::relocateImages(source, base, temp.filePath("elsewhere/renamed.md"));
     QVERIFY2(moved.error.isEmpty(), qPrintable(moved.error));
     QCOMPARE(moved.targets.size(), 1);
     QVERIFY(moved.markdown.contains("```md\n" + link + "\n```"));
@@ -435,8 +437,9 @@ class ImageAssetsTests : public QObject {
                                                 QUrl::fromLocalFile(temp.filePath("elsewhere/")));
     QCOMPARE(read(newPath), read(stored.path));
     QVERIFY(QFileInfo(stored.path).isFile());
-    const auto reference = platform::relocateImages(
-        QStringLiteral("![p][r]\n\n[r]: ") + stored.target, old, temp.filePath("elsewhere/ref.md"));
+    const auto reference =
+        platform::relocateImages(QStringLiteral("![p][r]\n\n[r]: ") + stored.target, base,
+                                 temp.filePath("elsewhere/ref.md"));
     QVERIFY(!reference.error.isEmpty());
   }
   void multipleInlineImagesKeepTheirOwnTargetsAndNeighbors() {

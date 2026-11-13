@@ -546,12 +546,15 @@ QMenu* FileTree::createContextMenu(QWidget* parent) {
     auto* duplicate = add("fileDuplicate", tr("Duplicate"));
     duplicate->setToolTip(
         tr("Copy the saved file beside the original. Unsaved edits are not included."));
-    duplicate->setEnabled(QFileInfo(path).isFile() && !QFileInfo(path).isSymLink());
+    const QFileInfo file(path);
+    const bool available = file.isFile() && !file.isSymLink();
+    duplicate->setEnabled(available);
     connect(duplicate, &QAction::triggered, this, [this, path] { duplicateFile(path); });
     connect(add("fileRename", tr("Rename")), &QAction::triggered, this,
             [this, path] { renameFile(path); });
-    connect(add("fileDelete", tr("Delete")), &QAction::triggered, this,
-            [this, path] { deleteFile(path); });
+    auto* trash = add("fileMoveToTrash", tr("Move to Trash"));
+    trash->setEnabled(available);
+    connect(trash, &QAction::triggered, this, [this, path] { moveFileToTrash(path); });
   }
   menu->addSeparator();
   auto* copy = add("fileCopyPath", tr("Copy File Path"));
@@ -619,8 +622,8 @@ QString FileTree::operationError(const QString& error) const {
     return tr("Cannot copy the file. Check the source and folder permissions.");
   if (error == QLatin1String("Rename failed"))
     return tr("Cannot rename the file. Check the name and permissions.");
-  if (error == QLatin1String("Delete failed"))
-    return tr("Cannot delete the file. Check file permissions.");
+  if (error == QLatin1String("Trash failed"))
+    return tr("Cannot move the file to the system trash.");
   return error;
 }
 void FileTree::newFileIn(const QString& dir) {
@@ -683,14 +686,20 @@ void FileTree::renameFile(const QString& path) {
   selectPath(newPath);
   emit fileRenamed(path, newPath);
 }
-void FileTree::deleteFile(const QString& path) {
-  if (path.isEmpty()) return;
-  if (QMessageBox::question(this, tr("Delete File"),
-                            tr("Delete %1?").arg(QFileInfo(path).fileName())) != QMessageBox::Yes)
-    return;
+void FileTree::moveFileToTrash(const QString& path) {
+  QMessageBox confirm(QMessageBox::Question, tr("Move to Trash"),
+                      tr("Move %1 to the system trash?").arg(QFileInfo(path).fileName()),
+                      QMessageBox::NoButton, this);
+  confirm.setTextFormat(Qt::PlainText);
+  auto* move = confirm.addButton(tr("Move to Trash"), QMessageBox::AcceptRole);
+  auto* cancel = confirm.addButton(tr("Cancel"), QMessageBox::RejectRole);
+  confirm.setDefaultButton(cancel);
+  confirm.setEscapeButton(cancel);
+  confirm.exec();
+  if (confirm.clickedButton() != move) return;
   QString error;
-  if (!platform::deleteFile(path, &error)) {
-    QMessageBox::warning(this, tr("Delete File"), operationError(error));
+  if (!platform::moveMarkdownToTrash(path, &error)) {
+    QMessageBox::warning(this, tr("Move to Trash"), operationError(error));
     return;
   }
   rebuild();

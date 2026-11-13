@@ -11,12 +11,15 @@
 #include <QFileSystemWatcher>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QSaveFile>
 #include <QScopeGuard>
 #include <QScopedPointer>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QTreeWidgetItemIterator>
 #include <QtTest>
 
@@ -377,7 +380,7 @@ class FileBrowserTests : public QObject {
     tree.setCurrentItem(nullptr);
     menu.reset(tree.createContextMenu());
     QVERIFY(!menu->findChild<QAction*>("fileDuplicate"));
-    QVERIFY(!menu->findChild<QAction*>("fileDelete"));
+    QVERIFY(!menu->findChild<QAction*>("fileMoveToTrash"));
     openWindow = menu->findChild<QAction*>("fileOpenInNewWindow");
     QVERIFY(openWindow && openWindow->isEnabled());
     openWindow->trigger();
@@ -391,6 +394,50 @@ class FileBrowserTests : public QObject {
     QVERIFY(!menu->findChild<QAction*>("fileNewFolder")->isEnabled());
     QVERIFY(!menu->findChild<QAction*>("fileCopyPath")->isEnabled());
     QVERIFY(!menu->findChild<QAction*>("fileReveal")->isEnabled());
+  }
+
+  void trashRejectsUnavailablePathsAndDirectories() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto folder = directory.filePath("folder.md");
+    const auto text = directory.filePath("text.txt");
+    QVERIFY(QDir().mkpath(folder));
+    QVERIFY(writeFile(text));
+    QString error;
+    for (const auto& path : {QString(), directory.filePath("missing.md"), folder, text}) {
+      QVERIFY(!typist::platform::moveMarkdownToTrash(path, &error));
+      QCOMPARE(error, QStringLiteral("File unavailable"));
+    }
+    QVERIFY(QFileInfo(folder).isDir());
+    QVERIFY(QFileInfo(text).isFile());
+  }
+
+  void cancelTrashKeepsTheFileAndSelection() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto path = directory.filePath(QStringLiteral("测试 & note.MD"));
+    QVERIFY(writeFile(path));
+    FileTree tree;
+    tree.setRoot(directory.path());
+    tree.selectPath(path);
+    QSignalSpy removed(&tree, &FileTree::fileRemoved);
+    QScopedPointer<QMenu> menu(tree.createContextMenu());
+    auto* action = menu->findChild<QAction*>("fileMoveToTrash");
+    QVERIFY(action && action->isEnabled());
+    bool confirmedDefault = false;
+    QTimer::singleShot(0, &tree, [&] {
+      if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+        confirmedDefault = box->textFormat() == Qt::PlainText &&
+                           box->text().contains(QFileInfo(path).fileName()) &&
+                           box->defaultButton() == box->escapeButton();
+        QTest::keyClick(box, Qt::Key_Escape);
+      }
+    });
+    action->trigger();
+    QVERIFY(confirmedDefault);
+    QVERIFY(QFileInfo(path).isFile());
+    QCOMPARE(tree.selectedPath(), path);
+    QCOMPARE(removed.count(), 0);
   }
 
   void newFolderInSelectedDirectoryAndCancel() {
