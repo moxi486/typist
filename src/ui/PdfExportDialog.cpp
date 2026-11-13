@@ -12,6 +12,7 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -28,10 +29,12 @@ PdfExportDialog::PdfExportDialog(const QTextDocument* document,
   outer->setSpacing(16);
   auto* row = new QHBoxLayout;
   row->setSpacing(24);
-  auto* controls = new QWidget(this);
-  controls->setFixedWidth(270);
+  m_settingsTabs = new QTabWidget(this);
+  m_settingsTabs->setObjectName(QStringLiteral("pdfSettingsTabs"));
+  m_settingsTabs->setFixedWidth(286);
+  auto* controls = new QWidget(m_settingsTabs);
+  m_settingsTabs->addTab(controls, QString());
   auto* form = new QFormLayout(controls);
-  form->setContentsMargins(0, 0, 0, 0);
   form->setRowWrapPolicy(QFormLayout::WrapAllRows);
   form->setSpacing(12);
   m_paper = new QComboBox(controls);
@@ -106,7 +109,27 @@ PdfExportDialog::PdfExportDialog(const QTextDocument* document,
   m_sectionBreaks->setObjectName(QStringLiteral("pdfBreakBetweenTopHeadings"));
   m_sectionBreaks->setChecked(initial.breakBetweenTopHeadings);
   form->addRow(m_sectionBreaks);
-  row->addWidget(controls, 0, Qt::AlignTop);
+  auto* metadata = new QWidget(m_settingsTabs);
+  m_settingsTabs->addTab(metadata, QString());
+  auto* fields = new QFormLayout(metadata);
+  fields->setRowWrapPolicy(QFormLayout::WrapAllRows);
+  fields->setSpacing(12);
+  const auto addMetadata = [metadata, fields](const QString& value, const QString& name,
+                                              QLabel*& label) {
+    auto* field = new QLineEdit(value, metadata);
+    field->setObjectName(name);
+    label = new QLabel(metadata);
+    label->setBuddy(field);
+    fields->addRow(label, field);
+    return field;
+  };
+  m_metadataTitle =
+      addMetadata(initial.metadataTitle, QStringLiteral("pdfMetadataTitle"), m_metadataTitleLabel);
+  m_author = addMetadata(initial.author, QStringLiteral("pdfAuthor"), m_authorLabel);
+  m_creator = addMetadata(initial.creator, QStringLiteral("pdfCreator"), m_creatorLabel);
+  m_subject = addMetadata(initial.subject, QStringLiteral("pdfSubject"), m_subjectLabel);
+  m_keywords = addMetadata(initial.keywords, QStringLiteral("pdfKeywords"), m_keywordsLabel);
+  row->addWidget(m_settingsTabs);
   auto* previewColumn = new QVBoxLayout;
   m_preview = new QLabel(this);
   m_preview->setObjectName(QStringLiteral("pdfPreview"));
@@ -168,6 +191,8 @@ PdfExportDialog::PdfExportDialog(const QTextDocument* document,
   connect(m_margin, &QDoubleSpinBox::valueChanged, this, update);
   connect(m_header, &QLineEdit::textChanged, this, update);
   connect(m_footer, &QLineEdit::textChanged, this, update);
+  connect(m_metadataTitle, &QLineEdit::textChanged, this, update);
+  connect(m_author, &QLineEdit::textChanged, this, update);
   connect(m_repeat, &QCheckBox::toggled, this, update);
   connect(m_sectionBreaks, &QCheckBox::toggled, this, update);
   connect(m_previous, &QPushButton::clicked, this, [this] {
@@ -198,6 +223,11 @@ platform::PdfPageOptions PdfExportDialog::options() const {
   result.repeatTableHeader = m_repeat->isChecked();
   result.breakBetweenTopHeadings = m_sectionBreaks->isChecked();
   result.title = m_title;
+  result.metadataTitle = m_metadataTitle->text().trimmed();
+  result.author = m_author->text().trimmed();
+  result.creator = m_creator->text().trimmed();
+  result.subject = m_subject->text().trimmed();
+  result.keywords = m_keywords->text().trimmed();
   return result;
 }
 void PdfExportDialog::refreshPreview() {
@@ -226,6 +256,15 @@ void PdfExportDialog::showImage() {
 }
 void PdfExportDialog::retranslate() {
   setWindowTitle(tr("Export PDF"));
+  m_settingsTabs->setTabText(0, tr("Page Setup"));
+  m_settingsTabs->setTabText(1, tr("Document Properties"));
+  m_metadataTitleLabel->setText(tr("Title"));
+  m_metadataTitle->setPlaceholderText(m_title);
+  m_authorLabel->setText(tr("Author"));
+  m_creatorLabel->setText(tr("Creator"));
+  m_creator->setPlaceholderText(QStringLiteral("Typist"));
+  m_subjectLabel->setText(tr("Subject"));
+  m_keywordsLabel->setText(tr("Keywords"));
   m_paperLabel->setText(tr("Paper size"));
   m_paper->setItemText(m_paper->findData(QStringLiteral("custom")), tr("Custom"));
   m_dimensionsLabel->setText(tr("Width × height"));
@@ -240,8 +279,8 @@ void PdfExportDialog::retranslate() {
   m_header->setPlaceholderText(tr("Leave empty to hide"));
   m_footer->setPlaceholderText(tr("Leave empty to hide"));
   m_hint->setText(
-      tr("Use ${title} for the document name, ${pageNo} for the page number and ${pageCount} for "
-         "the total."));
+      tr("Use ${title} and ${author} for document properties, and ${pageNo} and ${pageCount} "
+         "for page numbers."));
   m_repeat->setText(tr("Repeat table headers"));
   m_sectionBreaks->setText(tr("Break between level 1 headings"));
   m_sectionBreaks->setToolTip(

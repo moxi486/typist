@@ -12,6 +12,7 @@ class QCheckBox;
 class QLabel;
 class QPushButton;
 class QTimer;
+class QTabWidget;
 class QTextDocument;
 namespace typist::ui {
 class PdfExportDialog : public QDialog {
@@ -34,6 +35,9 @@ class PdfExportDialog : public QDialog {
   QComboBox *m_paper, *m_orientation;
   QDoubleSpinBox *m_margin, *m_width, *m_height;
   QLineEdit *m_header, *m_footer;
+  QTabWidget* m_settingsTabs;
+  QLineEdit *m_metadataTitle, *m_author, *m_creator, *m_subject, *m_keywords;
+  QLabel *m_metadataTitleLabel, *m_authorLabel, *m_creatorLabel, *m_subjectLabel, *m_keywordsLabel;
   QCheckBox *m_repeat, *m_sectionBreaks;
   QLabel *m_paperLabel, *m_dimensionsLabel, *m_orientationLabel, *m_marginLabel, *m_headerLabel,
       *m_footerLabel;

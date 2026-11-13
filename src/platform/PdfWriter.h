@@ -27,9 +27,14 @@ struct PdfPageOptions {
   QString footer;
   bool repeatTableHeader = true;  // continuation pages redraw the first row of a split table
   bool landscape = false;
-  QString title;  // document title for metadata and header/footer templates
+  QString title;  // fallback document title for metadata and header/footer templates
   bool breakBetweenTopHeadings = false;
   QSizeF customSizeMm{210.0, 297.0};  // before applying landscape orientation
+  QString metadataTitle = {};
+  QString author = {};
+  QString creator = {};
+  QString subject = {};
+  QString keywords = {};
 };
 
 // Renders the document to a PDF file. Printing lays out the whole document, so callers

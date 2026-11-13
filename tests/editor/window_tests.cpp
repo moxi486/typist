@@ -4128,6 +4128,10 @@ class WindowTests : public QObject {
           setupSeen = true;
           auto* paper = pdf->findChild<QComboBox*>(QStringLiteral("pdfPaper"));
           paper->setCurrentIndex(paper->findData(QStringLiteral("a5")));
+          pdf->findChild<QLineEdit*>(QStringLiteral("pdfMetadataTitle"))
+              ->setText(QStringLiteral("Replay PDF title"));
+          pdf->findChild<QLineEdit*>(QStringLiteral("pdfAuthor"))
+              ->setText(QStringLiteral("Replay PDF author"));
           pdf->accept();
         } else if (auto* epub = qobject_cast<typist::ui::EpubDialog*>(modal)) {
           setupSeen = true;
@@ -4232,6 +4236,8 @@ class WindowTests : public QObject {
       const auto firstBox = mediaBox.match(QString::fromLatin1(initialBytes)).captured();
       QVERIFY(!firstBox.isEmpty());
       QCOMPARE(mediaBox.match(QString::fromLatin1(bytes)).captured(), firstBox);
+      QVERIFY(bytes.contains("Replay PDF title"));
+      QVERIFY(bytes.contains("Replay PDF author"));
     } else if (extension == QLatin1String("epub")) {
       QVERIFY(bytes.contains("<dc:title id=\"main-title\">Replay Book</dc:title>"));
       QVERIFY(bytes.contains("<dc:title id=\"subtitle\">Replay subtitle</dc:title>"));
@@ -4290,6 +4296,8 @@ class WindowTests : public QObject {
       static const QRegularExpression mediaBox(QStringLiteral(R"(/MediaBox\s*\[[^\]]+\])"));
       QCOMPARE(mediaBox.match(QString::fromLatin1(overwritten)).captured(),
                mediaBox.match(QString::fromLatin1(bytes)).captured());
+      QVERIFY(overwritten.contains("Replay PDF title"));
+      QVERIFY(overwritten.contains("Replay PDF author"));
     } else {
       QVERIFY(overwritten.contains("Updated overwrite contents"));
     }

@@ -5,6 +5,7 @@
 #include "SyntaxHighlighter.h"
 
 #include <QByteArray>
+#include <QDateTime>
 #include <QMarginsF>
 #include <QPageSize>
 #include <QPainter>
@@ -17,6 +18,7 @@
 #include <QTextLayout>
 #include <QTextTable>
 #include <QVector>
+#include <QXmlStreamWriter>
 #include <QtGui>
 #include <memory>
 
@@ -92,9 +94,58 @@ QPageSize paperFor(const PdfPageOptions& options) {
              : QPageSize();
 }
 
-QString expandBand(const QString& pattern, const QString& title, int page, int count) {
+QString documentTitle(const PdfPageOptions& options) {
+  const auto title = options.metadataTitle.trimmed();
+  return title.isEmpty() ? options.title : title;
+}
+
+QByteArray documentMetadata(const PdfPageOptions& options, const QString& title,
+                            const QString& creator) {
+  QByteArray packet;
+  QXmlStreamWriter xml(&packet);
+  xml.writeProcessingInstruction(QStringLiteral("xpacket"),
+                                 QStringLiteral("begin='' id='W5M0MpCehiHzreSzNTczkc9d'"));
+  xml.writeStartElement(QStringLiteral("x:xmpmeta"));
+  xml.writeNamespace(QStringLiteral("adobe:ns:meta/"), QStringLiteral("x"));
+  xml.writeStartElement(QStringLiteral("rdf:RDF"));
+  xml.writeNamespace(QStringLiteral("http://www.w3.org/1999/02/22-rdf-syntax-ns#"),
+                     QStringLiteral("rdf"));
+  xml.writeStartElement(QStringLiteral("rdf:Description"));
+  xml.writeAttribute(QStringLiteral("rdf:about"), QString());
+  xml.writeNamespace(QStringLiteral("http://purl.org/dc/elements/1.1/"), QStringLiteral("dc"));
+  xml.writeNamespace(QStringLiteral("http://ns.adobe.com/xap/1.0/"), QStringLiteral("xmp"));
+  xml.writeNamespace(QStringLiteral("http://ns.adobe.com/pdf/1.3/"), QStringLiteral("pdf"));
+  const auto writeItem = [&](const QString& field, const QString& value, bool localized) {
+    if (value.isEmpty()) return;
+    xml.writeStartElement(field);
+    xml.writeStartElement(localized ? QStringLiteral("rdf:Alt") : QStringLiteral("rdf:Seq"));
+    xml.writeStartElement(QStringLiteral("rdf:li"));
+    if (localized) xml.writeAttribute(QStringLiteral("xml:lang"), QStringLiteral("x-default"));
+    xml.writeCharacters(value);
+    xml.writeEndElement();
+    xml.writeEndElement();
+    xml.writeEndElement();
+  };
+  writeItem(QStringLiteral("dc:title"), title, true);
+  writeItem(QStringLiteral("dc:creator"), options.author.trimmed(), false);
+  writeItem(QStringLiteral("dc:description"), options.subject.trimmed(), true);
+  const auto keywords = options.keywords.trimmed();
+  if (!keywords.isEmpty()) xml.writeTextElement(QStringLiteral("pdf:Keywords"), keywords);
+  xml.writeTextElement(QStringLiteral("xmp:CreatorTool"), creator);
+  xml.writeTextElement(QStringLiteral("pdf:Producer"), QStringLiteral("Qt %1").arg(qVersion()));
+  const auto now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+  xml.writeTextElement(QStringLiteral("xmp:CreateDate"), now);
+  xml.writeTextElement(QStringLiteral("xmp:ModifyDate"), now);
+  xml.writeEndElement();
+  xml.writeEndElement();
+  xml.writeEndElement();
+  xml.writeProcessingInstruction(QStringLiteral("xpacket"), QStringLiteral("end='w'"));
+  return xml.hasError() ? QByteArray() : packet;
+}
+
+QString expandBand(const QString& pattern, const PdfPageOptions& options, int page, int count) {
   static const QRegularExpression variable(
-      QStringLiteral(R"(\$\{(?:title|pageNo|pageCount|totalPages)\}|\{title\}|#)"));
+      QStringLiteral(R"(\$\{(?:title|author|pageNo|pageCount|totalPages)\}|\{title\}|#)"));
   QString text;
   qsizetype start = 0;
   auto matches = variable.globalMatch(pattern);
@@ -103,7 +154,9 @@ QString expandBand(const QString& pattern, const QString& title, int page, int c
     text += QStringView(pattern).mid(start, match.capturedStart() - start);
     const auto token = match.capturedView();
     if (token == u"${title}" || token == u"{title}")
-      text += title;
+      text += documentTitle(options);
+    else if (token == u"${author}")
+      text += options.author.trimmed();
     else if (token == u"${pageNo}" || token == u"#")
       text += QString::number(page);
     else
@@ -124,7 +177,7 @@ void drawBands(QPainter& painter, const QRectF& pageRect, int page, int count,
   font.setPointSizeF(9);
   painter.setFont(font);
   const auto bandText = [&](const QString& pattern) {
-    return painter.fontMetrics().elidedText(expandBand(pattern, options.title, page, count),
+    return painter.fontMetrics().elidedText(expandBand(pattern, options, page, count),
                                             Qt::ElideRight, qFloor(pageRect.width()));
   };
   if (!options.header.isEmpty())
@@ -384,6 +437,22 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
     if (error) *error = QStringLiteral("Invalid paper size");
     return false;
   }
+  const auto requestedTitle = documentTitle(options);
+  const auto title = requestedTitle.isEmpty() ? options.header : requestedTitle;
+  const auto creator =
+      options.creator.trimmed().isEmpty() ? QStringLiteral("Typist") : options.creator.trimmed();
+  QByteArray metadata;
+  if (!options.metadataTitle.trimmed().isEmpty() || !options.author.trimmed().isEmpty() ||
+      !options.creator.trimmed().isEmpty() || !options.subject.trimmed().isEmpty() ||
+      !options.keywords.trimmed().isEmpty()) {
+    metadata = documentMetadata(options, title, creator);
+    if (metadata.isEmpty()) {
+      if (error)
+        *error =
+            QCoreApplication::translate("PdfWriter", "PDF metadata contains invalid characters");
+      return false;
+    }
+  }
   QSaveFile file(path);
   if (!file.open(QIODevice::WriteOnly)) {
     if (error) *error = file.errorString();
@@ -392,8 +461,12 @@ bool exportPdf(const QString& path, const QTextDocument* document, const PdfPage
   {
     QPdfWriter writer(&file);
     writer.setResolution(96);
-    writer.setTitle(options.title.isEmpty() ? options.header : options.title);
-    writer.setCreator(QStringLiteral("Typist"));
+    writer.setTitle(title);
+    writer.setCreator(creator);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+    writer.setAuthor(options.author.trimmed());
+#endif
+    if (!metadata.isEmpty()) writer.setDocumentXmpMetadata(metadata);
     if (!writer.setPageLayout(
             QPageLayout(paper, options.landscape ? QPageLayout::Landscape : QPageLayout::Portrait,
                         QMarginsF(), QPageLayout::Millimeter))) {
