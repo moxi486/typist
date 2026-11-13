@@ -484,6 +484,7 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   QMenu* settingsMenu = new QMenu(tr("Settings"), menuBar());
   menuBar()->insertMenu(helpMenu->menuAction(), settingsMenu);
   createLaunchMenu(settingsMenu);
+  createLineEndingMenu(settingsMenu);
   createExportMenu(settingsMenu);
   QMenu* languageMenu = settingsMenu->addMenu(tr("Language"));
   auto* languageGroup = new QActionGroup(this);
@@ -1029,6 +1030,30 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   });
 }
 
+void MainWindow::createLineEndingMenu(QMenu* settings) {
+  using platform::LineEnding;
+  auto* menu = settings->addMenu(tr("Default Line Ending"));
+  menu->setObjectName(QStringLiteral("defaultLineEnding"));
+  auto* group = new QActionGroup(menu);
+  auto* lf = menu->addAction(tr("Unix (LF)"));
+  lf->setObjectName(QStringLiteral("lineEndingLf"));
+  auto* crlf = menu->addAction(tr("Windows (CRLF)"));
+  crlf->setObjectName(QStringLiteral("lineEndingCrlf"));
+  for (auto* action : {lf, crlf}) {
+    action->setCheckable(true);
+    group->addAction(action);
+  }
+  const auto sync = [lf, crlf] {
+    const auto ending = platform::defaultLineEnding();
+    (ending == LineEnding::Crlf ? crlf : lf)->setChecked(true);
+  };
+  sync();
+  connect(menu, &QMenu::aboutToShow, group, sync);
+  connect(group, &QActionGroup::triggered, this, [crlf](QAction* action) {
+    platform::setDefaultLineEnding(action == crlf ? LineEnding::Crlf : LineEnding::Lf);
+  });
+}
+
 void MainWindow::createLaunchMenu(QMenu* settings) {
   using Mode = platform::LaunchMode;
   auto* menu = settings->addMenu(tr("On Launch"));
@@ -1291,6 +1316,7 @@ void MainWindow::newDocument() {
   static_cast<ui::Editor*>(m_editor)->finishParagraphSourceEdit(false);
   if (!m_benchMode) platform::updateClosedFiles(m_currentPath);
   m_currentPath.clear();
+  m_lineEnding.reset();
   resetPreviousExport();
   m_view->rendered()->setBaseUrl(QUrl());
   m_view->loadMarkdownIntoBoth(QString(), nullptr);
@@ -1556,7 +1582,9 @@ bool MainWindow::openFileReplacingCurrent(const QString& path, bool rememberCurr
     return false;
   }
 
-  const QString source = QString::fromUtf8(file.readAll());
+  const QString disk = QString::fromUtf8(file.readAll());
+  const auto ending = platform::detectLineEnding(disk);
+  const QString source = platform::normalizeLineEndings(disk);
   static_cast<ui::Editor*>(m_editor)->finishParagraphSourceEdit(false);
   m_view->rendered()->setBaseUrl(
       QUrl::fromLocalFile(QFileInfo(path).absolutePath() + QLatin1Char('/')));
@@ -1574,6 +1602,7 @@ bool MainWindow::openFileReplacingCurrent(const QString& path, bool rememberCurr
   if (!m_benchMode) platform::updateClosedFiles(rememberCurrent ? m_currentPath : QString(), path);
   if (QFileInfo(m_currentPath) != QFileInfo(path)) resetPreviousExport();
   m_currentPath = path;
+  m_lineEnding = ending;
   m_savedMarkdown = source;
   m_sourceAction->setText(tr("Source View"));
   markClean();
@@ -1619,6 +1648,7 @@ bool MainWindow::adoptHtmlImport(const editor::HtmlImportResult& result) {
   m_autoSave->cancelPending();
   if (!m_benchMode) platform::updateClosedFiles(m_currentPath);
   m_currentPath.clear();
+  m_lineEnding.reset();
   resetPreviousExport();
   m_view->rendered()->setBaseUrl(QUrl());
   m_document = m_view->active();
@@ -1651,18 +1681,26 @@ void MainWindow::importHtmlDialog() {
   if (preview.exec() == QDialog::Accepted) adoptHtmlImport(result);
 }
 
+bool MainWindow::writeMarkdownFile(const QString& path, const QString& markdown) {
+  const auto ending = m_lineEnding ? *m_lineEnding : platform::defaultLineEnding();
+  const auto contents = platform::normalizeLineEndings(markdown, ending);
+  QString error;
+  if (!platform::writeAtomic(path, contents, &error)) {
+    statusBar()->showMessage(error);
+    return false;
+  }
+  m_lineEnding = platform::detectLineEnding(contents);
+  return true;
+}
+
 void MainWindow::save() {
   if (m_currentPath.isEmpty()) {
     saveAs();
     return;
   }
 
-  QString error;
   const QString markdown = currentMarkdown();
-  if (!typist::platform::writeAtomic(m_currentPath, markdown, &error)) {
-    statusBar()->showMessage(error);
-    return;
-  }
+  if (!writeMarkdownFile(m_currentPath, markdown)) return;
 
   m_savedMarkdown = markdown;
   markClean();
@@ -1686,11 +1724,7 @@ bool MainWindow::saveDocumentAs(const QString& path) {
     return false;
   }
   const QString markdown = relocated.markdown;
-  QString error;
-  if (!platform::writeAtomic(path, markdown, &error)) {
-    statusBar()->showMessage(error);
-    return false;
-  }
+  if (!writeMarkdownFile(path, markdown)) return false;
   if (!relocated.targets.isEmpty()) {
     const auto previous = m_editor->textCursor();
     QTextCursor edit(m_editor->document());
@@ -2140,11 +2174,7 @@ void MainWindow::autoSaveNow() {
   if (!m_autoSaveEnabled || !m_dirty || m_currentPath.isEmpty()) return;
 
   const QString markdown = currentMarkdown();
-  QString error;
-  if (!typist::platform::writeAtomic(m_currentPath, markdown, &error)) {
-    statusBar()->showMessage(error);
-    return;
-  }
+  if (!writeMarkdownFile(m_currentPath, markdown)) return;
 
   m_savedMarkdown = markdown;
   markClean();
@@ -2301,6 +2331,7 @@ void MainWindow::treeFileRemoved(const QString& path) {
   m_view->showActiveIn(m_editor);
   m_outlinePanel->setDocument(m_document, true);
   m_currentPath.clear();
+  m_lineEnding.reset();
   resetPreviousExport();
   m_savedMarkdown.clear();
   markClean();
@@ -2663,7 +2694,9 @@ void MainWindow::checkCurrentFileConflict() {
   if (!file.open(QIODevice::ReadOnly)) return;
   const QString disk = QString::fromUtf8(file.readAll());
   file.close();
-  const bool diskDiffers = disk != m_savedMarkdown;
+  const auto ending = platform::detectLineEnding(disk);
+  const bool diskDiffers = platform::normalizeLineEndings(disk) != m_savedMarkdown;
+  if (!diskDiffers) m_lineEnding = ending;
   if (typist::ui::decideConflict(m_dirty, diskDiffers, !m_benchMode) ==
       typist::ui::ConflictChoice::ReloadDisk) {
     if (m_dirty) {
@@ -2910,7 +2943,7 @@ void MainWindow::recoverLatestDraft() {
     statusBar()->showMessage(tr("Cannot open draft"));
     return;
   }
-  const QString text = QString::fromUtf8(file.readAll());
+  const QString text = platform::normalizeLineEndings(QString::fromUtf8(file.readAll()));
   file.close();
 
   if (!maybeSaveBeforeNavigate()) return;
@@ -2928,6 +2961,7 @@ void MainWindow::recoverLatestDraft() {
   m_outlinePanel->setDocument(m_document, true);
   if (!m_benchMode) platform::updateClosedFiles(m_currentPath);
   m_currentPath.clear();
+  m_lineEnding.reset();
   resetPreviousExport();
   m_savedMarkdown = text;
   m_dirty = true;

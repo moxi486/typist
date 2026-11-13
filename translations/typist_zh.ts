@@ -380,6 +380,18 @@
         <translation>自动保存</translation>
     </message>
     <message>
+        <source>Default Line Ending</source>
+        <translation>默认换行符</translation>
+    </message>
+    <message>
+        <source>Unix (LF)</source>
+        <translation>Unix (LF)</translation>
+    </message>
+    <message>
+        <source>Windows (CRLF)</source>
+        <translation>Windows (CRLF)</translation>
+    </message>
+    <message>
         <source>Characters without spaces: %1</source>
         <translation>字符数（不含空格）：%1</translation>
     </message>

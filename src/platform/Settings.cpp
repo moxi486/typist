@@ -13,6 +13,7 @@ QSettings openSettings(QSettings::Format format = QSettings::NativeFormat) {
                    QStringLiteral("Typist"));
 }
 const auto writingAreaKey = QStringLiteral("editor/writingAreaWidths");
+const auto lineEndingKey = QStringLiteral("editor/defaultLineEnding");
 const auto launchOptionsKey = QStringLiteral("startup/options");
 const auto lastClosedKey = QStringLiteral("startup/lastClosed");
 const auto closedFilesKey = QStringLiteral("history/closedFiles");
@@ -174,6 +175,19 @@ QString exportDirectory(const QString& documentPath) {
 void rememberExportDirectory(const QString& outputPath) {
   openSettings(QSettings::defaultFormat())
       .setValue(lastExportDirectoryKey, QFileInfo(outputPath).absolutePath());
+}
+
+LineEnding defaultLineEnding() {
+  return openSettings(QSettings::defaultFormat()).value(lineEndingKey).toString() ==
+                 QLatin1String("crlf")
+             ? LineEnding::Crlf
+             : LineEnding::Lf;
+}
+
+void setDefaultLineEnding(LineEnding ending) {
+  openSettings(QSettings::defaultFormat())
+      .setValue(lineEndingKey,
+                ending == LineEnding::Crlf ? QStringLiteral("crlf") : QStringLiteral("lf"));
 }
 
 WritingAreaWidths writingAreaWidths() {
