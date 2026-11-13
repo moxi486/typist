@@ -20,6 +20,20 @@ QByteArray fileDigest(const QString& path) {
 
 }  // namespace
 
+std::optional<LineEnding> detectLineEnding(QStringView text) {
+  const auto lf = text.indexOf(u'\n');
+  const auto cr = text.indexOf(u'\r');
+  if (lf < 0 && cr < 0) return std::nullopt;
+  return cr >= 0 && lf == cr + 1 ? LineEnding::Crlf : LineEnding::Lf;
+}
+
+QString normalizeLineEndings(QString text, LineEnding ending) {
+  text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+  text.replace(u'\r', u'\n');
+  if (ending == LineEnding::Crlf) text.replace(u'\n', QStringLiteral("\r\n"));
+  return text;
+}
+
 bool writeAtomic(const QString& path, const QString& contents, QString* error) {
   const QFileInfo info(path);
   const QDir dir = info.dir();

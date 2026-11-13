@@ -1,5 +1,6 @@
 #pragma once
 
+#include "FileWriter.h"
 #include "PdfWriter.h"
 
 #include <QFlags>
@@ -16,6 +17,8 @@ void setThemePreference(const QString& value);
 
 QString languagePreference();
 void setLanguagePreference(const QString& value);
+LineEnding defaultLineEnding();
+void setDefaultLineEnding(LineEnding ending);
 
 enum class LaunchMode { NewDocument, LastFolder, LastFileAndFolder, CustomFolder };
 struct LaunchOptions {

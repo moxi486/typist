@@ -2609,6 +2609,106 @@ class WindowTests : public QObject {
     window.findChild<QAction*>(QStringLiteral("insert_math"))->trigger();
   }
 
+  void markdownLineEndingsFollowFileOrDefault() {
+    using typist::platform::LineEnding;
+    QSettings settings;
+    const auto key = QStringLiteral("editor/defaultLineEnding");
+    const auto autoSaveKey = QStringLiteral("editor/autoSave");
+    const auto savedDefault = settings.value(key);
+    const auto savedAutoSave = settings.value(autoSaveKey);
+    const auto language = typist::platform::languagePreference();
+    const auto restore = qScopeGuard([&] {
+      for (const auto& [name, value] :
+           {qMakePair(key, savedDefault), qMakePair(autoSaveKey, savedAutoSave)}) {
+        if (value.isValid())
+          settings.setValue(name, value);
+        else
+          settings.remove(name);
+      }
+      typist::platform::setLanguagePreference(language);
+    });
+    settings.remove(key);
+    settings.setValue(autoSaveKey, true);
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto lfPath = directory.filePath(QStringLiteral("lf.md"));
+    const auto crlfPath = directory.filePath(QStringLiteral("crlf.md"));
+    const auto copyPath = directory.filePath(QStringLiteral("copy.md"));
+    const auto freshPath = directory.filePath(QStringLiteral("fresh.md"));
+    const auto write = [](const QString& path, const QByteArray& bytes) {
+      QFile file(path);
+      return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+    };
+    const auto read = [](const QString& path) {
+      QFile file(path);
+      return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+    };
+    QVERIFY(write(lfPath, "First\n\nSecond\n"));
+    QVERIFY(write(crlfPath, "First\r\n\r\nSecond\n"));
+
+    typist::MainWindow window(nullptr, true);
+    auto* menu = window.findChild<QMenu*>(QStringLiteral("defaultLineEnding"));
+    auto* lf = window.findChild<QAction*>(QStringLiteral("lineEndingLf"));
+    auto* crlf = window.findChild<QAction*>(QStringLiteral("lineEndingCrlf"));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(menu && lf && crlf && editor);
+    QVERIFY(lf->isChecked());
+    crlf->trigger();
+    QCOMPARE(typist::platform::defaultLineEnding(), LineEnding::Crlf);
+    typist::MainWindow other(nullptr, true);
+    auto* otherLf = other.findChild<QAction*>(QStringLiteral("lineEndingLf"));
+    auto* otherCrlf = other.findChild<QAction*>(QStringLiteral("lineEndingCrlf"));
+    QVERIFY(otherLf && otherCrlf && otherCrlf->isChecked());
+    QVERIFY(QMetaObject::invokeMethod(&other, "toggleSourceView"));
+    other.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"))
+        ->insertPlainText(QStringLiteral("New\n\nDocument\n"));
+    QVERIFY(other.saveDocumentAs(freshPath));
+    QCOMPARE(read(freshPath), QByteArray("New\r\n\r\nDocument\r\n"));
+
+    QVERIFY(window.openFile(lfPath));
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView"));
+    QVERIFY(!window.windowTitle().contains(u'*'));
+    QVERIFY(QMetaObject::invokeMethod(&window, "save"));
+    QCOMPARE(read(lfPath), QByteArray("First\n\nSecond\n"));
+
+    otherLf->trigger();
+    QVERIFY(QMetaObject::invokeMethod(menu, "aboutToShow"));
+    QVERIFY(lf->isChecked() && !crlf->isChecked());
+    QVERIFY(window.openFile(crlfPath));
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView"));
+    QCOMPARE(editor->toPlainText(), QStringLiteral("First\n\nSecond\n"));
+    QVERIFY(!window.windowTitle().contains(u'*'));
+    editor->moveCursor(QTextCursor::End);
+    editor->insertPlainText(QStringLiteral("\nThird\n"));
+    QVERIFY(QMetaObject::invokeMethod(&window, "autoSaveNow"));
+    QCOMPARE(read(crlfPath), QByteArray("First\r\n\r\nSecond\r\n\r\nThird\r\n"));
+    QVERIFY(!window.windowTitle().contains(u'*'));
+    QVERIFY(window.saveDocumentAs(copyPath));
+    QCOMPARE(read(copyPath), read(crlfPath));
+
+    // A disk-only change of line endings updates the next write without resetting undo.
+    const auto undo = editor->document()->availableUndoSteps();
+    QVERIFY(write(copyPath, "First\n\nSecond\n\nThird\n"));
+    QVERIFY(QMetaObject::invokeMethod(&window, "checkCurrentFileConflict"));
+    QCOMPARE(editor->document()->availableUndoSteps(), undo);
+    QVERIFY(QMetaObject::invokeMethod(&window, "save"));
+    QCOMPARE(read(copyPath), QByteArray("First\n\nSecond\n\nThird\n"));
+
+    const auto singleLine = directory.filePath(QStringLiteral("one-line.md"));
+    QVERIFY(write(singleLine, "One line"));
+    QVERIFY(window.openFile(singleLine));
+    crlf->trigger();
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView"));
+    editor->moveCursor(QTextCursor::End);
+    editor->insertPlainText(QStringLiteral("\nSecond line"));
+    QVERIFY(QMetaObject::invokeMethod(&window, "save"));
+    QCOMPARE(read(singleLine), QByteArray("One line\r\nSecond line"));
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(menu->title(), QStringLiteral("默认换行符"));
+    QVERIFY(crlf->isChecked());
+  }
+
   void paragraphSourceSaveAutosaveAndViewSwitch() {
     QTemporaryDir directory;
     const QString path = directory.filePath(QStringLiteral("paragraph.md"));

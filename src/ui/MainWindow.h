@@ -166,6 +166,8 @@ class MainWindow : public QMainWindow {
   void updateSearchFocusGuard();
   void createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMenu* settings);
   void createLaunchMenu(QMenu* settings);
+  void createLineEndingMenu(QMenu* settings);
+  bool writeMarkdownFile(const QString& path, const QString& markdown);
   void createExportMenu(QMenu* settings);
   QString chooseDirectory(const QString& title, const QString& initial);
   bool maybeSaveBeforeNavigate();
@@ -260,6 +262,7 @@ class MainWindow : public QMainWindow {
   bool m_benchMode = false;
   QString m_currentPath;
   QString m_savedMarkdown;
+  std::optional<platform::LineEnding> m_lineEnding;
   QString m_themePreference;
   bool m_dirty = false;
   bool m_sourceMode = false;
