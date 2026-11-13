@@ -112,6 +112,7 @@ class Editor : public QTextEdit {
   void setTypewriterMode(bool enabled);
   void setWritingAreaWidths(const platform::WritingAreaWidths& widths);
   void setAutoPair(bool enabled) { m_autoPair = enabled; }
+  void setCopyCutWholeLine(bool enabled) { m_copyCutWholeLine = enabled; }
   bool focusMode() const { return m_focusMode; }
   bool typewriterMode() const { return m_typewriterMode; }
   void zoomDocument(int steps) {
@@ -215,6 +216,7 @@ class Editor : public QTextEdit {
   void addImageFileActions(QMenu* menu, const QContextMenuEvent& event);
   void saveImageResource(QTextCursor image, bool relink);
   QString selectedPlainText() const;
+  bool copyOrCutCurrentLine(bool cut);
   bool copyCodeBlock(const QTextCursor& cursor);
   bool autoIndentCode(QTextCursor cursor);
   void paintCodeBackgrounds() {
@@ -342,6 +344,7 @@ class Editor : public QTextEdit {
   bool m_typewriterMode = false;
   bool m_centering = false;
   bool m_autoPair = true;
+  bool m_copyCutWholeLine = false;
   bool m_syntaxHighlight = true;
   bool m_codeLineNumbers = false;
   platform::WritingAreaWidths m_writingAreaWidths;

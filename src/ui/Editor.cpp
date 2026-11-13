@@ -321,6 +321,13 @@ bool Editor::startParagraphSourceEdit() {
             [this] { finishParagraphSourceEdit(false); });
     connect(m_paragraphPanel, &ParagraphSourcePanel::imagePasteRequested, this,
             [this] { paste(); });
+    connect(m_paragraphPanel, &ParagraphSourcePanel::clipboardRequested, this,
+            [this](bool cutRequested) {
+              if (cutRequested)
+                cut();
+              else
+                copy();
+            });
     connect(m_paragraphPanel, &ParagraphSourcePanel::focusLeft, this, [this] {
       if (!m_paragraphSourceFocusCommitEnabled) return;
       QTextCursor destination = textCursor();
@@ -456,6 +463,7 @@ QString Editor::paragraphSourceSelection() const {
                                  : QString();
 }
 void Editor::cut() {
+  if (copyOrCutCurrentLine(true)) return;
   if (m_rendered && !m_paragraphSourceActive && textCursor().hasComplexSelection()) {
     copy();
     QTextCursor cursor = textCursor();
@@ -469,6 +477,7 @@ void Editor::cut() {
     QTextEdit::cut();
 }
 void Editor::copy() {
+  if (copyOrCutCurrentLine(false)) return;
   if (m_paragraphSourceActive) {
     m_paragraphPanel->input()->copy();
     return;
@@ -486,6 +495,58 @@ void Editor::copy() {
         cursor.selectedText().replace(QChar::ParagraphSeparator, QLatin1Char('\n')));
   else
     QTextEdit::copy();
+}
+
+bool Editor::copyOrCutCurrentLine(bool cut) {
+  if (!m_copyCutWholeLine) return false;
+  auto* draft = m_paragraphSourceActive ? m_paragraphPanel->input() : nullptr;
+  if (cut && (draft ? draft->isReadOnly() : isReadOnly())) return false;
+  auto cursor = draft ? draft->textCursor() : textCursor();
+  if (cursor.hasSelection()) return false;
+  const auto block = cursor.block();
+  const auto format = block.blockFormat();
+  const bool code = m_rendered && !draft;
+  const int group = format.intProperty(editor::kCodeBlockProperty);
+  if (code && (!group || cursor.currentTable() ||
+               (format.boolProperty(editor::kEmptyCodeFenceProperty) && block.text().isEmpty())))
+    return false;
+
+  const auto inScope = [code, group](const QTextBlock& neighbor) {
+    return neighbor.isValid() &&
+           (!code || neighbor.blockFormat().intProperty(editor::kCodeBlockProperty) == group);
+  };
+  const auto next = block.next();
+  const auto previous = block.previous();
+  const bool hasNext = inScope(next);
+  const bool hasPrevious = inScope(previous);
+  const auto line = block.text();
+  if (!code && line.isEmpty() && !hasNext && !hasPrevious) return false;
+  QApplication::clipboard()->setText(line + (code || hasNext ? QStringLiteral("\n") : QString()));
+  if (!cut) return true;
+
+  int start = block.position();
+  const int end = hasNext ? next.position() : block.position() + line.size();
+  auto remainingFormat = format;
+  if (!hasNext && hasPrevious) {
+    --start;
+    remainingFormat = previous.blockFormat();
+    remainingFormat.setBottomMargin(format.bottomMargin());
+  } else if (code && hasNext) {
+    remainingFormat.setBottomMargin(next.blockFormat().bottomMargin());
+  } else if (code) {
+    remainingFormat.setProperty(editor::kEmptyCodeFenceProperty, true);
+  }
+  cursor.setPosition(start);
+  cursor.setPosition(end, QTextCursor::KeepAnchor);
+  cursor.beginEditBlock();
+  cursor.removeSelectedText();
+  if (code) cursor.setBlockFormat(remainingFormat);
+  cursor.endEditBlock();
+  if (draft)
+    draft->setTextCursor(cursor);
+  else
+    setTextCursor(cursor);
+  return true;
 }
 QString Editor::selectedPlainText() const {
   if (m_paragraphSourceActive) return paragraphSourceSelection();

@@ -629,10 +629,14 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
           [this] { close(); });
 
   edit->addSeparator();
-  command(edit, QStringLiteral("cut"), tr("Cut"), QStringLiteral("Ctrl+X"),
-          [editor] { editor->cut(); });
-  command(edit, QStringLiteral("copy"), tr("Copy"), QStringLiteral("Ctrl+C"),
-          [editor] { editor->copy(); });
+  auto* cut = command(edit, QStringLiteral("cut"), tr("Cut"), QStringLiteral("Ctrl+X"),
+                      [editor] { editor->cut(); });
+  auto* copy = command(edit, QStringLiteral("copy"), tr("Copy"), QStringLiteral("Ctrl+C"),
+                       [editor] { editor->copy(); });
+  for (auto* action : {cut, copy}) {
+    action->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    editor->addAction(action);
+  }
   command(edit, QStringLiteral("paste"), tr("Paste"), QStringLiteral("Ctrl+V"),
           [editor] { editor->paste(); });
   auto* selectAll = command(edit, QStringLiteral("selectAll"), tr("Select All"),
@@ -1019,6 +1023,16 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   connect(autoPair, &QAction::toggled, this, [editor](bool enabled) {
     editor->setAutoPair(enabled);
     QSettings().setValue(QStringLiteral("editor/autoPair"), enabled);
+  });
+  auto* copyCutWholeLine = command(settings, QStringLiteral("copyCutWholeLine"),
+                                   tr("Copy and Cut Whole Line"), QString(), [] {});
+  const auto copyCutWholeLineKey = QStringLiteral("editor/copyCutWholeLine");
+  copyCutWholeLine->setCheckable(true);
+  copyCutWholeLine->setChecked(QSettings().value(copyCutWholeLineKey, false).toBool());
+  editor->setCopyCutWholeLine(copyCutWholeLine->isChecked());
+  connect(copyCutWholeLine, &QAction::toggled, this, [editor, copyCutWholeLineKey](bool enabled) {
+    editor->setCopyCutWholeLine(enabled);
+    QSettings().setValue(copyCutWholeLineKey, enabled);
   });
   QAction* autoSave =
       command(settings, QStringLiteral("autoSave"), tr("Auto Save"), QString(), [] {});

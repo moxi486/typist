@@ -98,6 +98,12 @@ bool ParagraphSourcePanel::eventFilter(QObject* object, QEvent* event) {
   if (object == m_input &&
       (event->type() == QEvent::KeyPress || event->type() == QEvent::ShortcutOverride)) {
     auto* key = static_cast<QKeyEvent*>(event);
+    if (key->matches(QKeySequence::Copy) || key->matches(QKeySequence::Cut)) {
+      event->accept();
+      if (event->type() == QEvent::KeyPress)
+        emit clipboardRequested(key->matches(QKeySequence::Cut));
+      return true;
+    }
     if (key->matches(QKeySequence::Paste)) {
       const auto* mime = QApplication::clipboard()->mimeData();
       if (mime && (mime->hasImage() || mime->hasUrls())) {
