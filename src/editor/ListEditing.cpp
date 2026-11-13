@@ -1,7 +1,9 @@
 #include "ListEditing.h"
 
 #include "editor_document.h"
+#include "markdown.h"
 
+#include <QRegularExpression>
 #include <QTextBlock>
 #include <QTextDocument>
 #include <QTextList>
@@ -44,6 +46,54 @@ void insertMarker(const QTextBlock& block, bool checked) {
   marker.insertText(QString(checked ? QChar(0x2611) : QChar(0x2610)) + QLatin1Char(' '), format);
 }
 }  // namespace
+
+bool continueSourceList(QTextCursor& cursor) {
+  if (cursor.hasSelection()) return false;
+  const auto block = cursor.block();
+  const auto text = block.text();
+  static const QRegularExpression item(
+      QStringLiteral(R"(^([ \t]*)([-+*]|([0-9]{1,9})([.)]))(?:[ \t]+|$))"));
+  const auto match = item.match(text);
+  if (!match.hasMatch()) return false;
+  int content = match.capturedEnd();
+  static const QRegularExpression task(QStringLiteral(R"(\[[ xX]\](?:[ \t]+|$))"));
+  const auto checkbox = task.match(text, content, QRegularExpression::NormalMatch,
+                                   QRegularExpression::AnchorAtOffsetMatchOption);
+  if (checkbox.hasMatch()) content = checkbox.capturedEnd();
+  if (cursor.positionInBlock() < content) return false;
+
+  // Let CommonMark distinguish list items from code, HTML, and setext headings.
+  auto context = cursor;
+  context.movePosition(QTextCursor::EndOfBlock);
+  context.movePosition(QTextCursor::Start, QTextCursor::KeepAnchor);
+  const auto source = context.selectedText().replace(QChar::ParagraphSeparator, '\n').toUtf8();
+  if (!core::startsSourceListItem(std::string_view(source.constData(), source.size()),
+                                  block.blockNumber() + 1))
+    return false;
+
+  if (content == text.size()) {
+    cursor.movePosition(QTextCursor::StartOfBlock, QTextCursor::KeepAnchor);
+    cursor.removeSelectedText();
+    return true;
+  }
+
+  const auto number = match.captured(3);
+  auto marker = match.captured(2);
+  if (!number.isEmpty()) {
+    const auto value = number.toInt();
+    if (value < 999999999)
+      marker = QStringLiteral("%1%2")
+                   .arg(value + 1, number.size(), 10, QLatin1Char('0'))
+                   .arg(match.captured(4));
+  }
+  const auto prefix = match.captured(1) + marker +
+                      (checkbox.hasMatch() ? QStringLiteral(" [ ] ") : QStringLiteral(" "));
+  cursor.beginEditBlock();
+  cursor.insertBlock();
+  cursor.insertText(prefix);
+  cursor.endEditBlock();
+  return true;
+}
 
 int listContentStart(const QTextBlock& block) {
   if (block.blockFormat().hasProperty(kTaskProperty)) {

@@ -66,6 +66,55 @@ const QString tree = QStringLiteral(
 class ListWorkflowTests : public QObject {
   Q_OBJECT
  private slots:
+  void sourceListContinuationPreservesMarkersAndSupportsUndo() {
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    prepare(editor, view, QStringLiteral("- first"));
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    struct Example {
+      const char* before;
+      const char* after;
+    };
+    const Example examples[] = {
+        {"+ first", "+ first\n+ "},
+        {"009) first", "009) first\n010) "},
+        {"999999999. limit", "999999999. limit\n999999999. "},
+        {"- parent\n    * child", "- parent\n    * child\n    * "},
+        {"- parent\n  - [X] done", "- parent\n  - [X] done\n  - [ ] "},
+        {"- item\n- [ ] ", "- item\n"},
+        {"3. item\n4.", "3. item\n"},
+        {"```text\n- code", "```text\n- code\n"},
+        {"- parent\n  ~~~\n  - code", "- parent\n  ~~~\n  - code\n"},
+        {"    - indented code", "    - indented code\n"},
+        {"<div>\n- HTML", "<div>\n- HTML\n"},
+        {"Heading\n-", "Heading\n-\n"},
+        {"- - -", "- - -\n"},
+    };
+    for (const auto& example : examples) {
+      const auto before = QString::fromLatin1(example.before);
+      editor.setPlainText(before);
+      editor.moveCursor(QTextCursor::End);
+      QTest::keyClick(&editor, Qt::Key_Return);
+      QCOMPARE(editor.toPlainText(), QString::fromLatin1(example.after));
+      editor.undo();
+      QCOMPARE(editor.toPlainText(), before);
+    }
+
+    editor.setPlainText(QStringLiteral("- firstsecond"));
+    auto cursor = editor.textCursor();
+    cursor.setPosition(7);
+    editor.setTextCursor(cursor);
+    QTest::keyClick(&editor, Qt::Key_Return);
+    QCOMPARE(editor.toPlainText(), QStringLiteral("- first\n- second"));
+    QCOMPARE(editor.textCursor().positionInBlock(), 2);
+    editor.undo();
+    QCOMPARE(editor.toPlainText(), QStringLiteral("- firstsecond"));
+    editor.moveCursor(QTextCursor::End);
+    QTest::keyClick(&editor, Qt::Key_Return, Qt::ShiftModifier);
+    QCOMPARE(editor.toPlainText(), QStringLiteral("- firstsecond\n"));
+  }
+
   void docxUsesListCountersRestartsAndNineLevels() {
     QString source = QStringLiteral("1. Parent\n   1. Child\n2. Sibling\n\nBody\n\n1. Restart\n");
     for (int level = 0; level < 9; ++level)
