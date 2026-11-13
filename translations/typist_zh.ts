@@ -380,6 +380,10 @@
         <translation>复制和剪切整行</translation>
     </message>
     <message>
+        <source>Copy Markdown Source as Plain Text</source>
+        <translation>将 Markdown 源码作为纯文本复制</translation>
+    </message>
+    <message>
         <source>Auto Save</source>
         <translation>自动保存</translation>
     </message>

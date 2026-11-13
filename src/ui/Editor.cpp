@@ -1578,6 +1578,21 @@ void Editor::insertFromMimeData(const QMimeData* source) {
     tryRenderInline();
   }
 }
+QMimeData* Editor::createMimeDataFromSelection() const {
+  auto* data = QTextEdit::createMimeDataFromSelection();
+  if (!m_copyMarkdownAsPlainText || !m_rendered || m_paragraphSourceActive) return data;
+  const auto cursor = textCursor();
+  if (!cursor.hasSelection() || cursor.hasComplexSelection() || editor::isCodeSelection(cursor))
+    return data;
+  const auto markdown = editor::selectedMarkdown(cursor);
+  if (!markdown.isEmpty()) {
+    // Qt materializes the rich formats lazily and sets its own plain text at that point.
+    (void)data->text();
+    data->setText(markdown);
+  }
+  return data;
+}
+
 bool Editor::canInsertFromMimeData(const QMimeData* source) const {
   return (m_imagePasteHandler && (source->hasImage() || source->hasUrls())) ||
          QTextEdit::canInsertFromMimeData(source);

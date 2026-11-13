@@ -113,6 +113,7 @@ class Editor : public QTextEdit {
   void setWritingAreaWidths(const platform::WritingAreaWidths& widths);
   void setAutoPair(bool enabled) { m_autoPair = enabled; }
   void setCopyCutWholeLine(bool enabled) { m_copyCutWholeLine = enabled; }
+  void setCopyMarkdownAsPlainText(bool enabled) { m_copyMarkdownAsPlainText = enabled; }
   bool focusMode() const { return m_focusMode; }
   bool typewriterMode() const { return m_typewriterMode; }
   void zoomDocument(int steps) {
@@ -191,6 +192,7 @@ class Editor : public QTextEdit {
   bool viewportEvent(QEvent* event) override;
   void inputMethodEvent(QInputMethodEvent* event) override;
   void insertFromMimeData(const QMimeData* source) override;
+  QMimeData* createMimeDataFromSelection() const override;
   bool canInsertFromMimeData(const QMimeData* source) const override;
   void dragEnterEvent(QDragEnterEvent* event) override;
   void dragMoveEvent(QDragMoveEvent* event) override;
@@ -345,6 +347,7 @@ class Editor : public QTextEdit {
   bool m_centering = false;
   bool m_autoPair = true;
   bool m_copyCutWholeLine = false;
+  bool m_copyMarkdownAsPlainText = false;
   bool m_syntaxHighlight = true;
   bool m_codeLineNumbers = false;
   platform::WritingAreaWidths m_writingAreaWidths;
