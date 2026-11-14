@@ -89,7 +89,11 @@ bool ViewSwitch::switchView(QString* error) {
 }
 
 void ViewSwitch::showActiveIn(QTextEdit* editor) const {
-  editor->setDocument(m_active);
+  if (editor->document() != m_active) {
+    // Qt repaints the old selections using the installed document's layout.
+    editor->setExtraSelections({});
+    editor->setDocument(m_active);
+  }
   editor->setAcceptRichText(!m_sourceMode);
   if (auto* writingEditor = dynamic_cast<Editor*>(editor))
     writingEditor->configurePresentation(!m_sourceMode);
