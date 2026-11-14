@@ -13,7 +13,7 @@ class QMenu;
 
 namespace typist::ui {
 
-// Sidebar tree of directories and Markdown files; double-click opens, context menu edits files.
+// Workspace sidebar. Double-click opens an entry and the context menu provides file operations.
 class FileTree : public QTreeWidget {
   Q_OBJECT
 

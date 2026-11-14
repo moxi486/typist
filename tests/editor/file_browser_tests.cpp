@@ -179,9 +179,10 @@ class FileBrowserTests : public QObject {
   void fileBrowserPreferencesKeepLegacyDefaults() {
     QSettings settings(QStringLiteral("Typist"), QStringLiteral("Typist"));
     const QStringList keys = {
-        QStringLiteral("files/view"),          QStringLiteral("files/sort"),
-        QStringLiteral("files/descending"),    QStringLiteral("files/foldersFirst"),
-        QStringLiteral("files/groupByFolder"), QStringLiteral("files/showHidden")};
+        QStringLiteral("files/view"),           QStringLiteral("files/sort"),
+        QStringLiteral("files/descending"),     QStringLiteral("files/foldersFirst"),
+        QStringLiteral("files/groupByFolder"),  QStringLiteral("files/showHidden"),
+        QStringLiteral("files/showNonMarkdown")};
     QMap<QString, QVariant> previous;
     for (const auto& key : keys) previous.insert(key, settings.value(key));
     const auto restore = qScopeGuard([&] {
@@ -200,6 +201,7 @@ class FileBrowserTests : public QObject {
     QCOMPARE(defaults.view, FileBrowserView::Tree);
     QVERIFY(!defaults.groupByFolder);
     QVERIFY(!defaults.showHidden);
+    QVERIFY(!defaults.showNonMarkdown);
     settings.setValue(QStringLiteral("files/sort"), QStringLiteral("unknown"));
     settings.sync();
     QCOMPARE(typist::platform::fileBrowserOptions().sort, FileBrowserSort::Name);
@@ -208,12 +210,14 @@ class FileBrowserTests : public QObject {
     options.sort = FileBrowserSort::Created;
     options.descending = options.groupByFolder = options.foldersFirst = true;
     options.showHidden = true;
+    options.showNonMarkdown = true;
     typist::platform::setFileBrowserOptions(options);
     const auto restored = typist::platform::fileBrowserOptions();
     QCOMPARE(restored.view, options.view);
     QCOMPARE(restored.sort, options.sort);
     QVERIFY(restored.groupByFolder && restored.descending && restored.foldersFirst);
     QVERIFY(restored.showHidden);
+    QVERIFY(restored.showNonMarkdown);
   }
 
   void createdSortUsesBirthTimeAndRefreshesMetadataOnEntry() {
@@ -634,6 +638,57 @@ class FileBrowserTests : public QObject {
     QCOMPARE(tree.selectedPath(), visible);
     QVERIFY(!watcher->directories().contains(hiddenDir));
     QVERIFY(!itemForPath(tree, hiddenNote));
+  }
+
+  void nonMarkdownFilesCombineWithHiddenFilterAndKeepPathActions() {
+    QTemporaryDir directory;
+    const auto note = directory.filePath("notes/guide.MD");
+    const auto asset = directory.filePath(QStringLiteral("assets/图 #1.png"));
+    const auto hidden = directory.filePath(".drafts/preview.pdf");
+    for (const auto& path : {note, asset, hidden, directory.filePath("README"),
+                             directory.filePath("build/generated.pdf")})
+      QVERIFY(writeFile(path));
+    FileTree tree;
+    tree.setRoot(directory.path());
+    tree.selectPath(note);
+    QCOMPARE(tree.entryCount(), 1);
+    QScopedPointer<QMenu> options(tree.createOptionsMenu(nullptr));
+    auto* showNonMarkdown = options->findChild<QAction*>("browserShowNonMarkdown");
+    auto* showHidden = options->findChild<QAction*>("browserShowHidden");
+    QVERIFY(showNonMarkdown && showHidden && !showNonMarkdown->isChecked());
+    showNonMarkdown->trigger();
+    QCOMPARE(tree.entryCount(), 3);
+    QCOMPARE(tree.selectedPath(), note);
+    QVERIFY(itemForPath(tree, asset));
+    QVERIFY(!itemForPath(tree, hidden));
+    showHidden->trigger();
+    QCOMPARE(tree.entryCount(), 4);
+    QVERIFY(itemForPath(tree, hidden));
+    options->findChild<QAction*>("browserList")->trigger();
+    options->findChild<QAction*>("browserGroupByFolder")->trigger();
+    QCOMPARE(tree.entryCount(), 4);
+    tree.selectPath(asset);
+    QScopedPointer<QMenu> menu(tree.createContextMenu());
+    auto* open = menu->findChild<QAction*>("fileOpenExternally");
+    QVERIFY(open && open->isEnabled());
+    QVERIFY(!menu->findChild<QAction*>("fileOpenInNewWindow"));
+    QVERIFY(!menu->findChild<QAction*>("fileDuplicate"));
+    QVERIFY(!menu->findChild<QAction*>("fileRename"));
+    QVERIFY(!menu->findChild<QAction*>("fileMoveToTrash"));
+    QVERIFY(menu->findChild<QAction*>("fileReveal")->isEnabled());
+    menu->findChild<QAction*>("fileCopyRelativePath")->trigger();
+    QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("assets/图 #1.png"));
+    QSignalSpy activated(&tree, &FileTree::entryActivated);
+    open->trigger();
+    QTest::keyClick(&tree, Qt::Key_Return);
+    QCOMPARE(activated.size(), 2);
+    QCOMPARE(activated.at(0).at(0).toString(), asset);
+    QCOMPARE(activated.at(1).at(0).toString(), asset);
+    showNonMarkdown->trigger();
+    QCOMPARE(tree.entryCount(), 1);
+    QVERIFY(showHidden->isChecked());
+    QVERIFY(tree.selectedPath().isEmpty());
+    QVERIFY(!itemForPath(tree, asset));
   }
 
   void nameNaturalDescendingAndFoldersFirst() {

@@ -2476,7 +2476,19 @@ bool MainWindow::openFolderPath(const QString& path) {
   return true;
 }
 
-void MainWindow::openTreeEntry(const QString& path) { openFile(path); }
+void MainWindow::openTreeEntry(const QString& path) {
+  if (platform::isMarkdownPath(path)) {
+    openFile(path);
+    return;
+  }
+  const QFileInfo file(path);
+  if (!file.isFile() || file.isSymLink()) {
+    statusBar()->showMessage(tr("The file or folder is no longer available."), 4000);
+    return;
+  }
+  if (!QDesktopServices::openUrl(QUrl::fromLocalFile(file.absoluteFilePath())))
+    statusBar()->showMessage(tr("Cannot open the file in the default app."), 4000);
+}
 
 void MainWindow::openNewWindow(const QString& path) {
   if (!path.isEmpty() && !QFileInfo::exists(path)) {
