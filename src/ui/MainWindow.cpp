@@ -1505,7 +1505,7 @@ void MainWindow::newDocument() {
   m_currentPath.clear();
   m_lineEnding.reset();
   resetPreviousExport();
-  m_view->rendered()->setBaseUrl(QUrl());
+  m_view->setBaseUrl(QUrl());
   m_view->loadMarkdownIntoBoth(QString(), nullptr);
   m_document = m_view->active();
   m_sourceMode = false;
@@ -1792,8 +1792,7 @@ bool MainWindow::openFileReplacingCurrent(const QString& path, bool rememberCurr
   const auto ending = platform::detectLineEnding(disk);
   const QString source = platform::normalizeLineEndings(disk);
   static_cast<ui::Editor*>(m_editor)->finishParagraphSourceEdit(false);
-  m_view->rendered()->setBaseUrl(
-      QUrl::fromLocalFile(QFileInfo(path).absolutePath() + QLatin1Char('/')));
+  m_view->setBaseUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath() + QLatin1Char('/')));
   QString error;
   // A new file is a new baseline for both views, so both undo stacks start empty.
   if (!m_view->loadMarkdownIntoBoth(source, &error)) {
@@ -1862,7 +1861,7 @@ bool MainWindow::adoptHtmlImport(const editor::HtmlImportResult& result) {
   m_currentPath.clear();
   m_lineEnding.reset();
   resetPreviousExport();
-  m_view->rendered()->setBaseUrl(QUrl());
+  m_view->setBaseUrl(QUrl());
   m_document = m_view->active();
   m_sourceMode = false;
   m_view->showActiveIn(m_editor);
@@ -1994,8 +1993,7 @@ bool MainWindow::saveDocumentAs(const QString& path) {
     resetPreviousExport();
   m_currentPath = path;
   m_savedMarkdown = markdown;
-  m_view->rendered()->setBaseUrl(
-      QUrl::fromLocalFile(QFileInfo(path).absolutePath() + QLatin1Char('/')));
+  m_view->setBaseUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath() + QLatin1Char('/')));
   markClean();
   if (!m_benchMode) platform::addRecentFile(path);
   rebuildRecentMenu();

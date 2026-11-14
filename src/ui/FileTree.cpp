@@ -1,6 +1,7 @@
 #include "FileTree.h"
 
 #include "FileOps.h"
+#include "LinkNavigation.h"
 
 #include <QActionGroup>
 #include <QApplication>
@@ -23,6 +24,7 @@
 #include <QLocale>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -125,11 +127,25 @@ FileTree::FileTree(QWidget* parent) : QTreeWidget(parent) {
   setUniformRowHeights(true);
   setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   setTextElideMode(Qt::ElideMiddle);
+  setDragDropMode(QAbstractItemView::DragOnly);
   connect(this, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int) {
     if (item && !item->data(0, kDirRole).toBool())
       emit entryActivated(item->data(0, kPathRole).toString());
   });
 }
+
+QStringList FileTree::mimeTypes() const { return {kSidebarLinkMime}; }
+
+QMimeData* FileTree::mimeData(const QList<QTreeWidgetItem*>& items) const {
+  if (items.isEmpty()) return nullptr;
+  const QFileInfo entry(items.first()->data(0, kPathRole).toString());
+  if (entry.isSymLink() || (!entry.isFile() && !entry.isDir())) return nullptr;
+  auto* data = new QMimeData;
+  data->setData(kSidebarLinkMime, QUrl::fromLocalFile(entry.absoluteFilePath()).toEncoded());
+  return data;
+}
+
+Qt::DropActions FileTree::supportedDropActions() const { return Qt::CopyAction; }
 
 QList<QFileInfo> FileTree::scan() const {
   QList<QFileInfo> entries;
