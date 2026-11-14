@@ -23,7 +23,9 @@
 #include <QLocale>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScopedPointer>
 #include <QStyle>
 #include <QTimer>
@@ -48,6 +50,65 @@ QDateTime createdDate(const QFileInfo& info) {
 bool skippedDirectory(const QString& name) {
   return name.compare(QLatin1String(".git"), Qt::CaseInsensitive) == 0 ||
          name == QLatin1String("build") || name == QLatin1String("node_modules");
+}
+
+struct FileGlob {
+  QRegularExpression expression;
+  bool relativePath = false;
+};
+
+FileGlob fileGlob(const QString& pattern) {
+  const auto parts = pattern.split('/');
+  QString expression;
+  for (qsizetype index = 0; index < parts.size(); ++index) {
+    const auto& part = parts[index];
+    if (part == QLatin1String("**")) {
+      if (index == parts.size() - 1)
+        expression += QStringLiteral(".*");
+      else if (parts[index + 1] != QLatin1String("**"))
+        expression += QStringLiteral("(?:[^/]+/)*");
+      continue;
+    }
+    auto segment = QRegularExpression::wildcardToRegularExpression(
+        part, QRegularExpression::UnanchoredWildcardConversion);
+    if (part.isEmpty() ||
+        !QRegularExpression(QRegularExpression::anchoredPattern(segment)).isValid())
+      return {QRegularExpression(QStringLiteral("[")), false};
+    // A negated character class must also stay within its path component.
+    segment.replace(QStringLiteral("[^"), QStringLiteral("[^/"));
+    expression += segment;
+    if (index < parts.size() - 1) expression += '/';
+  }
+  return {QRegularExpression(QRegularExpression::anchoredPattern(expression),
+                             QRegularExpression::CaseInsensitiveOption |
+                                 QRegularExpression::DotMatchesEverythingOption),
+          parts.size() > 1};
+}
+
+QList<FileGlob> fileGlobs(const QStringList& patterns) {
+  QList<FileGlob> globs;
+  for (const auto& pattern : patterns) {
+    const auto trimmed = pattern.trimmed();
+    if (trimmed.isEmpty()) continue;
+    const auto glob = fileGlob(trimmed);
+    if (glob.expression.isValid()) globs.append(glob);
+  }
+  return globs;
+}
+
+bool matchesGlob(const QList<FileGlob>& globs, const QString& name, const QString& relativePath) {
+  return std::any_of(globs.begin(), globs.end(), [&](const auto& glob) {
+    return glob.expression.match(glob.relativePath ? relativePath : name).hasMatch();
+  });
+}
+
+QStringList globLines(const QPlainTextEdit& input) {
+  QStringList lines;
+  for (const auto& line : input.toPlainText().split('\n')) {
+    const auto trimmed = line.trimmed();
+    if (!trimmed.isEmpty()) lines.append(trimmed);
+  }
+  return lines;
 }
 
 class FileItem : public QTreeWidgetItem {
@@ -76,18 +137,27 @@ QList<QFileInfo> FileTree::scan() const {
   auto filters =
       QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks | QDir::Readable;
   if (m_options.showHidden) filters |= QDir::Hidden;
+  const auto includes = fileGlobs(m_options.includeGlobs);
+  const auto excludes = fileGlobs(m_options.excludeGlobs);
+  const QDir root(m_root);
   QStringList pending{m_root};
   while (!pending.isEmpty()) {
     QDirIterator iterator(pending.takeLast(), filters);
     while (iterator.hasNext()) {
       iterator.next();
       const auto info = iterator.fileInfo();
-      if (!m_options.showHidden && (info.isHidden() || info.fileName().startsWith('.'))) continue;
+      const auto name = info.fileName();
+      if (!m_options.showHidden && (info.isHidden() || name.startsWith('.'))) continue;
+      const auto relative = includes.isEmpty() && excludes.isEmpty()
+                                ? QString()
+                                : root.relativeFilePath(info.absoluteFilePath());
+      if (matchesGlob(excludes, name, relative)) continue;
       if (info.isDir()) {
-        if (skippedDirectory(info.fileName())) continue;
+        if (skippedDirectory(name)) continue;
         entries.append(info);
         pending.append(info.absoluteFilePath());
-      } else if (m_options.showNonMarkdown || platform::isMarkdownPath(info.fileName())) {
+      } else if (includes.isEmpty() ? (m_options.showNonMarkdown || platform::isMarkdownPath(name))
+                                    : matchesGlob(includes, name, relative)) {
         entries.append(info);
       }
     }
@@ -237,18 +307,18 @@ void FileTree::renderEntries() {
 }
 
 void FileTree::setOptions(const platform::FileBrowserOptions& options) {
+  const bool filterChanged = options.showHidden != m_options.showHidden ||
+                             options.showNonMarkdown != m_options.showNonMarkdown ||
+                             options.includeGlobs != m_options.includeGlobs ||
+                             options.excludeGlobs != m_options.excludeGlobs;
   if (options.view == m_options.view && options.sort == m_options.sort &&
       options.descending == m_options.descending &&
       options.foldersFirst == m_options.foldersFirst &&
-      options.groupByFolder == m_options.groupByFolder &&
-      options.showHidden == m_options.showHidden &&
-      options.showNonMarkdown == m_options.showNonMarkdown)
+      options.groupByFolder == m_options.groupByFolder && !filterChanged)
     return;
   const auto selected = currentItem() ? currentItem()->data(0, kPathRole).toString() : QString();
   rememberExpansion();
   const bool refreshDates = options.sort != m_options.sort && dateSort(options.sort);
-  const bool filterChanged = options.showHidden != m_options.showHidden ||
-                             options.showNonMarkdown != m_options.showNonMarkdown;
   m_options = options;
   if (refreshDates || filterChanged) {
     m_entries = scan();
@@ -471,11 +541,72 @@ QMenu* FileTree::createOptionsMenu(QWidget* parent) {
     options.showNonMarkdown = checked;
     setOptions(options);
   });
+  connect(add("browserFileFilters", QT_TR_NOOP("File Filters…"), false), &QAction::triggered, this,
+          &FileTree::editFileFilters);
   connect(add("browserRefresh", QT_TR_NOOP("Refresh"), false), &QAction::triggered, this,
           &FileTree::refresh);
   updateOptionsMenu();
   return m_optionsMenu;
 }
+
+void FileTree::editFileFilters() {
+  QDialog dialog(this);
+  dialog.setObjectName(QStringLiteral("fileFiltersDialog"));
+  dialog.setWindowTitle(tr("File Filters"));
+  dialog.resize(460, 390);
+  auto* layout = new QVBoxLayout(&dialog);
+  auto* hint = new QLabel(
+      tr("Use one pattern per line. Match names with *.png or paths with notes/**/*.md."), &dialog);
+  hint->setWordWrap(true);
+  layout->addWidget(hint);
+  auto* precedence = new QLabel(
+      tr("Include patterns replace the file-type filter. Exclude patterns take precedence."),
+      &dialog);
+  precedence->setWordWrap(true);
+  layout->addWidget(precedence);
+  const auto field = [&](const QString& label, const QString& id, const QStringList& patterns) {
+    auto* caption = new QLabel(label, &dialog);
+    auto* input = new QPlainTextEdit(patterns.join('\n'), &dialog);
+    input->setObjectName(id);
+    input->setAccessibleName(label);
+    input->setTabChangesFocus(true);
+    caption->setBuddy(input);
+    layout->addWidget(caption);
+    layout->addWidget(input);
+    return input;
+  };
+  const auto* includes =
+      field(tr("Include files (optional)"), QStringLiteral("includeGlobs"), m_options.includeGlobs);
+  const auto* excludes = field(tr("Exclude files and folders"), QStringLiteral("excludeGlobs"),
+                               m_options.excludeGlobs);
+  auto* error = new QLabel(&dialog);
+  error->setObjectName(QStringLiteral("fileFilterError"));
+  error->setTextFormat(Qt::PlainText);
+  error->setWordWrap(true);
+  error->hide();
+  layout->addWidget(error);
+  auto* buttons = new QDialogButtonBox(&dialog);
+  auto* apply = buttons->addButton(tr("OK"), QDialogButtonBox::AcceptRole);
+  apply->setObjectName(QStringLiteral("fileFiltersAccept"));
+  buttons->addButton(tr("Cancel"), QDialogButtonBox::RejectRole);
+  layout->addWidget(buttons);
+  connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+  auto options = m_options;
+  connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
+    options.includeGlobs = globLines(*includes);
+    options.excludeGlobs = globLines(*excludes);
+    for (const auto& pattern : options.includeGlobs + options.excludeGlobs) {
+      if (!fileGlob(pattern).expression.isValid()) {
+        error->setText(tr("Invalid file pattern: %1").arg(pattern));
+        error->show();
+        return;
+      }
+    }
+    dialog.accept();
+  });
+  if (dialog.exec() == QDialog::Accepted) setOptions(options);
+}
+
 void FileTree::updateOptionsMenu() {
   if (!m_optionsMenu) return;
   for (auto* action : m_optionsMenu->actions()) {

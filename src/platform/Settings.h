@@ -114,6 +114,8 @@ struct FileBrowserOptions {
   bool groupByFolder = false;
   bool showHidden = false;
   bool showNonMarkdown = false;
+  QStringList includeGlobs;
+  QStringList excludeGlobs;
 };
 FileBrowserOptions fileBrowserOptions();
 void setFileBrowserOptions(const FileBrowserOptions& options);

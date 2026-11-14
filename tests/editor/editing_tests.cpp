@@ -636,6 +636,25 @@ class EditingTests : public QObject {
     QCOMPARE(editor.toPlainText(), QString());
   }
 
+  void markdownReloadNotifiesAfterRebuildingTheDocument() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    prepare(editor, view, QStringLiteral("Before\n\n```cpp\nfirst\nsecond\n```\n"));
+    const auto oldSelection = editor.document()->find(QStringLiteral("second"));
+    QVERIFY(oldSelection.hasSelection());
+    editor.setTextCursor(oldSelection);
+    QStringList snapshots;
+    connect(editor.document(), &QTextDocument::contentsChanged, &editor,
+            [&] { snapshots.append(editor.toPlainText()); });
+    QVERIFY(view.loadMarkdownIntoBoth(QStringLiteral("New heading\n\nNew paragraph\n"), nullptr));
+    QCOMPARE(snapshots, QStringList{QStringLiteral("New heading\nNew paragraph")});
+    QVERIFY(!editor.document()->isUndoAvailable());
+    editor.moveCursor(QTextCursor::End);
+    editor.insertPlainText(QStringLiteral(" tail"));
+    editor.undo();
+    QCOMPARE(editor.toPlainText(), QStringLiteral("New heading\nNew paragraph"));
+  }
+
   void viewSwitchDropsSelectionsFromThePreviousLayout() {
     typist::ui::ViewSwitch view;
     QTextEdit editor;

@@ -1190,6 +1190,34 @@
         <translation>显示非 Markdown 文件</translation>
     </message>
     <message>
+        <source>File Filters…</source>
+        <translation>文件筛选…</translation>
+    </message>
+    <message>
+        <source>File Filters</source>
+        <translation>文件筛选</translation>
+    </message>
+    <message>
+        <source>Use one pattern per line. Match names with *.png or paths with notes/**/*.md.</source>
+        <translation>每行输入一条规则。用 *.png 匹配文件名，用 notes/**/*.md 匹配相对路径。</translation>
+    </message>
+    <message>
+        <source>Include patterns replace the file-type filter. Exclude patterns take precedence.</source>
+        <translation>包含规则会替代文件类型筛选。排除规则优先。</translation>
+    </message>
+    <message>
+        <source>Include files (optional)</source>
+        <translation>包含文件（可选）</translation>
+    </message>
+    <message>
+        <source>Exclude files and folders</source>
+        <translation>排除文件和文件夹</translation>
+    </message>
+    <message>
+        <source>Invalid file pattern: %1</source>
+        <translation>无效的文件匹配规则：%1</translation>
+    </message>
+    <message>
         <source>Open in Default App</source>
         <translation>用默认应用打开</translation>
     </message>

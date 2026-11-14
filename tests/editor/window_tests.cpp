@@ -582,12 +582,18 @@ class WindowTests : public QObject {
                        QStringLiteral("Typist"));
     const auto hiddenKey = QStringLiteral("files/showHidden");
     const auto nonMarkdownKey = QStringLiteral("files/showNonMarkdown");
+    const auto includeGlobsKey = QStringLiteral("files/includeGlobs");
+    const auto excludeGlobsKey = QStringLiteral("files/excludeGlobs");
     const bool hadHiddenSetting = settings.contains(hiddenKey);
     const bool hadNonMarkdownSetting = settings.contains(nonMarkdownKey);
+    const bool hadIncludeGlobs = settings.contains(includeGlobsKey);
+    const bool hadExcludeGlobs = settings.contains(excludeGlobsKey);
     const auto restore = qScopeGuard([&] {
       typist::platform::setFileBrowserOptions(previous);
       if (!hadHiddenSetting) settings.remove(hiddenKey);
       if (!hadNonMarkdownSetting) settings.remove(nonMarkdownKey);
+      if (!hadIncludeGlobs) settings.remove(includeGlobsKey);
+      if (!hadExcludeGlobs) settings.remove(excludeGlobsKey);
       settings.sync();
     });
     typist::platform::setFileBrowserOptions({});
@@ -675,6 +681,9 @@ class WindowTests : public QObject {
                                         ? QStringLiteral("Show Non-Markdown Files")
                                         : QStringLiteral("显示非 Markdown 文件"));
       QVERIFY(nonMarkdown->isChecked());
+      QCOMPARE(menu->findChild<QAction*>(QStringLiteral("browserFileFilters"))->text(),
+               language == QLatin1String("en") ? QStringLiteral("File Filters…")
+                                               : QStringLiteral("文件筛选…"));
       QCOMPARE(tree->topLevelItem(0)->text(0), language == QLatin1String("en")
                                                    ? QStringLiteral("Workspace Root")
                                                    : QStringLiteral("工作区根目录"));
