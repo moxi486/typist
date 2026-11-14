@@ -316,6 +316,18 @@
         <translation>外观</translation>
     </message>
     <message>
+        <source>Editor Toolbar</source>
+        <translation>编辑工具栏</translation>
+    </message>
+    <message>
+        <source>Lists</source>
+        <translation>列表</translation>
+    </message>
+    <message>
+        <source>More Formatting</source>
+        <translation>更多格式</translation>
+    </message>
+    <message>
         <source>Light</source>
         <translation>浅色</translation>
     </message>

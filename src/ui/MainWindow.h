@@ -165,6 +165,8 @@ class MainWindow : public QMainWindow {
   void retranslateUi();
   void updateSearchFocusGuard();
   void createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMenu* settings);
+  void createEditorToolbar(QMenu* view, QMenu* appearance);
+  void updateEditorToolbar();
   void createLaunchMenu(QMenu* settings);
   void createLineEndingMenu(QMenu* settings);
   bool writeMarkdownFile(const QString& path, const QString& markdown);
@@ -222,6 +224,7 @@ class MainWindow : public QMainWindow {
   void closeEvent(QCloseEvent* event) override;
 
   QTextEdit* m_editor = nullptr;
+  QWidget* m_editorToolbar = nullptr;
   QTextDocument* m_document = nullptr;
   ui::FindBar* m_findBar = nullptr;
   QDockWidget* m_sidebarDock = nullptr;
