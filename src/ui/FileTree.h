@@ -63,6 +63,7 @@ class FileTree : public QTreeWidget {
   void renderEntries();
   void rememberExpansion();
   void updateOptionsMenu();
+  void editFileFilters();
   void collectDirectories(QStringList& dirs) const;
   void watchCurrentDirectories();
   void scheduleRefresh();

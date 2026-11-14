@@ -9,9 +9,11 @@
 #include <QDialog>
 #include <QFile>
 #include <QFileSystemWatcher>
+#include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSaveFile>
 #include <QScopeGuard>
@@ -178,11 +180,15 @@ class FileBrowserTests : public QObject {
 
   void fileBrowserPreferencesKeepLegacyDefaults() {
     QSettings settings(QStringLiteral("Typist"), QStringLiteral("Typist"));
-    const QStringList keys = {
-        QStringLiteral("files/view"),           QStringLiteral("files/sort"),
-        QStringLiteral("files/descending"),     QStringLiteral("files/foldersFirst"),
-        QStringLiteral("files/groupByFolder"),  QStringLiteral("files/showHidden"),
-        QStringLiteral("files/showNonMarkdown")};
+    const QStringList keys = {QStringLiteral("files/view"),
+                              QStringLiteral("files/sort"),
+                              QStringLiteral("files/descending"),
+                              QStringLiteral("files/foldersFirst"),
+                              QStringLiteral("files/groupByFolder"),
+                              QStringLiteral("files/showHidden"),
+                              QStringLiteral("files/showNonMarkdown"),
+                              QStringLiteral("files/includeGlobs"),
+                              QStringLiteral("files/excludeGlobs")};
     QMap<QString, QVariant> previous;
     for (const auto& key : keys) previous.insert(key, settings.value(key));
     const auto restore = qScopeGuard([&] {
@@ -202,6 +208,7 @@ class FileBrowserTests : public QObject {
     QVERIFY(!defaults.groupByFolder);
     QVERIFY(!defaults.showHidden);
     QVERIFY(!defaults.showNonMarkdown);
+    QVERIFY(defaults.includeGlobs.isEmpty() && defaults.excludeGlobs.isEmpty());
     settings.setValue(QStringLiteral("files/sort"), QStringLiteral("unknown"));
     settings.sync();
     QCOMPARE(typist::platform::fileBrowserOptions().sort, FileBrowserSort::Name);
@@ -211,6 +218,8 @@ class FileBrowserTests : public QObject {
     options.descending = options.groupByFolder = options.foldersFirst = true;
     options.showHidden = true;
     options.showNonMarkdown = true;
+    options.includeGlobs = {QStringLiteral("notes/**/*.md")};
+    options.excludeGlobs = {QStringLiteral("draft*"), QStringLiteral("assets/*.png")};
     typist::platform::setFileBrowserOptions(options);
     const auto restored = typist::platform::fileBrowserOptions();
     QCOMPARE(restored.view, options.view);
@@ -218,6 +227,8 @@ class FileBrowserTests : public QObject {
     QVERIFY(restored.groupByFolder && restored.descending && restored.foldersFirst);
     QVERIFY(restored.showHidden);
     QVERIFY(restored.showNonMarkdown);
+    QCOMPARE(restored.includeGlobs, options.includeGlobs);
+    QCOMPARE(restored.excludeGlobs, options.excludeGlobs);
   }
 
   void createdSortUsesBirthTimeAndRefreshesMetadataOnEntry() {
@@ -638,6 +649,99 @@ class FileBrowserTests : public QObject {
     QCOMPARE(tree.selectedPath(), visible);
     QVERIFY(!watcher->directories().contains(hiddenDir));
     QVERIFY(!itemForPath(tree, hiddenNote));
+  }
+
+  void customFileGlobsFilterAndWatchTheWorkspace() {
+    QTemporaryDir directory;
+    const auto visible = directory.filePath("notes/guide.MD");
+    const auto nested = directory.filePath(QStringLiteral("notes/sub/指南.md"));
+    const auto image = directory.filePath("assets/shot #1.PNG");
+    const auto hidden = directory.filePath("notes/.hidden.md");
+    for (const auto& path :
+         {visible, nested, image, hidden, directory.filePath("root.md"),
+          directory.filePath("notes/sub/ignore.md"), directory.filePath("notes/drafts/private.md"),
+          directory.filePath("assets/raw/shot #2.png"), directory.filePath("build/file.png")})
+      QVERIFY(writeFile(path));
+    FileTree tree;
+    tree.setRoot(directory.path());
+    tree.selectPath(visible);
+    tree.setWatchEnabled(true);
+    auto options = tree.options();
+    options.includeGlobs = {QStringLiteral("notes/**/*.md"), QStringLiteral("assets/shot #?.png")};
+    options.excludeGlobs = {QStringLiteral("drafts"), QStringLiteral("**/ignore.md")};
+    tree.setOptions(options);
+    QCOMPARE(tree.entryCount(), 3);
+    QCOMPARE(tree.selectedPath(), visible);
+    QVERIFY(itemForPath(tree, nested));
+    QVERIFY(itemForPath(tree, image));
+    QVERIFY(!itemForPath(tree, hidden));
+    auto* watcher = tree.findChild<QFileSystemWatcher*>();
+    QVERIFY(watcher && !watcher->directories().contains(directory.filePath("notes/drafts")));
+    options.showHidden = true;
+    options.showNonMarkdown = true;
+    options.view = FileBrowserView::List;
+    options.groupByFolder = true;
+    tree.setOptions(options);
+    QCOMPARE(tree.entryCount(), 4);
+    QVERIFY(itemForPath(tree, hidden));
+    const auto added = directory.filePath("notes/sub/new.md");
+    QVERIFY(writeFile(added));
+    QTRY_VERIFY(itemForPath(tree, added));
+    QCOMPARE(tree.entryCount(), 5);
+    options.includeGlobs.clear();
+    options.excludeGlobs.clear();
+    options.showNonMarkdown = false;
+    options.showHidden = false;
+    tree.setOptions(options);
+    QCOMPARE(tree.entryCount(), 6);
+    QVERIFY(itemForPath(tree, directory.filePath("notes/drafts/private.md")));
+    QCOMPARE(tree.selectedPath(), visible);
+  }
+
+  void filterDialogRejectsInvalidGlobsAndSupportsClearing() {
+    QTemporaryDir directory;
+    QVERIFY(writeFile(directory.filePath("readme.md")));
+    QVERIFY(writeFile(directory.filePath("cover.png")));
+    FileTree tree;
+    tree.setRoot(directory.path());
+    QScopedPointer<QMenu> menu(tree.createOptionsMenu(nullptr));
+    auto* action = menu->findChild<QAction*>("browserFileFilters");
+    QVERIFY(action);
+    QSignalSpy changed(&tree, &FileTree::optionsChanged);
+    QString invalidPattern;
+    QTimer::singleShot(0, &tree, [&] {
+      auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+      if (!dialog) return;
+      auto* input = dialog->findChild<QPlainTextEdit*>("includeGlobs");
+      auto* apply = dialog->findChild<QPushButton*>("fileFiltersAccept");
+      auto* error = dialog->findChild<QLabel*>("fileFilterError");
+      if (input && apply && error) {
+        input->setPlainText(QStringLiteral("[broken"));
+        apply->click();
+        invalidPattern = error->text();
+      }
+      dialog->reject();
+    });
+    action->trigger();
+    QVERIFY(invalidPattern.contains(QStringLiteral("[broken")));
+    QCOMPARE(tree.entryCount(), 1);
+    QCOMPARE(changed.size(), 0);
+    for (const auto& pattern : {QStringLiteral("  *.png \n\n"), QString()}) {
+      QTimer::singleShot(0, &tree, [&] {
+        auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        auto* input = dialog->findChild<QPlainTextEdit*>("includeGlobs");
+        auto* apply = dialog->findChild<QPushButton*>("fileFiltersAccept");
+        if (input && apply) {
+          input->setPlainText(pattern);
+          apply->click();
+        }
+        if (dialog->isVisible()) dialog->reject();
+      });
+      action->trigger();
+      QCOMPARE(filenames(tree), QStringList{pattern.isEmpty() ? "readme.md" : "cover.png"});
+    }
+    QCOMPARE(changed.size(), 2);
   }
 
   void nonMarkdownFilesCombineWithHiddenFilterAndKeepPathActions() {

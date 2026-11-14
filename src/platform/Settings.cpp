@@ -216,6 +216,8 @@ FileBrowserOptions fileBrowserOptions() {
   options.groupByFolder = settings.value(QStringLiteral("files/groupByFolder"), false).toBool();
   options.showHidden = settings.value(QStringLiteral("files/showHidden"), false).toBool();
   options.showNonMarkdown = settings.value(QStringLiteral("files/showNonMarkdown"), false).toBool();
+  options.includeGlobs = settings.value(QStringLiteral("files/includeGlobs")).toStringList();
+  options.excludeGlobs = settings.value(QStringLiteral("files/excludeGlobs")).toStringList();
   return options;
 }
 
@@ -234,6 +236,8 @@ void setFileBrowserOptions(const FileBrowserOptions& options) {
   settings.setValue(QStringLiteral("files/groupByFolder"), options.groupByFolder);
   settings.setValue(QStringLiteral("files/showHidden"), options.showHidden);
   settings.setValue(QStringLiteral("files/showNonMarkdown"), options.showNonMarkdown);
+  settings.setValue(QStringLiteral("files/includeGlobs"), options.includeGlobs);
+  settings.setValue(QStringLiteral("files/excludeGlobs"), options.excludeGlobs);
   settings.sync();
 }
 
