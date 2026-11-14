@@ -690,6 +690,12 @@ bool isInlineCodeFormat(const QTextCharFormat& fmt) {
 QString inlineMarkdown(const QTextBlock& block) { return inlineFromBlock(block); }
 
 void buildDocument(const std::vector<typist::core::Block>& blocks, QTextDocument* document) {
+  // Keep Qt's clear and rebuild in one edit block. In particular, clear() can
+  // finish an edit while Qt is still restoring the document's registered cursors.
+  const bool undoWasEnabled = document->isUndoRedoEnabled();
+  document->setUndoRedoEnabled(false);
+  QTextCursor cursor(document);
+  cursor.beginEditBlock();
   document->clear();
   QFont body;
   body.setFamilies({QStringLiteral("Arial"), QStringLiteral("Microsoft YaHei"),
@@ -702,14 +708,6 @@ void buildDocument(const std::vector<typist::core::Block>& blocks, QTextDocument
   option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
   document->setDefaultTextOption(option);
 
-  // A build is a bulk load. Undo commands and change notifications per block cost
-  // seconds on a large document, so the whole build is one edit block with undo off;
-  // loadMarkdown clears the stack afterwards anyway.
-  const bool undoWasEnabled = document->isUndoRedoEnabled();
-  document->setUndoRedoEnabled(false);
-
-  QTextCursor cursor(document);
-  cursor.beginEditBlock();
   BuildContext ctx;
   for (const typist::core::Block& block : blocks) insertBlock(block, cursor, 0, ctx);
   // insertBlock starts with a separator; remove its empty leading paragraph for
