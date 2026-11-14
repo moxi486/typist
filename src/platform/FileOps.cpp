@@ -25,7 +25,6 @@
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>
-#include <QStringList>
 #endif
 #ifdef Q_OS_UNIX
 #include <sys/stat.h>
@@ -35,9 +34,8 @@ namespace typist::platform {
 
 namespace {
 
-QString withMarkdownSuffix(const QString& name) {
-  return name.endsWith(QStringLiteral(".md"), Qt::CaseInsensitive) ? name
-                                                                   : name + QStringLiteral(".md");
+QString withMarkdownSuffix(const QString& name, const QString& suffix) {
+  return isMarkdownPath(name) ? name : name + '.' + suffix;
 }
 
 bool validName(const QString& name, QString* error) {
@@ -133,10 +131,13 @@ QString relocateWorkspaceEntry(const QString& root, const QString& path, const Q
 
 }  // namespace
 
-bool createMarkdownFile(const QString& dir, const QString& name, QString* error) {
+QString createMarkdownFile(const QString& dir, const QString& name, const QString& suffix,
+                           QString* error) {
   if (error) error->clear();
-  if (!availableDirectory(dir, error) || !validName(name.trimmed(), error)) return false;
-  return createEmptyFile(QDir(dir).filePath(withMarkdownSuffix(name.trimmed())), error);
+  const auto trimmed = name.trimmed();
+  if (!availableDirectory(dir, error) || !validName(trimmed, error)) return {};
+  const auto path = QDir(dir).absoluteFilePath(withMarkdownSuffix(trimmed, suffix));
+  return createEmptyFile(path, error) ? path : QString();
 }
 
 bool createEmptyFile(const QString& path, QString* error) {
@@ -144,7 +145,7 @@ bool createEmptyFile(const QString& path, QString* error) {
   const QFileInfo info(path);
   if (!availableDirectory(info.absolutePath(), error) || !validName(info.fileName(), error))
     return false;
-  if (info.fileName().compare(QLatin1String(".md"), Qt::CaseInsensitive) == 0) {
+  if (isMarkdownPath(info.fileName()) && info.completeBaseName().isEmpty()) {
     if (error) *error = QStringLiteral("File name is empty");
     return false;
   }
@@ -162,28 +163,35 @@ bool createEmptyFile(const QString& path, QString* error) {
   return true;
 }
 
-bool renameFile(const QString& path, const QString& newName, QString* error) {
+QString renameFile(const QString& path, const QString& newName, QString* error) {
   if (error) error->clear();
-  if (!validName(newName.trimmed(), error)) return false;
-  const QString fileName = withMarkdownSuffix(newName.trimmed());
-  const QString target = QDir(QFileInfo(path).absolutePath()).filePath(fileName);
-  if (target == path) return true;
+  const auto name = newName.trimmed();
+  if (!validName(name, error)) return {};
+  const QFileInfo source(path);
+  const auto suffix =
+      isMarkdownPath(source.fileName()) ? source.suffix() : markdownSuffixes().first();
+  const auto fileName = withMarkdownSuffix(name, suffix);
+  if (QFileInfo(fileName).completeBaseName().isEmpty()) {
+    if (error) *error = QStringLiteral("File name is empty");
+    return {};
+  }
+  const auto target = QDir(source.absolutePath()).filePath(fileName);
+  if (target == source.absoluteFilePath()) return target;
   if (QFileInfo::exists(target)) {
     if (error) *error = QStringLiteral("A file with that name already exists");
-    return false;
+    return {};
   }
   if (!QFile::rename(path, target)) {
     if (error) *error = QStringLiteral("Rename failed");
-    return false;
+    return {};
   }
-  return true;
+  return target;
 }
 
 bool moveMarkdownToTrash(const QString& path, QString* error) {
   if (error) error->clear();
   const QFileInfo file(path);
-  if (!file.isFile() || file.isSymLink() ||
-      file.suffix().compare(QLatin1String("md"), Qt::CaseInsensitive)) {
+  if (!file.isFile() || file.isSymLink() || !isMarkdownPath(file.fileName())) {
     if (error) *error = QStringLiteral("File unavailable");
     return false;
   }
@@ -295,8 +303,7 @@ bool createDirectory(const QString& dir, const QString& name, QString* error) {
 QString duplicateMarkdownFile(const QString& path, QString* error) {
   if (error) error->clear();
   const QFileInfo source(path);
-  if (!source.isFile() || source.isSymLink() ||
-      source.suffix().compare(QLatin1String("md"), Qt::CaseInsensitive)) {
+  if (!source.isFile() || source.isSymLink() || !isMarkdownPath(source.fileName())) {
     if (error) *error = QStringLiteral("File unavailable");
     return {};
   }
@@ -388,7 +395,22 @@ QString localFileLinkTarget(const QString& path, const QUrl& documentBase) {
 }
 
 bool isMarkdownPath(const QString& path) {
-  return path.endsWith(QLatin1String(".md"), Qt::CaseInsensitive);
+  const auto dot = path.lastIndexOf('.');
+  return dot >= 0 &&
+         markdownSuffixes().contains(QStringView(path).sliced(dot + 1), Qt::CaseInsensitive);
+}
+
+const QStringList& markdownSuffixes() {
+  static const QStringList suffixes{QStringLiteral("md"), QStringLiteral("markdown"),
+                                    QStringLiteral("mdown"), QStringLiteral("mkd")};
+  return suffixes;
+}
+
+QStringList markdownNameFilters(const QString& preferred) {
+  auto suffixes = markdownSuffixes();
+  if (suffixes.removeOne(preferred)) suffixes.prepend(preferred);
+  for (auto& suffix : suffixes) suffix.prepend(QStringLiteral("*."));
+  return suffixes;
 }
 
 QString firstImagePath(const QList<QUrl>& urls) {

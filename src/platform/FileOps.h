@@ -2,6 +2,7 @@
 
 #include <QByteArray>
 #include <QString>
+#include <QStringList>
 #include <QUrl>
 #include <functional>
 
@@ -9,11 +10,14 @@ class QObject;
 
 namespace typist::platform {
 
-// Sidebar file operations. A name without a .md suffix gets one appended.
-bool createMarkdownFile(const QString& dir, const QString& name, QString* error);
+// Creates a sidebar note with the preferred suffix when no Markdown suffix is supplied.
+// Returns the new path, or an empty string on failure.
+QString createMarkdownFile(const QString& dir, const QString& name, const QString& suffix,
+                           QString* error);
 // Creates the exact file name, without overwriting a path that already exists.
 bool createEmptyFile(const QString& path, QString* error);
-bool renameFile(const QString& path, const QString& newName, QString* error);
+// Keeps the current suffix when the new name does not specify a Markdown suffix.
+QString renameFile(const QString& path, const QString& newName, QString* error);
 bool moveMarkdownToTrash(const QString& path, QString* error);
 // Moves one entry inside the workspace without replacing any destination entry.
 // Returns its new path, or an empty string on failure or if it is already there.
@@ -27,7 +31,7 @@ bool restoreWorkspaceEntry(const QString& root, const QString& path, const QStri
 QString copyIntoWorkspace(const QString& root, const QString& path, const QString& destination,
                           QString* error);
 bool createDirectory(const QString& dir, const QString& name, QString* error);
-// Copies saved bytes beside the source as name-copy.md, name-copy-2.md, etc.; never overwrites.
+// Copies saved bytes beside the source as name-copy, name-copy-2, etc., keeping its suffix.
 QString duplicateMarkdownFile(const QString& path, QString* error);
 // Existing directory itself, or the parent of an existing file; empty for unavailable paths.
 QUrl containingDirectoryUrl(const QString& path);
@@ -38,6 +42,8 @@ void revealFile(const QString& path, QObject* context, std::function<void()> onF
 QString localFileLinkTarget(const QString& path, const QUrl& documentBase);
 
 bool isMarkdownPath(const QString& path);
+const QStringList& markdownSuffixes();
+QStringList markdownNameFilters(const QString& preferred = {});
 
 // First local image path among dropped URLs; empty when none applies.
 QString firstImagePath(const QList<QUrl>& urls);

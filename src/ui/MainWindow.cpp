@@ -389,11 +389,13 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   connect(importAction, &QAction::triggered, this, &MainWindow::importHtmlDialog);
 
   QAction* saveAction = new QAction(tr("Save"), this);
+  saveAction->setObjectName(QStringLiteral("saveDocument"));
   saveAction->setShortcut(QKeySequence::Save);
   fileMenu->addAction(saveAction);
   connect(saveAction, &QAction::triggered, this, &MainWindow::save);
 
   QAction* saveAsAction = new QAction(tr("Save As"), this);
+  saveAsAction->setObjectName(QStringLiteral("saveDocumentAs"));
   saveAsAction->setShortcut(QKeySequence::SaveAs);
   fileMenu->addAction(saveAsAction);
   connect(saveAsAction, &QAction::triggered, this, &MainWindow::saveAs);
@@ -531,6 +533,7 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   QMenu* settingsMenu = new QMenu(tr("Settings"), menuBar());
   menuBar()->insertMenu(helpMenu->menuAction(), settingsMenu);
   createLaunchMenu(settingsMenu);
+  createMarkdownExtensionMenu(settingsMenu);
   createFileDropMenu(settingsMenu);
   auto* recordRecent = settingsMenu->addAction(tr("Record Recent Files and Folders"));
   recordRecent->setObjectName(QStringLiteral("recordRecentLocations"));
@@ -1294,6 +1297,26 @@ void MainWindow::createLaunchMenu(QMenu* settings) {
   });
 }
 
+void MainWindow::createMarkdownExtensionMenu(QMenu* settings) {
+  auto* menu = settings->addMenu(tr("Default Markdown Extension"));
+  menu->setObjectName(QStringLiteral("defaultMarkdownExtensionMenu"));
+  auto* group = new QActionGroup(menu);
+  for (const auto& suffix : platform::markdownSuffixes()) {
+    auto* action = menu->addAction('.' + suffix);
+    action->setData(suffix);
+    action->setCheckable(true);
+    group->addAction(action);
+  }
+  const auto sync = [group] {
+    const auto suffix = platform::defaultMarkdownSuffix();
+    for (auto* action : group->actions()) action->setChecked(action->data().toString() == suffix);
+  };
+  sync();
+  connect(menu, &QMenu::aboutToShow, group, sync);
+  connect(group, &QActionGroup::triggered, this,
+          [](QAction* action) { platform::setDefaultMarkdownSuffix(action->data().toString()); });
+}
+
 void MainWindow::createFileDropMenu(QMenu* settings) {
   using Action = platform::FileDropAction;
   auto* menu = settings->addMenu(tr("File Drop"));
@@ -1805,8 +1828,8 @@ void MainWindow::showDocumentStatistics() {
 }
 
 void MainWindow::openDialog() {
-  const QString path = QFileDialog::getOpenFileName(this, tr("Open Markdown"), QString(),
-                                                    QStringLiteral("Markdown (*.md)"));
+  const auto filter = tr("Markdown (%1)").arg(platform::markdownNameFilters().join(' '));
+  const QString path = QFileDialog::getOpenFileName(this, tr("Open Markdown"), {}, filter);
   if (!path.isEmpty()) openFile(path);
 }
 
@@ -1970,10 +1993,16 @@ void MainWindow::save() {
 }
 
 void MainWindow::saveAs() {
-  const QString path = QFileDialog::getSaveFileName(this, tr("Save Markdown"), m_currentPath,
-                                                    QStringLiteral("Markdown (*.md)"));
-  if (path.isEmpty()) return;
-  saveDocumentAs(path);
+  const auto suffix = platform::defaultMarkdownSuffix();
+  const auto filter = tr("Markdown (%1)").arg(platform::markdownNameFilters(suffix).join(' '));
+  const QFileInfo current(m_currentPath);
+  const auto directory = m_currentPath.isEmpty() ? QString() : current.absolutePath();
+  QFileDialog dialog(this, tr("Save Markdown"), directory, filter);
+  dialog.setObjectName(QStringLiteral("saveMarkdownDialog"));
+  dialog.setAcceptMode(QFileDialog::AcceptSave);
+  dialog.setDefaultSuffix(suffix);
+  if (!m_currentPath.isEmpty()) dialog.selectFile(current.fileName());
+  if (dialog.exec() == QDialog::Accepted) saveDocumentAs(dialog.selectedFiles().value(0));
 }
 
 bool MainWindow::saveDocumentAs(const QString& path) {

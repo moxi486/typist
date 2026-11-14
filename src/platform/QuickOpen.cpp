@@ -1,5 +1,7 @@
 #include "QuickOpen.h"
 
+#include "FileOps.h"
+
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
@@ -61,7 +63,7 @@ FileIndex indexMarkdownFiles(const QString& root, const std::atomic<bool>& cance
       if (info.isDir()) {
         if (name != QLatin1String("build") && name != QLatin1String("node_modules"))
           pending.append(info.absoluteFilePath());
-      } else if (info.suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0) {
+      } else if (isMarkdownPath(info.fileName())) {
         if (result.paths.size() >= maxFiles) {
           result.limited = true;
           return result;

@@ -1,6 +1,7 @@
 #include "DocxWriter.h"
 #include "Editor.h"
 #include "EpubDialog.h"
+#include "FileSearch.h"
 #include "FileTree.h"
 #include "FindBar.h"
 #include "FolderLocations.h"
@@ -13,6 +14,7 @@
 #include "MainWindow.h"
 #include "PdfExportDialog.h"
 #include "PdfWriter.h"
+#include "QuickOpen.h"
 #include "QuickOpenDialog.h"
 #include "Settings.h"
 #include "SpecialContent.h"
@@ -3957,6 +3959,143 @@ class WindowTests : public QObject {
     const auto absolute = editor->document()->find(label).charFormat().anchorHref();
     QVERIFY(QUrl(absolute).isLocalFile());
     QCOMPARE(QUrl(absolute).toLocalFile(), note);
+  }
+
+  void defaultMarkdownExtensionAppliesToSaveAndSidebarCreation() {
+    using namespace typist::platform;
+    const auto key = QStringLiteral("files/defaultMarkdownSuffix");
+    QSettings settings;
+    const auto previous = settings.value(key);
+    const auto native = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+    const auto restore = qScopeGuard([&] {
+      if (previous.isValid())
+        settings.setValue(key, previous);
+      else
+        settings.remove(key);
+      QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native);
+    });
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+    settings.remove(key);
+    QCOMPARE(defaultMarkdownSuffix(), QStringLiteral("md"));
+    settings.setValue(key, QStringLiteral("unsupported"));
+    QCOMPARE(defaultMarkdownSuffix(), QStringLiteral("md"));
+    QTemporaryDir workspace;
+    QVERIFY(workspace.isValid());
+    const QDir root(QFileInfo(workspace.path()).canonicalFilePath());
+    typist::MainWindow window(nullptr, true);
+    typist::MainWindow second(nullptr, true);
+    QVERIFY(window.openFolderPath(root.path()));
+    auto* menu = window.findChild<QMenu*>(QStringLiteral("defaultMarkdownExtensionMenu"));
+    auto* secondMenu = second.findChild<QMenu*>(QStringLiteral("defaultMarkdownExtensionMenu"));
+    QVERIFY(menu && secondMenu);
+    QCOMPARE(menu->actions().size(), 4);
+    QVERIFY(menu->actions().first()->isChecked());
+    menu->actions().at(1)->trigger();
+    QCOMPARE(settings.value(key).toString(), QStringLiteral("markdown"));
+    QVERIFY(QMetaObject::invokeMethod(secondMenu, "aboutToShow"));
+    QVERIFY(secondMenu->actions().at(1)->isChecked());
+    QVERIFY(!secondMenu->actions().first()->isChecked());
+
+    auto* save = window.findChild<QAction*>(QStringLiteral("saveDocument"));
+    auto* saveAs = window.findChild<QAction*>(QStringLiteral("saveDocumentAs"));
+    QVERIFY(save && saveAs);
+    auto* editor = window.findChild<QTextEdit*>(QStringLiteral("writingEditor"));
+    QVERIFY(editor);
+    editor->insertPlainText(QStringLiteral("Preferred suffix fixture"));
+    const auto saveName = [&](QAction* action, const QString& name, const QString& initial) {
+      bool checked = false;
+      bool accepted = false;
+      QTimer safety;
+      connect(&safety, &QTimer::timeout, &window, [] {
+        if (auto* modal = QApplication::activeModalWidget()) modal->close();
+      });
+      safety.start(2000);
+      QTimer::singleShot(10, &safety, [&] {
+        auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        auto* input = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
+        checked = input && input->text() == initial &&
+                  dialog->defaultSuffix() == QLatin1String("markdown") &&
+                  dialog->selectedNameFilter().contains(QStringLiteral("*.markdown *.md "));
+        if (checked) {
+          const auto path = root.filePath(name);
+          dialog->selectFile(path);
+          input->setText(path);
+          QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
+        }
+        accepted = dialog->result() == QDialog::Accepted;
+        if (!accepted) dialog->reject();
+      });
+      action->trigger();
+      return checked && accepted;
+    };
+    QVERIFY(saveName(save, QStringLiteral("first"), {}));
+    const auto first = root.filePath(QStringLiteral("first.markdown"));
+    QFile written(first);
+    QVERIFY(written.open(QIODevice::ReadOnly));
+    QCOMPARE(written.readAll().trimmed(), QByteArray("Preferred suffix fixture"));
+    written.close();
+    QVERIFY(saveName(saveAs, QStringLiteral("explicit.MKD"), QStringLiteral("first.markdown")));
+    const auto explicitPath = root.filePath(QStringLiteral("explicit.MKD"));
+    QVERIFY(QFileInfo::exists(explicitPath));
+
+    auto* tree = window.findChild<typist::ui::FileTree*>();
+    QVERIFY(tree);
+    tree->refreshIfChanged();
+    tree->selectPath(explicitPath);
+    QScopedPointer<QMenu> context(tree->createContextMenu());
+    const auto enterName = [&window](QAction* action, const QString& initial, const QString& name) {
+      bool checked = false;
+      QTimer safety;
+      connect(&safety, &QTimer::timeout, &window, [] {
+        if (auto* modal = QApplication::activeModalWidget()) modal->close();
+      });
+      safety.start(2000);
+      QTimer::singleShot(10, &safety, [&] {
+        auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        auto* input = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameInput"));
+        checked = input && input->text() == initial;
+        if (checked) {
+          input->setText(name);
+          dialog->accept();
+        } else {
+          dialog->reject();
+        }
+      });
+      action->trigger();
+      return checked;
+    };
+    auto* rename = context->findChild<QAction*>(QStringLiteral("fileRename"));
+    QVERIFY(rename);
+    QVERIFY(enterName(rename, QStringLiteral("explicit.MKD"), QStringLiteral("renamed")));
+    const auto renamed = root.filePath(QStringLiteral("renamed.MKD"));
+    QVERIFY(window.windowTitle().startsWith(QStringLiteral("renamed.MKD ")));
+    QVERIFY(QFileInfo::exists(renamed));
+    QVERIFY(!QFileInfo::exists(explicitPath));
+    context.reset(tree->createContextMenu());
+    auto* create = context->findChild<QAction*>(QStringLiteral("fileNewMarkdown"));
+    QVERIFY(create);
+    QVERIFY(enterName(create, QStringLiteral("untitled.markdown"), QStringLiteral("new note")));
+    const auto created = root.filePath(QStringLiteral("new note.markdown"));
+    QVERIFY(window.windowTitle().startsWith(QStringLiteral("new note.markdown ")));
+    QVERIFY(QFileInfo::exists(created));
+
+    const std::atomic<bool> cancelled{false};
+    QVERIFY(indexMarkdownFiles(root.path(), cancelled).paths.contains(renamed));
+    QVERIFY(listMarkdownFiles(root.path()).contains(renamed));
+    QString error;
+    const auto hits =
+        searchFiles({root.path(), QStringLiteral("Preferred suffix fixture")}, &error);
+    QCOMPARE(error, QString());
+    QCOMPARE(hits.size(), 2);
+    const auto base = QUrl::fromLocalFile(root.path() + '/');
+    const auto missing = typist::ui::resolveLink(QStringLiteral("missing"), base);
+    QCOMPARE(missing.kind, typist::ui::LinkDestination::MissingMarkdown);
+    QCOMPARE(missing.path, root.filePath(QStringLiteral("missing.markdown")));
+    const auto existing = typist::ui::resolveLink(QStringLiteral("first"), base);
+    QCOMPARE(existing.kind, typist::ui::LinkDestination::Markdown);
+    QCOMPARE(existing.path, first);
   }
 
   void externalDropPreferencesChooseBetweenOpeningAndInsertingLinks() {

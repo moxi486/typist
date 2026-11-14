@@ -167,6 +167,7 @@ class MainWindow : public QMainWindow {
   void updateEditorToolbar();
   void createLaunchMenu(QMenu* settings);
   void createFileDropMenu(QMenu* settings);
+  void createMarkdownExtensionMenu(QMenu* settings);
   void openDroppedMarkdown(const QString& path);
   void createLineEndingMenu(QMenu* settings);
   bool writeMarkdownFile(const QString& path, const QString& markdown);

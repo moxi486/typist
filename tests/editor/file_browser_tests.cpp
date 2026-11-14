@@ -645,8 +645,10 @@ class FileBrowserTests : public QObject {
     QVERIFY(createDirectory(directory.path(), QStringLiteral("子目录"), &error));
     QVERIFY(!createDirectory(directory.path(), QStringLiteral("子目录"), &error));
     QVERIFY(!createDirectory(directory.path(), QStringLiteral("中文 note.MD"), &error));
-    QVERIFY(!createMarkdownFile(directory.path(), QStringLiteral("中文 note.MD"), &error));
-    QVERIFY(!renameFile(copy, QStringLiteral("中文 note.MD"), &error));
+    QVERIFY(createMarkdownFile(directory.path(), QStringLiteral("中文 note.MD"),
+                               QStringLiteral("md"), &error)
+                .isEmpty());
+    QVERIFY(renameFile(copy, QStringLiteral("中文 note.MD"), &error).isEmpty());
     QCOMPARE(containingDirectoryUrl(source), QUrl::fromLocalFile(directory.path()));
     QCOMPARE(containingDirectoryUrl(directory.filePath(QStringLiteral("子目录"))),
              QUrl::fromLocalFile(directory.filePath(QStringLiteral("子目录"))));
@@ -675,14 +677,16 @@ class FileBrowserTests : public QObject {
       QString error;
       QVERIFY(!createDirectory(parent, name, &error));
       QVERIFY(!error.isEmpty());
-      QVERIFY(!createMarkdownFile(parent, name, &error));
-      QVERIFY(!renameFile(source, name, &error));
+      QVERIFY(createMarkdownFile(parent, name, QStringLiteral("md"), &error).isEmpty());
+      QVERIFY(renameFile(source, name, &error).isEmpty());
       QVERIFY(QFileInfo::exists(source));
     }
     QVERIFY(!QFileInfo::exists(directory.filePath("escape.md")));
     QString error;
     QVERIFY(!createDirectory({}, QStringLiteral("folder"), &error));
-    QVERIFY(!createMarkdownFile(directory.filePath("missing"), QStringLiteral("note"), &error));
+    QVERIFY(createMarkdownFile(directory.filePath("missing"), QStringLiteral("note"),
+                               QStringLiteral("md"), &error)
+                .isEmpty());
     QCOMPARE(QDir(parent).entryList(QDir::Files), QStringList({QStringLiteral("original.md")}));
   }
 

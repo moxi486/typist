@@ -965,6 +965,8 @@ QString FileTree::askName(const QString& title, const QString& label, const QStr
 QString FileTree::operationError(const QString& error) const {
   if (error == QLatin1String("Invalid name"))
     return tr("Use a single name without path separators or reserved characters.");
+  if (error == QLatin1String("File name is empty"))
+    return tr("Enter a file name before the extension.");
   if (error == QLatin1String("Folder unavailable")) return tr("The folder is no longer available.");
   if (error == QLatin1String("File unavailable")) return tr("The file is no longer available.");
   if (error == QLatin1String("Entry unavailable"))
@@ -994,19 +996,19 @@ QString FileTree::operationError(const QString& error) const {
   return error;
 }
 void FileTree::newFileIn(const QString& dir) {
+  const auto suffix = platform::defaultMarkdownSuffix();
   const auto name =
-      askName(tr("New Markdown File"), tr("File name"), QStringLiteral("untitled.md"));
+      askName(tr("New Markdown File"), tr("File name"), QStringLiteral("untitled.") + suffix);
   if (name.isEmpty()) return;
   QString error;
-  if (!platform::createMarkdownFile(dir, name, &error)) {
+  const auto path = platform::createMarkdownFile(dir, name, suffix, &error);
+  if (path.isEmpty()) {
     QMessageBox::warning(this, tr("New Markdown File"), operationError(error));
     return;
   }
   clearFileOperation();
   rebuild();
-  emit entryActivated(QDir(dir).filePath(name.endsWith(QLatin1String(".md"), Qt::CaseInsensitive)
-                                             ? name
-                                             : name + QStringLiteral(".md")));
+  emit entryActivated(path);
 }
 void FileTree::newFolderIn(const QString& dir) {
   const auto name = askName(tr("New Folder"), tr("Folder name"), tr("New Folder"));
@@ -1044,14 +1046,11 @@ void FileTree::renameFile(const QString& path) {
   const auto name = askName(tr("Rename File"), tr("New name"), QFileInfo(path).fileName());
   if (name.isEmpty()) return;
   QString error;
-  if (!platform::renameFile(path, name, &error)) {
+  const auto newPath = platform::renameFile(path, name, &error);
+  if (newPath.isEmpty()) {
     QMessageBox::warning(this, tr("Rename File"), operationError(error));
     return;
   }
-  const auto newPath = QDir(QFileInfo(path).absolutePath())
-                           .filePath(name.endsWith(QLatin1String(".md"), Qt::CaseInsensitive)
-                                         ? name
-                                         : name + QStringLiteral(".md"));
   if (newPath == path) return;
   recordFileOperation(path, newPath);
   refreshAfterRelocation(path, newPath);

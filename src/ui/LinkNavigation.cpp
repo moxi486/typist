@@ -92,17 +92,17 @@ LinkDestination resolveLink(const QString& destination, const QUrl& base) {
   QFileInfo file(path);
   const bool extensionless = file.suffix().isEmpty() && !file.fileName().endsWith('.');
   if (!file.exists() && !file.isSymLink() && extensionless && !path.endsWith('/')) {
-    for (const auto* extension : {".md", ".markdown", ".mdown", ".mkd"})
-      if (QFileInfo::exists(path + extension)) {
-        path += extension;
+    for (const auto& suffix : platform::markdownSuffixes()) {
+      const auto candidate = path + '.' + suffix;
+      if (QFileInfo::exists(candidate)) {
+        path = candidate;
         break;
       }
+    }
     file.setFile(path);
   }
   if (file.isSymLink() && !file.exists()) return {};
-  const auto suffix = file.suffix().toLower();
-  const bool markdown = suffix == QLatin1String("md") || suffix == QLatin1String("markdown") ||
-                        suffix == QLatin1String("mdown") || suffix == QLatin1String("mkd");
+  const bool markdown = platform::isMarkdownPath(file.fileName());
   auto kind = LinkDestination::LocalFile;
   if (file.exists()) {
     if (markdown && file.isFile()) kind = LinkDestination::Markdown;
@@ -111,7 +111,7 @@ LinkDestination resolveLink(const QString& destination, const QUrl& base) {
         !QFileInfo(file.absolutePath()).isDir() || !url.host().isEmpty() || url.hasQuery() ||
         pathPart.contains('?'))
       return {};
-    if (!markdown) path += QStringLiteral(".md");
+    if (!markdown) path += '.' + platform::defaultMarkdownSuffix();
     kind = LinkDestination::MissingMarkdown;
   }
   auto fileUrl = QUrl::fromLocalFile(path);

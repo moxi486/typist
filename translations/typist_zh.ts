@@ -172,6 +172,10 @@
         <translation>打开 Markdown</translation>
     </message>
     <message>
+        <source>Markdown (%1)</source>
+        <translation>Markdown 文件 (%1)</translation>
+    </message>
+    <message>
         <source>Cannot open file</source>
         <translation>无法打开文件</translation>
     </message>
@@ -594,6 +598,10 @@
     <message>
         <source>File Drop</source>
         <translation>文件拖放</translation>
+    </message>
+    <message>
+        <source>Default Markdown Extension</source>
+        <translation>默认 Markdown 扩展名</translation>
     </message>
     <message>
         <source>Open in Typist</source>
@@ -1308,6 +1316,10 @@
     <message>
         <source>Use a single name without path separators or reserved characters.</source>
         <translation>请输入单个名称，不要包含路径分隔符或系统保留字符。</translation>
+    </message>
+    <message>
+        <source>Enter a file name before the extension.</source>
+        <translation>请在扩展名前输入文件名。</translation>
     </message>
     <message>
         <source>The folder is no longer available.</source>
