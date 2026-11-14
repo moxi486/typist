@@ -169,6 +169,7 @@ class Editor : public QTextEdit {
   void moveCaret(QTextCursor::MoveOperation operation);
   void revealSelection();
   void insertPlainText(const QString& text);
+  QString insertHtmlAsMarkdown(const QString& html);
   void setImagePasteHandler(std::function<bool(const QMimeData*)> handler) {
     m_imagePasteHandler = std::move(handler);
   }
@@ -178,7 +179,7 @@ class Editor : public QTextEdit {
   void paragraphSourceChanged();
   void paragraphSourceClosed();
   void markdownFileDropped(const QString& path);
-  void tablePasteRejected(const QString& error);
+  void pasteRejected(const QString& error);
   void linkActivated(const QString& target);
   void editLinkRequested();
   void imageFileStatus(const QString& message);
@@ -348,6 +349,7 @@ class Editor : public QTextEdit {
   bool m_autoPair = true;
   bool m_copyCutWholeLine = false;
   bool m_copyMarkdownAsPlainText = false;
+  bool m_droppingText = false;
   bool m_syntaxHighlight = true;
   bool m_codeLineNumbers = false;
   platform::WritingAreaWidths m_writingAreaWidths;

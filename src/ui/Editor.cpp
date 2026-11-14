@@ -3,6 +3,7 @@
 #include "CodeBlockBar.h"
 #include "CodeEditing.h"
 #include "CodeLineNumberGutter.h"
+#include "HtmlImporter.h"
 #include "ImageAssets.h"
 #include "ImageResources.h"
 #include "LinkEditing.h"
@@ -37,6 +38,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QScopedValueRollback>
 #include <QScrollArea>
 #include <QSplitter>
 #include <QStandardPaths>
@@ -49,6 +51,8 @@
 
 namespace {
 QString editorText(const char* text) { return QCoreApplication::translate("Editor", text); }
+
+const auto kTypistMarkdownMime = QStringLiteral("application/x-typist-markdown");
 
 QTextCursor imageCharacter(QTextDocument* document, int position) {
   if (position < 0 || document->characterAt(position) != QChar::ObjectReplacementCharacter)
@@ -584,13 +588,13 @@ void Editor::copySelection(CopyFormat format) const {
   QApplication::clipboard()->setMimeData(data);
 }
 void Editor::paste() {
-  const auto* source = QApplication::clipboard()->mimeData();
-  if (source && source->hasText() && pasteTableText(source->text())) return;
-  if (m_imagePasteHandler && m_imagePasteHandler(QApplication::clipboard()->mimeData())) return;
-  if (m_paragraphSourceActive)
-    m_paragraphPanel->input()->paste();
-  else
+  if (!m_paragraphSourceActive) {
     QTextEdit::paste();
+    return;
+  }
+  const auto* source = QApplication::clipboard()->mimeData();
+  if (m_imagePasteHandler && m_imagePasteHandler(source)) return;
+  m_paragraphPanel->input()->paste();
 }
 void Editor::selectAll() {
   if (m_paragraphSourceActive) {
@@ -770,7 +774,7 @@ bool Editor::pasteTableText(const QString& text) {
   QString error;
   if (!editor::pasteTableCells(cursor, text, &error)) {
     if (error.isEmpty()) return false;
-    emit tablePasteRejected(error);
+    emit pasteRejected(error);
     return true;
   }
   setTextCursor(cursor);
@@ -1552,25 +1556,54 @@ void Editor::inputMethodEvent(QInputMethodEvent* event) {
   }
 }
 
+QString Editor::insertHtmlAsMarkdown(const QString& html) {
+  const auto imported = editor::importHtml(html);
+  if (!imported.ok()) return imported.error;
+  auto cursor = textCursor();
+  if (!m_rendered || m_paragraphSourceActive || editor::isCodeSelection(cursor)) {
+    insertPlainText(imported.markdown);
+    return {};
+  }
+  QString error;
+  if (editor::insertMarkdownAtCursor(imported.markdown, cursor, &error)) setTextCursor(cursor);
+  return error;
+}
+
 void Editor::insertFromMimeData(const QMimeData* source) {
-  if (source->hasText() && pasteTableText(source->text())) return;
+  if (!source || isReadOnly()) return;
+  const auto text = source->hasText() ? source->text() : QString();
+  if (!text.isEmpty() && pasteTableText(text)) return;
   clearImageTypingFormat();
   if (m_imagePasteHandler && m_imagePasteHandler(source)) return;
-  if (m_rendered && source->hasText()) {
-    QTextCursor cursor = textCursor();
-    if (editor::insertCodeText(cursor, source->text())) {
+  auto cursor = textCursor();
+  if (!m_rendered || m_paragraphSourceActive || editor::isCodeSelection(cursor)) {
+    if (!text.isEmpty()) insertPlainText(text);
+    return;
+  }
+  if (!m_droppingText && !cursor.currentTable()) {
+    // The application's own copy can carry links and syntax absent from Qt's HTML.
+    if (source->hasFormat(kTypistMarkdownMime) &&
+        editor::insertMarkdownAtCursor(QString::fromUtf8(source->data(kTypistMarkdownMime)), cursor,
+                                       nullptr)) {
       setTextCursor(cursor);
       return;
     }
+    if (source->hasHtml()) {
+      const auto error = insertHtmlAsMarkdown(source->html());
+      if (error.isEmpty()) return;
+      if (text.isEmpty()) {
+        emit pasteRejected(error);
+        return;
+      }
+    }
   }
-  if (!m_rendered || !source->hasText()) {
-    QTextEdit::insertFromMimeData(source);
+  if (text.isEmpty()) {
+    if (!source->hasText() && (!source->hasHtml() || m_droppingText))
+      QTextEdit::insertFromMimeData(source);
     return;
   }
-  const QString text = source->text();
   const bool markdown = text.contains(QLatin1Char('\n')) || text.contains(QStringLiteral("**")) ||
                         text.contains(QStringLiteral("](")) || text.contains(QLatin1Char('`'));
-  QTextCursor cursor = textCursor();
   if (markdown && editor::insertMarkdownAtCursor(text, cursor, nullptr))
     setTextCursor(cursor);
   else {
@@ -1589,6 +1622,7 @@ QMimeData* Editor::createMimeDataFromSelection() const {
     // Qt materializes the rich formats lazily and sets its own plain text at that point.
     (void)data->text();
     data->setText(markdown);
+    data->setData(kTypistMarkdownMime, markdown.toUtf8());
   }
   return data;
 }
@@ -1636,6 +1670,8 @@ void Editor::dropEvent(QDropEvent* event) {
       return;
     }
   }
+  // A text move inside the document must retain the existing drop behavior.
+  const QScopedValueRollback<bool> dropping(m_droppingText, true);
   QTextEdit::dropEvent(event);
 }
 
