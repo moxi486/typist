@@ -3753,13 +3753,14 @@ class WindowTests : public QObject {
 
     const auto dropAt = [&](const QMimeData* data, const QTextCursor& caret) {
       const auto target = editor->cursorRect(caret).center();
-      QDragEnterEvent enter(target, Qt::CopyAction, data, Qt::LeftButton, Qt::NoModifier);
+      constexpr auto actions = Qt::CopyAction | Qt::MoveAction;
+      QDragEnterEvent enter(target, actions, data, Qt::LeftButton, Qt::ShiftModifier);
       QApplication::sendEvent(editor->viewport(), &enter);
-      if (!enter.isAccepted()) return false;
-      QDragMoveEvent move(target, Qt::CopyAction, data, Qt::LeftButton, Qt::NoModifier);
+      if (!enter.isAccepted() || enter.dropAction() != Qt::CopyAction) return false;
+      QDragMoveEvent move(target, actions, data, Qt::LeftButton, Qt::ShiftModifier);
       QApplication::sendEvent(editor->viewport(), &move);
-      if (!move.isAccepted()) return false;
-      QDropEvent drop(target, Qt::CopyAction, data, Qt::LeftButton, Qt::NoModifier);
+      if (!move.isAccepted() || move.dropAction() != Qt::CopyAction) return false;
+      QDropEvent drop(target, actions, data, Qt::LeftButton, Qt::ShiftModifier);
       QApplication::sendEvent(editor->viewport(), &drop);
       return drop.isAccepted() && drop.dropAction() == Qt::CopyAction;
     };
@@ -3839,6 +3840,95 @@ class WindowTests : public QObject {
     const auto absolute = editor->document()->find(label).charFormat().anchorHref();
     QVERIFY(QUrl(absolute).isLocalFile());
     QCOMPARE(QUrl(absolute).toLocalFile(), note);
+  }
+
+  void treeMoveRetargetsTheOpenDocumentAndKeepsItsUndoHistory() {
+    QTemporaryDir workspace;
+    QVERIFY(workspace.isValid());
+    const auto inbox = workspace.filePath(QStringLiteral("Inbox"));
+    const auto library = workspace.filePath(QStringLiteral("Library"));
+    const auto archive = workspace.filePath(QStringLiteral("Archive"));
+    for (const auto& path : {inbox, library, archive}) QVERIFY(QDir().mkpath(path));
+    const auto note = QDir(inbox).filePath(QStringLiteral("Note.md"));
+    const auto inLibrary = QDir(library).filePath(QStringLiteral("Note.md"));
+    const auto inArchive = QDir(archive).filePath(QStringLiteral("Library/Note.md"));
+    const QByteArray original = "Original\r\n";
+    QFile file(note);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write(original), original.size());
+    file.close();
+    typist::MainWindow window(nullptr, true);
+    QVERIFY(window.openFile(note));
+    window.resize(900, 640);
+    window.show();
+    window.findChild<QToolButton*>(QStringLiteral("sidebarToggle"))->click();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* tree = window.findChild<typist::ui::FileTree*>();
+    QVERIFY(editor && tree);
+    tree->setRoot(workspace.path());
+    QApplication::processEvents();
+
+    const auto moveEntry = [&](const QString& path, const QString& folder) {
+      QTreeWidgetItem* item = nullptr;
+      QTreeWidgetItem* destination = nullptr;
+      for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+        const auto entry = (*it)->data(0, Qt::UserRole).toString();
+        if (entry == path) item = *it;
+        if (entry == folder) destination = *it;
+      }
+      if (!item || !destination) return false;
+      tree->setCurrentItem(item);
+      const QScopedPointer<QMimeData> data(tree->model()->mimeData({tree->currentIndex()}));
+      if (!data) return false;
+      const auto point = tree->visualItemRect(destination).center();
+      constexpr auto actions = Qt::CopyAction | Qt::MoveAction;
+      QDragEnterEvent enter(point, actions, data.data(), Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(tree->viewport(), &enter);
+      if (!enter.isAccepted()) return false;
+      QDragMoveEvent move(point, actions, data.data(), Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(tree->viewport(), &move);
+      if (!move.isAccepted()) return false;
+      QDropEvent drop(point, actions, data.data(), Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(tree->viewport(), &drop);
+      return drop.isAccepted() && drop.dropAction() == Qt::MoveAction;
+    };
+
+    editor->moveCursor(QTextCursor::End);
+    editor->insertPlainText(QStringLiteral(" draft"));
+    editor->setTextCursor(editor->document()->find(QStringLiteral("draft")));
+    const auto renderedUndo = editor->document()->availableUndoSteps();
+    QVERIFY(moveEntry(note, library));
+    QVERIFY(!QFileInfo::exists(note));
+    QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("draft"));
+    QCOMPARE(editor->document()->availableUndoSteps(), renderedUndo);
+    QCOMPARE(editor->document()->baseUrl(), QUrl::fromLocalFile(library + '/'));
+    QVERIFY(window.windowTitle().contains(QStringLiteral(" *")));
+    file.setFileName(inLibrary);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), original);
+    file.close();
+    editor->undo();
+    QCOMPARE(editor->toPlainText(), QStringLiteral("Original"));
+    editor->redo();
+    QCOMPARE(editor->toPlainText(), QStringLiteral("Original draft"));
+
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    editor->moveCursor(QTextCursor::Start);
+    editor->insertPlainText(QStringLiteral("Edited "));
+    editor->setTextCursor(editor->document()->find(QStringLiteral("Edited")));
+    const auto sourceUndo = editor->document()->availableUndoSteps();
+    QVERIFY(moveEntry(library, archive));
+    QVERIFY(!QFileInfo::exists(inLibrary));
+    QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("Edited"));
+    QCOMPARE(editor->document()->availableUndoSteps(), sourceUndo);
+    QCOMPARE(editor->document()->baseUrl(),
+             QUrl::fromLocalFile(QFileInfo(inArchive).absolutePath() + '/'));
+    QVERIFY(QMetaObject::invokeMethod(&window, "save", Qt::DirectConnection));
+    file.setFileName(inArchive);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QVERIFY(file.readAll().startsWith("Edited Original draft\r\n"));
+    QVERIFY(!QFileInfo::exists(note));
+    QVERIFY(!QFileInfo::exists(inLibrary));
   }
 
   void linkWorkflowVisuals() {

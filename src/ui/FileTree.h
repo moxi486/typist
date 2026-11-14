@@ -47,6 +47,8 @@ class FileTree : public QTreeWidget {
   // Emitted when the watcher sees a change under the root; the refresh itself is debounced.
   void directoryChanged();
   void fileRenamed(const QString& oldPath, const QString& newPath);
+  void entryMoved(const QString& oldPath, const QString& newPath);
+  void moveFailed(const QString& message);
   void fileRemoved(const QString& path);
   void optionsChanged();
 
@@ -54,12 +56,18 @@ class FileTree : public QTreeWidget {
   void contextMenuEvent(QContextMenuEvent* event) override;
   void keyPressEvent(QKeyEvent* event) override;
   void changeEvent(QEvent* event) override;
+  void startDrag(Qt::DropActions actions) override;
+  void dragEnterEvent(QDragEnterEvent* event) override;
+  void dragMoveEvent(QDragMoveEvent* event) override;
+  void dropEvent(QDropEvent* event) override;
   QStringList mimeTypes() const override;
   QMimeData* mimeData(const QList<QTreeWidgetItem*>& items) const override;
   Qt::DropActions supportedDropActions() const override;
 
  private:
   QTreeWidgetItem* findLeaf(const QString& path) const;
+  QString draggedPath(const QDropEvent* event) const;
+  QString dropFolder(const QPoint& position, const QString& source) const;
   void rebuild();
   QList<QFileInfo> scan() const;
   QString signature(const QList<QFileInfo>& entries) const;

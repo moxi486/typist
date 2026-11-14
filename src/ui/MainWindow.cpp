@@ -356,6 +356,9 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   connect(m_tree, &ui::FileTree::entryActivated, this, &MainWindow::openTreeEntry);
   connect(m_tree, &ui::FileTree::entryOpenInNewWindow, this, &MainWindow::openNewWindow);
   connect(m_tree, &ui::FileTree::fileRenamed, this, &MainWindow::treeFileRenamed);
+  connect(m_tree, &ui::FileTree::entryMoved, this, &MainWindow::treeEntryMoved);
+  connect(m_tree, &ui::FileTree::moveFailed, this,
+          [this](const QString& message) { statusBar()->showMessage(message, 5000); });
   connect(m_tree, &ui::FileTree::fileRemoved, this, &MainWindow::treeFileRemoved);
   connect(m_tree, &ui::FileTree::directoryChanged, this, &MainWindow::checkCurrentFileConflict);
 
@@ -2533,6 +2536,55 @@ void MainWindow::treeFileRenamed(const QString& oldPath, const QString& newPath)
     m_currentPath = newPath;
     updateTitleAndStatus();
   }
+}
+
+void MainWindow::treeEntryMoved(const QString& oldPath, const QString& newPath) {
+  if (m_currentPath.isEmpty()) return;
+  const auto resolvedPath = [](QString path) {
+    // The entry has moved. Canonicalize the nearest parent that still exists
+    // so paths opened through a workspace alias can still be matched.
+    QStringList tail;
+    for (;;) {
+      const QFileInfo info(path);
+      const auto canonical = info.canonicalFilePath();
+      if (!canonical.isEmpty())
+        return tail.isEmpty() ? canonical : QDir(canonical).filePath(tail.join('/'));
+      const auto parent = info.absolutePath();
+      if (parent == path) return QString();
+      tail.prepend(info.fileName());
+      path = parent;
+    }
+  };
+  const auto previous = m_currentPath;
+  auto relative = QDir(oldPath).relativeFilePath(QFileInfo(previous).absoluteFilePath());
+  const auto inside = [](const QString& path) {
+    return !path.isEmpty() && path != QLatin1String("..") &&
+           !path.startsWith(QLatin1String("../")) && !QDir::isAbsolutePath(path);
+  };
+  if (!inside(relative)) {
+    const auto source = resolvedPath(oldPath);
+    const auto current = resolvedPath(QFileInfo(previous).absoluteFilePath());
+    if (source.isEmpty() || current.isEmpty()) return;
+    relative = QDir(source).relativeFilePath(current);
+  }
+  auto target = newPath;
+  if (QFileInfo(newPath).isDir()) {
+    if (!inside(relative) || relative == QLatin1String(".")) return;
+    target = QDir(newPath).filePath(relative);
+  } else if (relative != QLatin1String(".")) {
+    return;
+  }
+  if (!QFileInfo(target).isFile()) return;
+  m_currentPath = target;
+  m_view->setBaseUrl(QUrl::fromLocalFile(QFileInfo(target).absolutePath() + QLatin1Char('/')));
+  resetPreviousExport();
+  if (!m_benchMode) {
+    if (m_dirty && ui::writeDraft(target, currentMarkdown())) ui::removeDraft(previous);
+    platform::removeRecentFile(previous);
+    platform::addRecentFile(target);
+    rebuildRecentMenu();
+  }
+  updateTitleAndStatus();
 }
 
 void MainWindow::treeFileRemoved(const QString& path) {

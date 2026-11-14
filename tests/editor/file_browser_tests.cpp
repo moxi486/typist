@@ -8,6 +8,8 @@
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDialog>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFile>
 #include <QFileSystemWatcher>
 #include <QLabel>
@@ -84,8 +86,8 @@ class FileBrowserTests : public QObject {
     QVERIFY(writeFile(asset, "asset"));
     FileTree tree;
     tree.setRoot(workspace.path());
-    QCOMPARE(tree.dragDropMode(), QAbstractItemView::DragOnly);
-    QCOMPARE(tree.model()->supportedDragActions(), Qt::DropActions(Qt::CopyAction));
+    QCOMPARE(tree.dragDropMode(), QAbstractItemView::DragDrop);
+    QCOMPARE(tree.model()->supportedDragActions(), Qt::CopyAction | Qt::MoveAction);
     QCOMPARE(tree.model()->mimeTypes(), QStringList{typist::ui::kSidebarLinkMime});
     const auto verify = [&](const QString& path, const QModelIndex& index) {
       QVERIFY(index.isValid());
@@ -101,6 +103,7 @@ class FileBrowserTests : public QObject {
     auto options = tree.options();
     options.view = FileBrowserView::List;
     tree.setOptions(options);
+    QCOMPARE(tree.model()->supportedDragActions(), Qt::DropActions(Qt::CopyAction));
     verify(note, tree.model()->index(0, 0));
     options.showNonMarkdown = true;
     tree.setOptions(options);
@@ -114,6 +117,106 @@ class FileBrowserTests : public QObject {
     QVERIFY(QFile::remove(note));
     const QScopedPointer<QMimeData> data(tree.model()->mimeData({stale}));
     QVERIFY(!data);
+  }
+
+  void treeDropMovesFilesAndFoldersWithoutOverwriting() {
+    QTemporaryDir workspace;
+    const auto note = workspace.filePath(QStringLiteral("笔记.md"));
+    const auto target = workspace.filePath(QStringLiteral("Target"));
+    const auto movedNote = QDir(target).filePath(QStringLiteral("笔记.md"));
+    const auto source = workspace.filePath(QStringLiteral("Source"));
+    const auto child = QDir(source).filePath(QStringLiteral("Child"));
+    QVERIFY(writeFile(note, "Note\n"));
+    QVERIFY(writeFile(movedNote, "Occupied\n"));
+    QVERIFY(writeFile(QDir(child).filePath(QStringLiteral("Nested.md")), "Nested\n"));
+    FileTree tree;
+    tree.setRoot(workspace.path());
+    tree.resize(320, 420);
+    tree.show();
+    QApplication::processEvents();
+    QSignalSpy moved(&tree, &FileTree::entryMoved);
+    QSignalSpy failed(&tree, &FileTree::moveFailed);
+
+    const auto drop = [&](const QMimeData* data, const QPoint& point) {
+      constexpr auto actions = Qt::CopyAction | Qt::MoveAction;
+      QDragEnterEvent enter(point, actions, data, Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(tree.viewport(), &enter);
+      if (!enter.isAccepted()) return false;
+      QDragMoveEvent move(point, actions, data, Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(tree.viewport(), &move);
+      QDropEvent release(point, actions, data, Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(tree.viewport(), &release);
+      return release.isAccepted() && release.dropAction() == Qt::MoveAction;
+    };
+    const auto mimeFor = [&](const QString& path) {
+      tree.setCurrentItem(itemForPath(tree, path));
+      return tree.model()->mimeData({tree.currentIndex()});
+    };
+    const auto pointFor = [&](const QString& path) {
+      return tree.visualItemRect(itemForPath(tree, path)).center();
+    };
+
+    QScopedPointer<QMimeData> drag(mimeFor(note));
+    QVERIFY(drag);
+    QMimeData external;
+    external.setData(typist::ui::kSidebarLinkMime, drag->data(typist::ui::kSidebarLinkMime));
+    QVERIFY(!drop(&external, pointFor(target)));
+    QCOMPARE(failed.count(), 0);
+    QVERIFY(!drop(drag.data(), pointFor(target)));
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(moved.count(), 0);
+    QFile occupied(movedNote);
+    QVERIFY(occupied.open(QIODevice::ReadOnly));
+    QCOMPARE(occupied.readAll(), QByteArray("Occupied\n"));
+    occupied.close();
+    QVERIFY(occupied.remove());
+    QVERIFY(drop(drag.data(), pointFor(target)));
+    QVERIFY(!QFileInfo::exists(note));
+    QCOMPARE(tree.selectedPath(), movedNote);
+    QCOMPARE(moved.takeFirst(), QList<QVariant>({note, movedNote}));
+
+    drag.reset(mimeFor(movedNote));
+    QVERIFY(drag);
+    QVERIFY(drop(drag.data(), QPoint(20, tree.viewport()->height() - 8)));
+    QCOMPARE(tree.selectedPath(), note);
+    QVERIFY(!QFileInfo::exists(movedNote));
+
+    drag.reset(mimeFor(source));
+    QVERIFY(drag);
+    QVERIFY(!drop(drag.data(), pointFor(child)));
+    QVERIFY(!drop(drag.data(), pointFor(source)));
+    QVERIFY(QFileInfo(child).isDir());
+    QVERIFY(drop(drag.data(), pointFor(target)));
+    QVERIFY(!QFileInfo::exists(source));
+    const auto nested = QDir(target).filePath(QStringLiteral("Source/Child/Nested.md"));
+    QVERIFY(itemForPath(tree, nested));
+    QFile movedChild(nested);
+    QVERIFY(movedChild.open(QIODevice::ReadOnly));
+    QCOMPARE(movedChild.readAll(), QByteArray("Nested\n"));
+  }
+
+  void workspaceMoveRejectsUnavailableAndOutsideEntries() {
+    QTemporaryDir workspace;
+    QTemporaryDir outside;
+    const auto source = workspace.filePath(QStringLiteral("Source"));
+    const auto child = QDir(source).filePath(QStringLiteral("Child"));
+    const auto note = QDir(source).filePath(QStringLiteral("note.md"));
+    const auto other = outside.filePath(QStringLiteral("Other.md"));
+    QVERIFY(QDir().mkpath(child));
+    QVERIFY(writeFile(note));
+    QVERIFY(writeFile(other));
+    QString error;
+    using typist::platform::moveWorkspaceEntry;
+    QVERIFY(moveWorkspaceEntry(workspace.path(), note, outside.path(), &error).isEmpty());
+    QCOMPARE(error, QStringLiteral("Folder unavailable"));
+    QVERIFY(moveWorkspaceEntry(workspace.path(), other, source, &error).isEmpty());
+    QCOMPARE(error, QStringLiteral("Entry unavailable"));
+    QVERIFY(moveWorkspaceEntry(workspace.path(), source, child, &error).isEmpty());
+    QCOMPARE(error, QStringLiteral("Cannot move into itself"));
+    QVERIFY(moveWorkspaceEntry(workspace.path(), note, source, &error).isEmpty());
+    QVERIFY(error.isEmpty());
+    QVERIFY(QFileInfo(note).isFile());
+    QVERIFY(QFileInfo(other).isFile());
   }
 
   void groupedListSortsWithinParentsAndNavigates() {

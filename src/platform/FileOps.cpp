@@ -11,7 +11,14 @@
 #include <shlobj.h>
 #elif defined(Q_OS_MACOS)
 #include <QProcess>
-#elif defined(TYPIST_HAS_FILE_MANAGER_DBUS)
+#include <stdio.h>
+#elif defined(Q_OS_LINUX)
+#include <fcntl.h>
+#include <linux/fs.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
+#if defined(TYPIST_HAS_FILE_MANAGER_DBUS)
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>
@@ -47,6 +54,27 @@ bool availableDirectory(const QString& dir, QString* error) {
   const bool valid = !dir.isEmpty() && QFileInfo(dir).isDir();
   if (!valid && error) *error = QStringLiteral("Folder unavailable");
   return valid;
+}
+
+bool isWithin(const QString& parent, const QString& path) {
+  const auto relative = QDir(parent).relativeFilePath(path);
+  return relative != QLatin1String("..") && !relative.startsWith(QLatin1String("../")) &&
+         !QDir::isAbsolutePath(relative);
+}
+
+bool renameWithoutReplacing(const QString& source, const QString& target) {
+#if defined(Q_OS_WIN)
+  return MoveFileExW(reinterpret_cast<LPCWSTR>(source.utf16()),
+                     reinterpret_cast<LPCWSTR>(target.utf16()), 0) != 0;
+#elif defined(Q_OS_MACOS)
+  return renamex_np(QFile::encodeName(source).constData(), QFile::encodeName(target).constData(),
+                    RENAME_EXCL) == 0;
+#elif defined(Q_OS_LINUX) && defined(SYS_renameat2)
+  return syscall(SYS_renameat2, AT_FDCWD, QFile::encodeName(source).constData(), AT_FDCWD,
+                 QFile::encodeName(target).constData(), RENAME_NOREPLACE) == 0;
+#else
+  return QFile::rename(source, target);
+#endif
 }
 
 }  // namespace
@@ -110,6 +138,35 @@ bool moveMarkdownToTrash(const QString& path, QString* error) {
     return false;
   }
   return true;
+}
+
+QString moveWorkspaceEntry(const QString& root, const QString& path, const QString& destination,
+                           QString* error) {
+  if (error) error->clear();
+  const auto fail = [error](const char* reason) {
+    if (error) *error = QString::fromLatin1(reason);
+    return QString();
+  };
+  const QFileInfo source(path), folder(destination);
+  const auto workspace = QDir(root).canonicalPath();
+  const auto from = source.canonicalFilePath();
+  const auto to = folder.canonicalFilePath();
+  if (root.isEmpty() || !QFileInfo(workspace).isDir() || !folder.isDir() || folder.isSymLink() ||
+      folder.isJunction() || to.isEmpty() || !isWithin(workspace, to))
+    return fail("Folder unavailable");
+  if ((!source.isFile() && !source.isDir()) || source.isSymLink() || source.isJunction() ||
+      from.isEmpty() || from == workspace || !isWithin(workspace, from))
+    return fail("Entry unavailable");
+  if (source.isDir() && isWithin(from, to)) return fail("Cannot move into itself");
+  if (QFileInfo(from).absolutePath() == to) return {};
+  const QFileInfo target(QDir(to).filePath(source.fileName()));
+  if (target.exists() || target.isSymLink()) return fail("A file with that name already exists");
+  if (!renameWithoutReplacing(from, target.absoluteFilePath())) {
+    const QFileInfo occupied(target.absoluteFilePath());
+    return fail(occupied.exists() || occupied.isSymLink() ? "A file with that name already exists"
+                                                          : "Move failed");
+  }
+  return QDir(folder.absoluteFilePath()).filePath(source.fileName());
 }
 
 bool createDirectory(const QString& dir, const QString& name, QString* error) {
