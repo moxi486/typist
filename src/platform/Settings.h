@@ -21,6 +21,8 @@ QString languagePreference();
 void setLanguagePreference(const QString& value);
 LineEnding defaultLineEnding();
 void setDefaultLineEnding(LineEnding ending);
+QString defaultMarkdownSuffix();
+void setDefaultMarkdownSuffix(const QString& suffix);
 
 enum class LaunchMode { NewDocument, LastFolder, LastFileAndFolder, CustomFolder };
 struct LaunchOptions {

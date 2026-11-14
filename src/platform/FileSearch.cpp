@@ -1,5 +1,7 @@
 #include "FileSearch.h"
 
+#include "FileOps.h"
+
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -97,7 +99,7 @@ QVector<SearchHit> scanFiles(const SearchRequest& request, QString* error,
         if (!skippedDirectory(info.fileName())) pending.append(info.absoluteFilePath());
         continue;
       }
-      if (info.suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) != 0) continue;
+      if (!isMarkdownPath(info.fileName())) continue;
       if (stats.scannedFiles + stats.skippedFiles >= request.maxFiles) {
         stats.limited = true;
         return hits;
@@ -165,8 +167,8 @@ QVector<SearchHit> scanFiles(const SearchRequest& request, QString* error,
 QStringList listMarkdownFiles(const QString& rootDir, int maxEntries, qint64 maxFileBytes) {
   const QDir root(rootDir);
   QStringList entries;
-  QDirIterator it(rootDir, QStringList() << QStringLiteral("*.md"),
-                  QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden, QDirIterator::Subdirectories);
+  QDirIterator it(rootDir, markdownNameFilters(), QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden,
+                  QDirIterator::Subdirectories);
   while (it.hasNext()) {
     const QString path = it.next();
     const QStringList parts = root.relativeFilePath(path).split(QChar(47));

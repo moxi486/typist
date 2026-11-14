@@ -1,5 +1,7 @@
 #include "Settings.h"
 
+#include "FileOps.h"
+
 #include <QDir>
 #include <QFileInfo>
 #include <QSettings>
@@ -14,6 +16,7 @@ QSettings openSettings(QSettings::Format format = QSettings::NativeFormat) {
 }
 const auto writingAreaKey = QStringLiteral("editor/writingAreaWidths");
 const auto lineEndingKey = QStringLiteral("editor/defaultLineEnding");
+const auto markdownSuffixKey = QStringLiteral("files/defaultMarkdownSuffix");
 const auto launchOptionsKey = QStringLiteral("startup/options");
 const auto fileDropKey = QStringLiteral("files/dropPreferences");
 const auto lastClosedKey = QStringLiteral("startup/lastClosed");
@@ -75,6 +78,16 @@ WritingWidth readWritingWidth(const QVariant& value) {
   return WritingWidth::Standard;
 }
 }  // namespace
+
+QString defaultMarkdownSuffix() {
+  const auto suffix = openSettings(QSettings::defaultFormat()).value(markdownSuffixKey).toString();
+  return markdownSuffixes().contains(suffix) ? suffix : markdownSuffixes().first();
+}
+
+void setDefaultMarkdownSuffix(const QString& suffix) {
+  if (markdownSuffixes().contains(suffix))
+    openSettings(QSettings::defaultFormat()).setValue(markdownSuffixKey, suffix);
+}
 
 LaunchOptions launchOptions() {
   const auto values = openSettings(QSettings::defaultFormat()).value(launchOptionsKey).toMap();
