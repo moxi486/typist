@@ -46,8 +46,8 @@ QDateTime createdDate(const QFileInfo& info) {
 }
 
 bool skippedDirectory(const QString& name) {
-  return name.startsWith('.') || name == QLatin1String("build") ||
-         name == QLatin1String("node_modules");
+  return name.compare(QLatin1String(".git"), Qt::CaseInsensitive) == 0 ||
+         name == QLatin1String("build") || name == QLatin1String("node_modules");
 }
 
 class FileItem : public QTreeWidgetItem {
@@ -73,14 +73,16 @@ FileTree::FileTree(QWidget* parent) : QTreeWidget(parent) {
 QList<QFileInfo> FileTree::scan() const {
   QList<QFileInfo> entries;
   if (m_root.isEmpty() || !QFileInfo(m_root).isDir()) return entries;
+  auto filters =
+      QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks | QDir::Readable;
+  if (m_options.showHidden) filters |= QDir::Hidden;
   QStringList pending{m_root};
   while (!pending.isEmpty()) {
-    QDirIterator iterator(pending.takeLast(), QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot |
-                                                  QDir::NoSymLinks | QDir::Readable);
+    QDirIterator iterator(pending.takeLast(), filters);
     while (iterator.hasNext()) {
       iterator.next();
       const auto info = iterator.fileInfo();
-      if (info.isHidden() || info.fileName().startsWith('.')) continue;
+      if (!m_options.showHidden && (info.isHidden() || info.fileName().startsWith('.'))) continue;
       if (info.isDir()) {
         if (skippedDirectory(info.fileName())) continue;
         entries.append(info);
@@ -238,13 +240,15 @@ void FileTree::setOptions(const platform::FileBrowserOptions& options) {
   if (options.view == m_options.view && options.sort == m_options.sort &&
       options.descending == m_options.descending &&
       options.foldersFirst == m_options.foldersFirst &&
-      options.groupByFolder == m_options.groupByFolder)
+      options.groupByFolder == m_options.groupByFolder &&
+      options.showHidden == m_options.showHidden)
     return;
   const auto selected = currentItem() ? currentItem()->data(0, kPathRole).toString() : QString();
   rememberExpansion();
   const bool refreshDates = options.sort != m_options.sort && dateSort(options.sort);
+  const bool hiddenChanged = options.showHidden != m_options.showHidden;
   m_options = options;
-  if (refreshDates) {
+  if (refreshDates || hiddenChanged) {
     m_entries = scan();
     m_signature = signature(m_entries);
   }
@@ -453,6 +457,12 @@ QMenu* FileTree::createOptionsMenu(QWidget* parent) {
     setOptions(options);
   });
   m_optionsMenu->addSeparator();
+  auto* hidden = add("browserShowHidden", QT_TR_NOOP("Show Hidden Files and Folders"), true);
+  connect(hidden, &QAction::triggered, this, [this](bool checked) {
+    auto options = m_options;
+    options.showHidden = checked;
+    setOptions(options);
+  });
   connect(add("browserRefresh", QT_TR_NOOP("Refresh"), false), &QAction::triggered, this,
           &FileTree::refresh);
   updateOptionsMenu();
@@ -481,6 +491,7 @@ void FileTree::updateOptionsMenu() {
       action->setEnabled(m_options.view == platform::FileBrowserView::List);
     }
     if (id == QLatin1String("browserDescending")) action->setChecked(m_options.descending);
+    if (id == QLatin1String("browserShowHidden")) action->setChecked(m_options.showHidden);
     if (id == QLatin1String("browserFoldersFirst")) {
       action->setChecked(m_options.foldersFirst);
       action->setEnabled(m_options.view == platform::FileBrowserView::Tree);

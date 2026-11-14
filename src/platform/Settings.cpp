@@ -214,6 +214,7 @@ FileBrowserOptions fileBrowserOptions() {
   options.descending = settings.value(QStringLiteral("files/descending"), false).toBool();
   options.foldersFirst = settings.value(QStringLiteral("files/foldersFirst"), false).toBool();
   options.groupByFolder = settings.value(QStringLiteral("files/groupByFolder"), false).toBool();
+  options.showHidden = settings.value(QStringLiteral("files/showHidden"), false).toBool();
   return options;
 }
 
@@ -230,6 +231,7 @@ void setFileBrowserOptions(const FileBrowserOptions& options) {
   settings.setValue(QStringLiteral("files/descending"), options.descending);
   settings.setValue(QStringLiteral("files/foldersFirst"), options.foldersFirst);
   settings.setValue(QStringLiteral("files/groupByFolder"), options.groupByFolder);
+  settings.setValue(QStringLiteral("files/showHidden"), options.showHidden);
   settings.sync();
 }
 

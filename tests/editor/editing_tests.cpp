@@ -636,6 +636,31 @@ class EditingTests : public QObject {
     QCOMPARE(editor.toPlainText(), QString());
   }
 
+  void viewSwitchDropsSelectionsFromThePreviousLayout() {
+    typist::ui::ViewSwitch view;
+    QTextEdit editor;
+    QVERIFY(
+        view.loadMarkdownIntoBoth(QStringLiteral("Text with a link and a code fence"), nullptr));
+    view.showActiveIn(&editor);
+    QTextEdit::ExtraSelection selection;
+    selection.cursor = QTextCursor(editor.document());
+    selection.cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    selection.format.setBackground(Qt::yellow);
+    editor.setExtraSelections({selection});
+    QCOMPARE(editor.extraSelections().size(), 1);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    QCOMPARE(editor.document(), view.source());
+    QVERIFY(editor.extraSelections().isEmpty());
+    selection.cursor = QTextCursor(editor.document());
+    selection.cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    editor.setExtraSelections({selection});
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    QCOMPARE(editor.document(), view.rendered());
+    QVERIFY(editor.extraSelections().isEmpty());
+  }
+
   void sourceCommandsDoNotOverwriteSelectedLines() {
     typist::ui::ViewSwitch view;
     typist::ui::Editor editor;
