@@ -45,6 +45,7 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScopeGuard>
@@ -2438,6 +2439,28 @@ class WindowTests : public QObject {
     QVERIFY(editor->paragraphSourceActive());
     QCOMPARE(editor->toPlainText(), rendered);
     editor->finishParagraphSourceEdit(false);
+  }
+
+  void windowDestroysEditorBeforeItsDocuments() {
+    for (const bool source : {false, true}) {
+      QScopedPointer<typist::MainWindow> window(new typist::MainWindow(nullptr, true));
+      auto* editor = window->findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+      QVERIFY(editor);
+      auto* rendered = editor->document();
+      QVERIFY(QMetaObject::invokeMethod(window.get(), "toggleSourceView"));
+      auto* markdown = editor->document();
+      QVERIFY(rendered != markdown);
+      if (!source) QVERIFY(QMetaObject::invokeMethod(window.get(), "toggleSourceView"));
+      const QPointer<QTextDocument> renderedDocument(rendered), sourceDocument(markdown);
+      bool editorDestroyed = false;
+      connect(editor, &QObject::destroyed, this, [&] {
+        editorDestroyed = true;
+        QVERIFY(renderedDocument && sourceDocument);
+      });
+      window.reset();
+      QVERIFY(editorDestroyed);
+      QVERIFY(renderedDocument.isNull() && sourceDocument.isNull());
+    }
   }
 
   void wholeLineClipboardUsesTheActiveEditorAndPreservesCodeFences() {
