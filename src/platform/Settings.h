@@ -7,6 +7,8 @@
 #include <QString>
 #include <QStringList>
 
+class QSettings;
+
 namespace typist::platform {
 
 // User settings live under the Typist organization so each platform picks its own
@@ -91,6 +93,11 @@ double pdfMarginMm(double fallback = 20.0);
 void setPdfMarginMm(double value);
 PdfPageOptions pdfOptions(const QString& title);
 void setPdfOptions(const PdfPageOptions& options);
+
+// Pauses automatic recording of recent paths and the last closed workspace.
+bool recordRecentLocations();
+bool recordRecentLocations(const QSettings& settings);
+void setRecordRecentLocations(bool enabled);
 
 // Most recently opened or saved paths, newest first; stale entries are pruned by callers.
 QStringList recentFiles(int limit = 8);

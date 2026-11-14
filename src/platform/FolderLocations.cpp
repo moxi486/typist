@@ -1,5 +1,7 @@
 #include "FolderLocations.h"
 
+#include "Settings.h"
+
 #include <QDir>
 #include <QFileInfo>
 #include <QSet>
@@ -62,6 +64,7 @@ bool FolderLocationsStore::write(const FolderLocations& locations) {
   return store->status() == QSettings::NoError;
 }
 void FolderLocationsStore::record(const QString& path) {
+  if (!recordRecentLocations(*settings(m_settingsFile))) return;
   const auto normalized = folder(path);
   if (normalized.isEmpty()) return;
   auto locations = read();
