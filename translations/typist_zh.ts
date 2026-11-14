@@ -592,6 +592,10 @@
         <translation>启动时</translation>
     </message>
     <message>
+        <source>Record Recent Files and Folders</source>
+        <translation>记录最近文件和文件夹</translation>
+    </message>
+    <message>
         <source>Open a Blank Document</source>
         <translation>打开空白文档</translation>
     </message>

@@ -18,6 +18,7 @@ const auto launchOptionsKey = QStringLiteral("startup/options");
 const auto lastClosedKey = QStringLiteral("startup/lastClosed");
 const auto closedFilesKey = QStringLiteral("history/closedFiles");
 const auto recentFilesKey = QStringLiteral("recentFiles");
+const auto recordRecentLocationsKey = QStringLiteral("history/recordRecentLocations");
 const auto exportPreferencesKey = QStringLiteral("export/preferences");
 const auto lastExportDirectoryKey = QStringLiteral("export/lastDirectory");
 constexpr int fileHistoryLimit = 8;
@@ -99,6 +100,7 @@ StartupTarget lastClosedTarget() {
 
 void setLastClosedTarget(const StartupTarget& target) {
   auto settings = openSettings(QSettings::defaultFormat());
+  if (!recordRecentLocations(settings)) return;
   settings.setValue(lastClosedKey, QVariantMap{{QStringLiteral("file"), target.file},
                                                {QStringLiteral("folder"), target.folder}});
   settings.sync();
@@ -365,6 +367,20 @@ void setPdfOptions(const PdfPageOptions& options) {
   settings.setValue(QStringLiteral("pdf/footer"), options.footer);
 }
 
+bool recordRecentLocations() {
+  return recordRecentLocations(openSettings(QSettings::defaultFormat()));
+}
+
+bool recordRecentLocations(const QSettings& settings) {
+  return settings.value(recordRecentLocationsKey, true).toBool();
+}
+
+void setRecordRecentLocations(bool enabled) {
+  auto settings = openSettings(QSettings::defaultFormat());
+  settings.setValue(recordRecentLocationsKey, enabled);
+  settings.sync();
+}
+
 QStringList recentFiles(int limit) {
   const auto settings = openSettings(QSettings::defaultFormat());
   const QStringList stored = settings.value(recentFilesKey).toStringList();
@@ -380,6 +396,7 @@ QStringList recentFiles(int limit) {
 void addRecentFile(const QString& path) {
   if (path.isEmpty()) return;
   auto settings = openSettings(QSettings::defaultFormat());
+  if (!recordRecentLocations(settings)) return;
   QStringList stored = settings.value(recentFilesKey).toStringList();
   stored.removeOne(path);
   stored.prepend(path);
@@ -389,6 +406,7 @@ void addRecentFile(const QString& path) {
 
 void removeRecentFile(const QString& path) {
   auto settings = openSettings(QSettings::defaultFormat());
+  if (!recordRecentLocations(settings)) return;
   QStringList stored = settings.value(recentFilesKey).toStringList();
   stored.removeOne(path);
   settings.setValue(recentFilesKey, stored);
@@ -401,6 +419,7 @@ QStringList closedFiles() {
 
 void updateClosedFiles(const QString& closedPath, const QString& openedPath) {
   auto settings = openSettings(QSettings::defaultFormat());
+  if (!recordRecentLocations(settings)) return;
   const auto before = readClosedFiles(settings);
   auto paths = availableClosedFiles(before);
   const auto closed = canonicalFile(closedPath);

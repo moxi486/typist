@@ -529,6 +529,15 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   QMenu* settingsMenu = new QMenu(tr("Settings"), menuBar());
   menuBar()->insertMenu(helpMenu->menuAction(), settingsMenu);
   createLaunchMenu(settingsMenu);
+  auto* recordRecent = settingsMenu->addAction(tr("Record Recent Files and Folders"));
+  recordRecent->setObjectName(QStringLiteral("recordRecentLocations"));
+  recordRecent->setCheckable(true);
+  const auto syncRecent = [recordRecent] {
+    recordRecent->setChecked(platform::recordRecentLocations());
+  };
+  syncRecent();
+  connect(settingsMenu, &QMenu::aboutToShow, recordRecent, syncRecent);
+  connect(recordRecent, &QAction::triggered, this, &platform::setRecordRecentLocations);
   createLineEndingMenu(settingsMenu);
   createExportMenu(settingsMenu);
   QMenu* languageMenu = settingsMenu->addMenu(tr("Language"));

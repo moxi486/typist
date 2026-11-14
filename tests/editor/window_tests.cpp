@@ -102,7 +102,8 @@ struct FileHistoryGuard {
   FileHistoryGuard() {
     for (const auto& key : {QStringLiteral("recentFiles"), QStringLiteral("history/closedFiles"),
                             QStringLiteral("startup/lastClosed"), QStringLiteral("startup/options"),
-                            QStringLiteral("window/geometry"), QStringLiteral("editor/autoSave")})
+                            QStringLiteral("window/geometry"), QStringLiteral("editor/autoSave"),
+                            QStringLiteral("history/recordRecentLocations")})
       previous.insert(key, settings.value(key));
     typist::platform::clearFileHistory();
   }
@@ -303,6 +304,92 @@ class WindowTests : public QObject {
     QVERIFY(document.open(QIODevice::ReadOnly));
     QCOMPARE(document.readAll(), contents);
     window.setBenchMode(true);
+  }
+
+  void disablingRecentRecordingPreservesExistingHistoryAndAppliesAcrossWindows() {
+    using namespace typist::platform;
+    const FileHistoryGuard history;
+    const FolderHistoryGuard folders;
+    const auto language = languagePreference();
+    const auto restoreLanguage = qScopeGuard([&] { setLanguagePreference(language); });
+    setLanguagePreference(QStringLiteral("en"));
+    const auto preference = QStringLiteral("history/recordRecentLocations");
+    QSettings().remove(preference);
+    QVERIFY(recordRecentLocations());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto root = QFileInfo(directory.path()).canonicalFilePath();
+    const auto firstFolder = QDir(root).filePath(QStringLiteral("first"));
+    const auto secondFolder = QDir(root).filePath(QStringLiteral("second"));
+    QVERIFY(QDir().mkpath(firstFolder));
+    QVERIFY(QDir().mkpath(secondFolder));
+    const auto first = QDir(firstFolder).filePath(QStringLiteral("first.md"));
+    const auto second = QDir(secondFolder).filePath(QStringLiteral("second.md"));
+    for (const auto& path : {first, second}) {
+      QFile file(path);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      QCOMPARE(file.write("Saved.\n"), qint64(7));
+    }
+    FolderLocationsStore store;
+    addRecentFile(first);
+    updateClosedFiles(first);
+    store.record(firstFolder);
+    setLastClosedTarget({first, firstFolder});
+    setLaunchOptions({LaunchMode::LastFileAndFolder, {}});
+
+    typist::MainWindow window;
+    typist::MainWindow other;
+    const auto actionId = QStringLiteral("recordRecentLocations");
+    auto* toggle = window.findChild<QAction*>(actionId);
+    auto* otherToggle = other.findChild<QAction*>(actionId);
+    QVERIFY(toggle && otherToggle);
+    QVERIFY(toggle->isChecked());
+    toggle->trigger();
+    QVERIFY(!toggle->isChecked());
+    QVERIFY(!QSettings().value(preference, true).toBool());
+    auto* settingsMenu = qobject_cast<QMenu*>(otherToggle->parent());
+    QVERIFY(settingsMenu);
+    QVERIFY(QMetaObject::invokeMethod(settingsMenu, "aboutToShow", Qt::DirectConnection));
+    QVERIFY(!otherToggle->isChecked());
+    QVERIFY(window.openFile(first));
+    QVERIFY(window.openFile(second));
+    QVERIFY(window.openFolderPath(secondFolder));
+    QVERIFY(QMetaObject::invokeMethod(&window, "save", Qt::DirectConnection));
+    QVERIFY(store.setPinned(secondFolder, true));
+    QVERIFY(window.close());
+    QCOMPARE(recentFiles(), QStringList{first});
+    QCOMPARE(closedFiles(), QStringList{first});
+    QCOMPARE(lastClosedTarget().file, first);
+    QCOMPARE(lastClosedTarget().folder, firstFolder);
+    QCOMPARE(startupTarget({}).file, first);
+    QCOMPARE(store.read().recent, QStringList{firstFolder});
+    QCOMPARE(store.read().pinned, QStringList{secondFolder});
+
+    typist::MainWindow reopened;
+    auto* reopenedToggle = reopened.findChild<QAction*>(actionId);
+    QVERIFY(reopenedToggle && !reopenedToggle->isChecked());
+    reopened.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(reopenedToggle->text(), QStringLiteral("记录最近文件和文件夹"));
+    auto* clear = reopened.findChild<QAction*>(QStringLiteral("clearRecentItems"));
+    QVERIFY(clear);
+    clear->trigger();
+    QVERIFY(!recordRecentLocations());
+    QVERIFY(recentFiles().isEmpty() && closedFiles().isEmpty());
+    QVERIFY(lastClosedTarget().file.isEmpty() && lastClosedTarget().folder.isEmpty());
+    QVERIFY(store.read().recent.isEmpty());
+    QCOMPARE(store.read().pinned, QStringList{secondFolder});
+    QCOMPARE(launchOptions().mode, LaunchMode::LastFileAndFolder);
+    QVERIFY(startupTarget({}).file.isEmpty());
+    QCOMPARE(startupTarget({second}).file, second);
+
+    reopenedToggle->trigger();
+    QVERIFY(recordRecentLocations());
+    QVERIFY(reopened.openFile(second));
+    QVERIFY(reopened.close());
+    QCOMPARE(recentFiles(), QStringList{second});
+    QCOMPARE(closedFiles(), QStringList{second});
+    QCOMPARE(lastClosedTarget().file, second);
+    QCOMPARE(store.read().recent, QStringList{secondFolder});
   }
 
   void startupOptionsResolveExistingPathsAndKeepBenchmarksIsolated() {
