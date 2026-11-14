@@ -3996,13 +3996,8 @@ class WindowTests : public QObject {
     QVERIFY(secondMenu->actions().at(1)->isChecked());
     QVERIFY(!secondMenu->actions().first()->isChecked());
 
-    const auto fileAction = [&window](QKeySequence::StandardKey shortcut) -> QAction* {
-      for (auto* action : window.findChildren<QAction*>())
-        if (action->shortcut() == QKeySequence(shortcut)) return action;
-      return nullptr;
-    };
-    auto* save = fileAction(QKeySequence::Save);
-    auto* saveAs = fileAction(QKeySequence::SaveAs);
+    auto* save = window.findChild<QAction*>(QStringLiteral("saveDocument"));
+    auto* saveAs = window.findChild<QAction*>(QStringLiteral("saveDocumentAs"));
     QVERIFY(save && saveAs);
     auto* editor = window.findChild<QTextEdit*>(QStringLiteral("writingEditor"));
     QVERIFY(editor);

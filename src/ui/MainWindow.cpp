@@ -389,11 +389,13 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   connect(importAction, &QAction::triggered, this, &MainWindow::importHtmlDialog);
 
   QAction* saveAction = new QAction(tr("Save"), this);
+  saveAction->setObjectName(QStringLiteral("saveDocument"));
   saveAction->setShortcut(QKeySequence::Save);
   fileMenu->addAction(saveAction);
   connect(saveAction, &QAction::triggered, this, &MainWindow::save);
 
   QAction* saveAsAction = new QAction(tr("Save As"), this);
+  saveAsAction->setObjectName(QStringLiteral("saveDocumentAs"));
   saveAsAction->setShortcut(QKeySequence::SaveAs);
   fileMenu->addAction(saveAsAction);
   connect(saveAsAction, &QAction::triggered, this, &MainWindow::saveAs);
