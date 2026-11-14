@@ -112,6 +112,7 @@ struct FileBrowserOptions {
   bool descending = false;
   bool foldersFirst = false;
   bool groupByFolder = false;
+  bool showHidden = false;
 };
 FileBrowserOptions fileBrowserOptions();
 void setFileBrowserOptions(const FileBrowserOptions& options);

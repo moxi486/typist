@@ -23,6 +23,10 @@
 #include <QTreeWidgetItemIterator>
 #include <QtTest>
 
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
+
 using typist::platform::FileBrowserOptions;
 using typist::platform::FileBrowserSort;
 using typist::platform::FileBrowserView;
@@ -172,12 +176,12 @@ class FileBrowserTests : public QObject {
     QVERIFY(itemForPath(tree, other.filePath("a/b"))->isExpanded());
   }
 
-  void groupingAndCreatedPreferencesKeepLegacyDefaults() {
+  void fileBrowserPreferencesKeepLegacyDefaults() {
     QSettings settings(QStringLiteral("Typist"), QStringLiteral("Typist"));
-    const QStringList keys = {QStringLiteral("files/view"), QStringLiteral("files/sort"),
-                              QStringLiteral("files/descending"),
-                              QStringLiteral("files/foldersFirst"),
-                              QStringLiteral("files/groupByFolder")};
+    const QStringList keys = {
+        QStringLiteral("files/view"),          QStringLiteral("files/sort"),
+        QStringLiteral("files/descending"),    QStringLiteral("files/foldersFirst"),
+        QStringLiteral("files/groupByFolder"), QStringLiteral("files/showHidden")};
     QMap<QString, QVariant> previous;
     for (const auto& key : keys) previous.insert(key, settings.value(key));
     const auto restore = qScopeGuard([&] {
@@ -195,6 +199,7 @@ class FileBrowserTests : public QObject {
     QCOMPARE(defaults.sort, FileBrowserSort::Name);
     QCOMPARE(defaults.view, FileBrowserView::Tree);
     QVERIFY(!defaults.groupByFolder);
+    QVERIFY(!defaults.showHidden);
     settings.setValue(QStringLiteral("files/sort"), QStringLiteral("unknown"));
     settings.sync();
     QCOMPARE(typist::platform::fileBrowserOptions().sort, FileBrowserSort::Name);
@@ -202,11 +207,13 @@ class FileBrowserTests : public QObject {
     options.view = FileBrowserView::List;
     options.sort = FileBrowserSort::Created;
     options.descending = options.groupByFolder = options.foldersFirst = true;
+    options.showHidden = true;
     typist::platform::setFileBrowserOptions(options);
     const auto restored = typist::platform::fileBrowserOptions();
     QCOMPARE(restored.view, options.view);
     QCOMPARE(restored.sort, options.sort);
     QVERIFY(restored.groupByFolder && restored.descending && restored.foldersFirst);
+    QVERIFY(restored.showHidden);
   }
 
   void createdSortUsesBirthTimeAndRefreshesMetadataOnEntry() {
@@ -563,6 +570,70 @@ class FileBrowserTests : public QObject {
     tree.setOptions(options);
     QCOMPARE(tree.selectedPath(), target);
     QCOMPARE(itemForPath(tree, target)->parent()->text(0), QStringLiteral("c"));
+  }
+
+  void hiddenEntriesFollowSidebarFilterAndWatcher() {
+    QTemporaryDir directory;
+    const auto visible = directory.filePath("notes/current.md");
+    const auto hiddenDir = directory.filePath(".drafts");
+    const auto hiddenNote = directory.filePath(".drafts/nested/note.MD");
+    for (const auto& path :
+         {visible, hiddenNote, directory.filePath(".root.md"),
+          directory.filePath(".drafts/readme.txt"), directory.filePath(".git/ignored.md"),
+          directory.filePath(".drafts/build/ignored.md"),
+          directory.filePath(".drafts/node_modules/ignored.md")})
+      QVERIFY(writeFile(path));
+    const auto empty = directory.filePath(".empty");
+    QVERIFY(QDir().mkpath(empty));
+    int shownCount = 3;
+#ifdef Q_OS_WIN
+    const auto nativeHidden = directory.filePath("native-hidden.md");
+    QVERIFY(writeFile(nativeHidden));
+    QVERIFY(
+        SetFileAttributesW(reinterpret_cast<LPCWSTR>(nativeHidden.utf16()), FILE_ATTRIBUTE_HIDDEN));
+    QVERIFY(QFileInfo(nativeHidden).isHidden());
+    ++shownCount;
+#endif
+    FileTree tree;
+    tree.setRoot(directory.path());
+    tree.selectPath(visible);
+    auto* notes = itemForPath(tree, directory.filePath("notes"));
+    QVERIFY(notes);
+    notes->setExpanded(false);
+    tree.setWatchEnabled(true);
+    auto* watcher = tree.findChild<QFileSystemWatcher*>();
+    QVERIFY(watcher && !watcher->directories().contains(hiddenDir));
+    QCOMPARE(tree.entryCount(), 1);
+    QScopedPointer<QMenu> menu(tree.createOptionsMenu(nullptr));
+    auto* showHidden = menu->findChild<QAction*>(QStringLiteral("browserShowHidden"));
+    QVERIFY(showHidden && !showHidden->isChecked());
+    showHidden->trigger();
+    QVERIFY(showHidden->isChecked() && tree.options().showHidden);
+    QCOMPARE(tree.entryCount(), shownCount);
+    QCOMPARE(tree.selectedPath(), visible);
+    QVERIFY(!itemForPath(tree, directory.filePath("notes"))->isExpanded());
+    QVERIFY(itemForPath(tree, hiddenNote));
+    QVERIFY(itemForPath(tree, empty));
+#ifdef Q_OS_WIN
+    QVERIFY(itemForPath(tree, nativeHidden));
+#endif
+    QVERIFY(watcher->directories().contains(hiddenDir));
+    QVERIFY(!watcher->directories().contains(directory.filePath(".git")));
+
+    auto options = tree.options();
+    options.view = FileBrowserView::List;
+    options.groupByFolder = true;
+    tree.setOptions(options);
+    const auto added = directory.filePath(".drafts/added.md");
+    QVERIFY(writeFile(added));
+    QTRY_COMPARE(tree.entryCount(), shownCount + 1);
+    QVERIFY(itemForPath(tree, added));
+    QVERIFY(!itemForPath(tree, empty));
+    showHidden->trigger();
+    QCOMPARE(tree.entryCount(), 1);
+    QCOMPARE(tree.selectedPath(), visible);
+    QVERIFY(!watcher->directories().contains(hiddenDir));
+    QVERIFY(!itemForPath(tree, hiddenNote));
   }
 
   void nameNaturalDescendingAndFoldersFirst() {

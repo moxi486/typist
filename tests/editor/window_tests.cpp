@@ -577,7 +577,17 @@ class WindowTests : public QObject {
 
   void fileBrowserPreferencesLanguagesAndDocumentStayIntact() {
     const auto previous = typist::platform::fileBrowserOptions();
-    const auto restore = qScopeGuard([&] { typist::platform::setFileBrowserOptions(previous); });
+    QSettings settings(QSettings::NativeFormat, QSettings::UserScope, QStringLiteral("Typist"),
+                       QStringLiteral("Typist"));
+    const auto hiddenKey = QStringLiteral("files/showHidden");
+    const bool hadHiddenSetting = settings.contains(hiddenKey);
+    const auto restore = qScopeGuard([&] {
+      typist::platform::setFileBrowserOptions(previous);
+      if (!hadHiddenSetting) {
+        settings.remove(hiddenKey);
+        settings.sync();
+      }
+    });
     typist::platform::setFileBrowserOptions({});
     typist::platform::setLanguagePreference(QStringLiteral("en"));
     QTemporaryDir directory;
@@ -608,6 +618,10 @@ class WindowTests : public QObject {
     auto* button = window.findChild<QToolButton*>(QStringLiteral("fileOptions"));
     QVERIFY(button && button->menu());
     auto* menu = button->menu();
+    auto* hidden = menu->findChild<QAction*>(QStringLiteral("browserShowHidden"));
+    QVERIFY(hidden && !hidden->isChecked());
+    hidden->trigger();
+    QVERIFY(typist::platform::fileBrowserOptions().showHidden);
     menu->findChild<QAction*>(QStringLiteral("browserList"))->trigger();
     menu->findChild<QAction*>(QStringLiteral("browserNatural"))->trigger();
     menu->findChild<QAction*>(QStringLiteral("browserDescending"))->trigger();
@@ -641,6 +655,10 @@ class WindowTests : public QObject {
       QCOMPARE(menu->findChild<QAction*>(QStringLiteral("browserGroupByFolder"))->text(),
                language == QLatin1String("en") ? QStringLiteral("Group by Folder")
                                                : QStringLiteral("按文件夹分组"));
+      QCOMPARE(hidden->text(), language == QLatin1String("en")
+                                   ? QStringLiteral("Show Hidden Files and Folders")
+                                   : QStringLiteral("显示隐藏文件和文件夹"));
+      QVERIFY(hidden->isChecked());
       QCOMPARE(tree->topLevelItem(0)->text(0), language == QLatin1String("en")
                                                    ? QStringLiteral("Workspace Root")
                                                    : QStringLiteral("工作区根目录"));
@@ -676,6 +694,7 @@ class WindowTests : public QObject {
              typist::platform::FileBrowserSort::Created);
     QVERIFY(reopened.findChild<typist::ui::FileTree*>()->options().groupByFolder);
     QVERIFY(reopened.findChild<typist::ui::FileTree*>()->options().descending);
+    QVERIFY(reopened.findChild<typist::ui::FileTree*>()->options().showHidden);
     window.findChild<QAction*>(QStringLiteral("fileTree"))->trigger();
     QCOMPARE(tree->options().view, typist::platform::FileBrowserView::Tree);
     window.findChild<QAction*>(QStringLiteral("fileList"))->trigger();

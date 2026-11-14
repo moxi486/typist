@@ -1178,6 +1178,10 @@
         <translation>按文件夹分组</translation>
     </message>
     <message>
+        <source>Show Hidden Files and Folders</source>
+        <translation>显示隐藏文件和文件夹</translation>
+    </message>
+    <message>
         <source>New Folder</source>
         <translation>新建文件夹</translation>
     </message>
