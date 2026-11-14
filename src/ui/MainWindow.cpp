@@ -215,10 +215,19 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   QSettings settings;
   if (!restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray()))
     move(available.center() - rect().center());
-  // Two documents over one buffer: each mode keeps its own undo history.
+  m_editor = new ui::Editor(this);
+  m_findBar = new ui::FindBar(this);
+  auto* central = new QWidget(this);
+  auto* centralLayout = new QVBoxLayout(central);
+  centralLayout->setContentsMargins(0, 0, 0, 0);
+  centralLayout->addWidget(m_editor);
+  centralLayout->addWidget(m_findBar);
+  setCentralWidget(central);
+
+  // Qt's editor borrows the documents. Create their owner after the central widget
+  // so the editor is destroyed first.
   m_view = new ui::ViewSwitch(this);
   m_document = m_view->active();
-  m_editor = new ui::Editor(this);
   m_editor->setObjectName(QStringLiteral("writingEditor"));
   m_editor->setPlaceholderText(tr("Start writing, or open a Markdown file..."));
   m_editor->setAccessibleName(tr("Markdown editor"));
@@ -236,15 +245,6 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
           &MainWindow::insertLinkDialog);
   connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::imageFileStatus, this,
           [this](const QString& message) { statusBar()->showMessage(message, 5000); });
-  m_findBar = new ui::FindBar(this);
-
-  auto* central = new QWidget(this);
-  auto* centralLayout = new QVBoxLayout(central);
-  centralLayout->setContentsMargins(0, 0, 0, 0);
-  centralLayout->addWidget(m_editor);
-  centralLayout->addWidget(m_findBar);
-  setCentralWidget(central);
-
   m_tree = new ui::FileTree(this);
   m_tree->setOptions(platform::fileBrowserOptions());
   connect(m_tree, &ui::FileTree::optionsChanged, this,
@@ -2476,7 +2476,19 @@ bool MainWindow::openFolderPath(const QString& path) {
   return true;
 }
 
-void MainWindow::openTreeEntry(const QString& path) { openFile(path); }
+void MainWindow::openTreeEntry(const QString& path) {
+  if (platform::isMarkdownPath(path)) {
+    openFile(path);
+    return;
+  }
+  const QFileInfo file(path);
+  if (!file.isFile() || file.isSymLink()) {
+    statusBar()->showMessage(tr("The file or folder is no longer available."), 4000);
+    return;
+  }
+  if (!QDesktopServices::openUrl(QUrl::fromLocalFile(file.absoluteFilePath())))
+    statusBar()->showMessage(tr("Cannot open the file in the default app."), 4000);
+}
 
 void MainWindow::openNewWindow(const QString& path) {
   if (!path.isEmpty() && !QFileInfo::exists(path)) {

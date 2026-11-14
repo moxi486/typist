@@ -87,7 +87,7 @@ QList<QFileInfo> FileTree::scan() const {
         if (skippedDirectory(info.fileName())) continue;
         entries.append(info);
         pending.append(info.absoluteFilePath());
-      } else if (info.suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0) {
+      } else if (m_options.showNonMarkdown || platform::isMarkdownPath(info.fileName())) {
         entries.append(info);
       }
     }
@@ -241,14 +241,16 @@ void FileTree::setOptions(const platform::FileBrowserOptions& options) {
       options.descending == m_options.descending &&
       options.foldersFirst == m_options.foldersFirst &&
       options.groupByFolder == m_options.groupByFolder &&
-      options.showHidden == m_options.showHidden)
+      options.showHidden == m_options.showHidden &&
+      options.showNonMarkdown == m_options.showNonMarkdown)
     return;
   const auto selected = currentItem() ? currentItem()->data(0, kPathRole).toString() : QString();
   rememberExpansion();
   const bool refreshDates = options.sort != m_options.sort && dateSort(options.sort);
-  const bool hiddenChanged = options.showHidden != m_options.showHidden;
+  const bool filterChanged = options.showHidden != m_options.showHidden ||
+                             options.showNonMarkdown != m_options.showNonMarkdown;
   m_options = options;
-  if (refreshDates || hiddenChanged) {
+  if (refreshDates || filterChanged) {
     m_entries = scan();
     m_signature = signature(m_entries);
   }
@@ -463,6 +465,12 @@ QMenu* FileTree::createOptionsMenu(QWidget* parent) {
     options.showHidden = checked;
     setOptions(options);
   });
+  auto* nonMarkdown = add("browserShowNonMarkdown", QT_TR_NOOP("Show Non-Markdown Files"), true);
+  connect(nonMarkdown, &QAction::triggered, this, [this](bool checked) {
+    auto options = m_options;
+    options.showNonMarkdown = checked;
+    setOptions(options);
+  });
   connect(add("browserRefresh", QT_TR_NOOP("Refresh"), false), &QAction::triggered, this,
           &FileTree::refresh);
   updateOptionsMenu();
@@ -492,6 +500,8 @@ void FileTree::updateOptionsMenu() {
     }
     if (id == QLatin1String("browserDescending")) action->setChecked(m_options.descending);
     if (id == QLatin1String("browserShowHidden")) action->setChecked(m_options.showHidden);
+    if (id == QLatin1String("browserShowNonMarkdown"))
+      action->setChecked(m_options.showNonMarkdown);
     if (id == QLatin1String("browserFoldersFirst")) {
       action->setChecked(m_options.foldersFirst);
       action->setEnabled(m_options.view == platform::FileBrowserView::Tree);
@@ -535,6 +545,7 @@ QMenu* FileTree::createContextMenu(QWidget* parent) {
   menu->setToolTipsVisible(true);
   const bool onDirectory = !item || item->data(0, kDirRole).toBool();
   const auto path = item ? item->data(0, kPathRole).toString() : m_root;
+  const bool external = !onDirectory && !platform::isMarkdownPath(path);
   const auto dir = onDirectory ? path : QFileInfo(path).absolutePath();
   const auto root = m_root;
   const auto add = [menu](const char* id, const QString& label) {
@@ -542,9 +553,15 @@ QMenu* FileTree::createContextMenu(QWidget* parent) {
     action->setObjectName(QString::fromLatin1(id));
     return action;
   };
-  auto* openWindow = add("fileOpenInNewWindow", tr("Open in New Window"));
-  openWindow->setEnabled(QFileInfo::exists(path));
-  connect(openWindow, &QAction::triggered, this, [this, path] { emit entryOpenInNewWindow(path); });
+  if (external) {
+    auto* open = add("fileOpenExternally", tr("Open in Default App"));
+    open->setEnabled(QFileInfo(path).isFile());
+    connect(open, &QAction::triggered, this, [this, path] { emit entryActivated(path); });
+  } else {
+    auto* open = add("fileOpenInNewWindow", tr("Open in New Window"));
+    open->setEnabled(QFileInfo::exists(path));
+    connect(open, &QAction::triggered, this, [this, path] { emit entryOpenInNewWindow(path); });
+  }
   menu->addSeparator();
   auto* newFile = add("fileNewMarkdown", tr("New Markdown File"));
   auto* newFolder = add("fileNewFolder", tr("New Folder"));
@@ -552,7 +569,7 @@ QMenu* FileTree::createContextMenu(QWidget* parent) {
   newFolder->setEnabled(newFile->isEnabled());
   connect(newFile, &QAction::triggered, this, [this, dir] { newFileIn(dir); });
   connect(newFolder, &QAction::triggered, this, [this, dir] { newFolderIn(dir); });
-  if (!onDirectory) {
+  if (!onDirectory && !external) {
     menu->addSeparator();
     auto* duplicate = add("fileDuplicate", tr("Duplicate"));
     duplicate->setToolTip(

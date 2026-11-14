@@ -212,11 +212,14 @@ void revealFile(const QString& path, QObject* context, std::function<void()> onF
 #endif
 }
 
+bool isMarkdownPath(const QString& path) {
+  return path.endsWith(QLatin1String(".md"), Qt::CaseInsensitive);
+}
+
 QString firstMarkdownPath(const QList<QUrl>& urls) {
   for (const QUrl& url : urls) {
     const QString path = url.toLocalFile();
-    if (path.isEmpty() || !path.endsWith(QStringLiteral(".md"), Qt::CaseInsensitive)) continue;
-    return path;
+    if (isMarkdownPath(path)) return path;
   }
   return QString();
 }

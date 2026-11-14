@@ -688,6 +688,10 @@
         <translation>文件或文件夹已不可用。</translation>
     </message>
     <message>
+        <source>Cannot open the file in the default app.</source>
+        <translation>无法使用系统默认应用打开文件。</translation>
+    </message>
+    <message>
         <source>Cannot open a new window.</source>
         <translation>无法打开新窗口。</translation>
     </message>
@@ -1180,6 +1184,14 @@
     <message>
         <source>Show Hidden Files and Folders</source>
         <translation>显示隐藏文件和文件夹</translation>
+    </message>
+    <message>
+        <source>Show Non-Markdown Files</source>
+        <translation>显示非 Markdown 文件</translation>
+    </message>
+    <message>
+        <source>Open in Default App</source>
+        <translation>用默认应用打开</translation>
     </message>
     <message>
         <source>New Folder</source>

@@ -45,6 +45,7 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScopeGuard>
@@ -580,13 +581,14 @@ class WindowTests : public QObject {
     QSettings settings(QSettings::NativeFormat, QSettings::UserScope, QStringLiteral("Typist"),
                        QStringLiteral("Typist"));
     const auto hiddenKey = QStringLiteral("files/showHidden");
+    const auto nonMarkdownKey = QStringLiteral("files/showNonMarkdown");
     const bool hadHiddenSetting = settings.contains(hiddenKey);
+    const bool hadNonMarkdownSetting = settings.contains(nonMarkdownKey);
     const auto restore = qScopeGuard([&] {
       typist::platform::setFileBrowserOptions(previous);
-      if (!hadHiddenSetting) {
-        settings.remove(hiddenKey);
-        settings.sync();
-      }
+      if (!hadHiddenSetting) settings.remove(hiddenKey);
+      if (!hadNonMarkdownSetting) settings.remove(nonMarkdownKey);
+      settings.sync();
     });
     typist::platform::setFileBrowserOptions({});
     typist::platform::setLanguagePreference(QStringLiteral("en"));
@@ -600,6 +602,11 @@ class WindowTests : public QObject {
       QVERIFY(file.open(QIODevice::WriteOnly));
       file.write("# Writing\n\nA document for the file browser.\n");
     }
+    const auto externalPath = QDir(root).filePath(QStringLiteral("Guides/资料 #1.pdf"));
+    QFile externalFile(externalPath);
+    QVERIFY(externalFile.open(QIODevice::WriteOnly));
+    QCOMPARE(externalFile.write("external bytes"), qint64(14));
+    externalFile.close();
     typist::MainWindow window;
     window.setBenchMode(true);
     window.show();
@@ -622,6 +629,11 @@ class WindowTests : public QObject {
     QVERIFY(hidden && !hidden->isChecked());
     hidden->trigger();
     QVERIFY(typist::platform::fileBrowserOptions().showHidden);
+    auto* nonMarkdown = menu->findChild<QAction*>(QStringLiteral("browserShowNonMarkdown"));
+    QVERIFY(nonMarkdown && !nonMarkdown->isChecked());
+    nonMarkdown->trigger();
+    QVERIFY(typist::platform::fileBrowserOptions().showNonMarkdown);
+    QCOMPARE(tree->entryCount(), 5);
     menu->findChild<QAction*>(QStringLiteral("browserList"))->trigger();
     menu->findChild<QAction*>(QStringLiteral("browserNatural"))->trigger();
     menu->findChild<QAction*>(QStringLiteral("browserDescending"))->trigger();
@@ -659,6 +671,10 @@ class WindowTests : public QObject {
                                    ? QStringLiteral("Show Hidden Files and Folders")
                                    : QStringLiteral("显示隐藏文件和文件夹"));
       QVERIFY(hidden->isChecked());
+      QCOMPARE(nonMarkdown->text(), language == QLatin1String("en")
+                                        ? QStringLiteral("Show Non-Markdown Files")
+                                        : QStringLiteral("显示非 Markdown 文件"));
+      QVERIFY(nonMarkdown->isChecked());
       QCOMPARE(tree->topLevelItem(0)->text(0), language == QLatin1String("en")
                                                    ? QStringLiteral("Workspace Root")
                                                    : QStringLiteral("工作区根目录"));
@@ -695,12 +711,32 @@ class WindowTests : public QObject {
     QVERIFY(reopened.findChild<typist::ui::FileTree*>()->options().groupByFolder);
     QVERIFY(reopened.findChild<typist::ui::FileTree*>()->options().descending);
     QVERIFY(reopened.findChild<typist::ui::FileTree*>()->options().showHidden);
+    QVERIFY(reopened.findChild<typist::ui::FileTree*>()->options().showNonMarkdown);
     window.findChild<QAction*>(QStringLiteral("fileTree"))->trigger();
     QCOMPARE(tree->options().view, typist::platform::FileBrowserView::Tree);
     window.findChild<QAction*>(QStringLiteral("fileList"))->trigger();
     QCOMPARE(tree->options().view, typist::platform::FileBrowserView::List);
     QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
     QCOMPARE(editor->document()->availableUndoSteps(), steps);
+    LinkReceiver receiver;
+    QDesktopServices::setUrlHandler(QStringLiteral("file"), &receiver, "capture");
+    const auto restoreHandler =
+        qScopeGuard([] { QDesktopServices::unsetUrlHandler(QStringLiteral("file")); });
+    tree->selectPath(externalPath);
+    QCOMPARE(tree->selectedPath(), externalPath);
+    QScopedPointer<QMenu> fileMenu(tree->createContextMenu());
+    auto* externalOpen = fileMenu->findChild<QAction*>(QStringLiteral("fileOpenExternally"));
+    QVERIFY(externalOpen);
+    QCOMPARE(externalOpen->text(), QStringLiteral("用默认应用打开"));
+    externalOpen->trigger();
+    QTest::keyClick(tree, Qt::Key_Return);
+    QCOMPARE(receiver.urls,
+             (QList<QUrl>{QUrl::fromLocalFile(externalPath), QUrl::fromLocalFile(externalPath)}));
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), before);
+    QCOMPARE(editor->document()->availableUndoSteps(), steps);
+    QVERIFY(externalFile.remove());
+    externalOpen->trigger();
+    QCOMPARE(receiver.urls.size(), 2);
     window.findChild<QAction*>(QStringLiteral("language_en"))->trigger();
     window.findChild<QAction*>(QStringLiteral("appearance_light"))->trigger();
   }
@@ -2403,6 +2439,28 @@ class WindowTests : public QObject {
     QVERIFY(editor->paragraphSourceActive());
     QCOMPARE(editor->toPlainText(), rendered);
     editor->finishParagraphSourceEdit(false);
+  }
+
+  void windowDestroysEditorBeforeItsDocuments() {
+    for (const bool source : {false, true}) {
+      QScopedPointer<typist::MainWindow> window(new typist::MainWindow(nullptr, true));
+      auto* editor = window->findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+      QVERIFY(editor);
+      auto* rendered = editor->document();
+      QVERIFY(QMetaObject::invokeMethod(window.get(), "toggleSourceView"));
+      auto* markdown = editor->document();
+      QVERIFY(rendered != markdown);
+      if (!source) QVERIFY(QMetaObject::invokeMethod(window.get(), "toggleSourceView"));
+      const QPointer<QTextDocument> renderedDocument(rendered), sourceDocument(markdown);
+      bool editorDestroyed = false;
+      connect(editor, &QObject::destroyed, this, [&] {
+        editorDestroyed = true;
+        QVERIFY(renderedDocument && sourceDocument);
+      });
+      window.reset();
+      QVERIFY(editorDestroyed);
+      QVERIFY(renderedDocument.isNull() && sourceDocument.isNull());
+    }
   }
 
   void wholeLineClipboardUsesTheActiveEditorAndPreservesCodeFences() {

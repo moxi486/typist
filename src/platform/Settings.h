@@ -113,6 +113,7 @@ struct FileBrowserOptions {
   bool foldersFirst = false;
   bool groupByFolder = false;
   bool showHidden = false;
+  bool showNonMarkdown = false;
 };
 FileBrowserOptions fileBrowserOptions();
 void setFileBrowserOptions(const FileBrowserOptions& options);
