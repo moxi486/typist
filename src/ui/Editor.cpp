@@ -3,6 +3,7 @@
 #include "CodeBlockBar.h"
 #include "CodeEditing.h"
 #include "CodeLineNumberGutter.h"
+#include "FileOps.h"
 #include "HtmlImporter.h"
 #include "ImageAssets.h"
 #include "ImageResources.h"
@@ -1232,7 +1233,7 @@ void Editor::saveImageResource(QTextCursor image, bool relink) {
     const QUrl url = QUrl::fromLocalFile(path);
     document()->addResource(QTextDocument::ImageResource, url, resource);
     replacement.setName(url.toString());
-    replacement.setProperty(editor::kImageProperty, platform::imageTarget(path, base));
+    replacement.setProperty(editor::kImageProperty, platform::localFileLinkTarget(path, base));
     image.setCharFormat(replacement);
   }
   emit imageFileStatus(relink ? tr("Image copied and link updated") : tr("Image saved"));
@@ -1608,6 +1609,10 @@ QString Editor::insertHtmlAsMarkdown(const QString& html) {
 
 void Editor::insertFromMimeData(const QMimeData* source) {
   if (!source || isReadOnly()) return;
+  if (source->hasFormat(kSidebarLinkMime)) {
+    if (m_droppingText && !m_paragraphSourceActive) insertSidebarLink(source);
+    return;
+  }
   const auto text = source->hasText() ? source->text() : QString();
   if (!text.isEmpty() && pasteTableText(text)) return;
   clearImageTypingFormat();
@@ -1648,6 +1653,34 @@ void Editor::insertFromMimeData(const QMimeData* source) {
     tryRenderInline();
   }
 }
+
+void Editor::insertSidebarLink(const QMimeData* source) {
+  const auto url = QUrl::fromEncoded(source->data(kSidebarLinkMime), QUrl::StrictMode);
+  const auto path = url.toLocalFile();
+  if (!url.isValid() || !QDir::isAbsolutePath(path) || path.contains(QChar::Null)) return;
+  const QFileInfo file(path);
+  if (file.isSymLink() || (!file.isFile() && !file.isDir())) return;
+  auto target = editor::normalizedLink(platform::localFileLinkTarget(path, document()->baseUrl()));
+  target.replace('&', QStringLiteral("%26"));
+  if (file.isDir() && !target.endsWith('/')) target += '/';
+  auto label = file.fileName();
+  if (label.isEmpty()) label = path;
+  label.replace(QRegularExpression(QStringLiteral("[\\r\\n\\t\\x{2028}\\x{2029}]")),
+                QStringLiteral(" "));
+  core::InlineRun link;
+  link.text = label.toStdString();
+  link.url = target.toStdString();
+  link.link = true;
+  const auto markdown = QString::fromStdString(core::serializeInline({link}));
+  auto cursor = textCursor();
+  if (!m_rendered)
+    cursor.insertText(markdown);
+  else if (!editor::insertCodeText(cursor, markdown) &&
+           !editor::insertMarkdownAtCursor(markdown, cursor, nullptr))
+    return;
+  setTextCursor(cursor);
+}
+
 QMimeData* Editor::createMimeDataFromSelection() const {
   auto* data = QTextEdit::createMimeDataFromSelection();
   if (!m_copyMarkdownAsPlainText || !m_rendered || m_paragraphSourceActive) return data;
@@ -1665,6 +1698,7 @@ QMimeData* Editor::createMimeDataFromSelection() const {
 }
 
 bool Editor::canInsertFromMimeData(const QMimeData* source) const {
+  if (source->hasFormat(kSidebarLinkMime)) return !isReadOnly() && !m_paragraphSourceActive;
   return (m_imagePasteHandler && (source->hasImage() || source->hasUrls())) ||
          QTextEdit::canInsertFromMimeData(source);
 }

@@ -212,6 +212,16 @@ void revealFile(const QString& path, QObject* context, std::function<void()> onF
 #endif
 }
 
+QString localFileLinkTarget(const QString& path, const QUrl& documentBase) {
+  const auto absolute = QFileInfo(path).absoluteFilePath();
+  if (documentBase.isLocalFile()) {
+    const QString relative = QDir(documentBase.toLocalFile()).relativeFilePath(absolute);
+    if (!QFileInfo(relative).isAbsolute())
+      return QString::fromLatin1(QUrl::toPercentEncoding(relative, "/"));
+  }
+  return QUrl::fromLocalFile(absolute).toString(QUrl::FullyEncoded);
+}
+
 bool isMarkdownPath(const QString& path) {
   return path.endsWith(QLatin1String(".md"), Qt::CaseInsensitive);
 }

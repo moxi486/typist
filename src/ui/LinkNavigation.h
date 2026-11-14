@@ -3,6 +3,8 @@
 #include <QUrl>
 
 namespace typist::ui {
+inline const auto kSidebarLinkMime = QStringLiteral("application/x-typist-sidebar-link");
+
 struct HeadingLink {
   QString id, title;
   int position = 0;

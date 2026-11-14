@@ -22,6 +22,9 @@ QUrl containingDirectoryUrl(const QString& path);
 // Selects an existing file in the system file manager, or opens its parent as a fallback.
 void revealFile(const QString& path, QObject* context, std::function<void()> onFailure);
 
+// Encoded path relative to the document directory when possible, otherwise a file URL.
+QString localFileLinkTarget(const QString& path, const QUrl& documentBase);
+
 bool isMarkdownPath(const QString& path);
 
 // First local .md path among dropped URLs; empty when none applies.

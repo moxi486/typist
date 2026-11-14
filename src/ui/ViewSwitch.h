@@ -5,6 +5,7 @@
 
 class QTextDocument;
 class QTextEdit;
+class QUrl;
 
 namespace typist::ui {
 
@@ -21,6 +22,7 @@ class ViewSwitch : public QObject {
   QTextDocument* source() const;
   QTextDocument* active() const;
   bool isSourceMode() const;
+  void setBaseUrl(const QUrl& base);
 
   bool loadMarkdownIntoBoth(const QString& markdown, QString* error);
   bool switchView(QString* error);

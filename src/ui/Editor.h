@@ -222,6 +222,7 @@ class Editor : public QTextEdit {
   void paintEvent(QPaintEvent* event) override;
 
  private:
+  void insertSidebarLink(const QMimeData* source);
   void addImageFileActions(QMenu* menu, const QContextMenuEvent& event);
   void saveImageResource(QTextCursor image, bool relink);
   QString selectedPlainText() const;

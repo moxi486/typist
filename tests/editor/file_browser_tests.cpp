@@ -1,5 +1,6 @@
 #include "FileOps.h"
 #include "FileTree.h"
+#include "LinkNavigation.h"
 #include "Settings.h"
 
 #include <QAction>
@@ -13,6 +14,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSaveFile>
@@ -73,6 +75,47 @@ class FolderReceiver : public QObject {
 class FileBrowserTests : public QObject {
   Q_OBJECT
  private slots:
+  void sidebarDragsFileAndDirectoryLinksAsCopy() {
+    QTemporaryDir workspace;
+    const auto folder = workspace.filePath(QStringLiteral("资料 #1"));
+    const auto note = folder + QStringLiteral("/Note [A]%.md");
+    const auto asset = workspace.filePath(QStringLiteral("cover.png"));
+    QVERIFY(writeFile(note));
+    QVERIFY(writeFile(asset, "asset"));
+    FileTree tree;
+    tree.setRoot(workspace.path());
+    QCOMPARE(tree.dragDropMode(), QAbstractItemView::DragOnly);
+    QCOMPARE(tree.model()->supportedDragActions(), Qt::DropActions(Qt::CopyAction));
+    QCOMPARE(tree.model()->mimeTypes(), QStringList{typist::ui::kSidebarLinkMime});
+    const auto verify = [&](const QString& path, const QModelIndex& index) {
+      QVERIFY(index.isValid());
+      QVERIFY(tree.model()->flags(index).testFlag(Qt::ItemIsDragEnabled));
+      const QScopedPointer<QMimeData> data(tree.model()->mimeData({index}));
+      QVERIFY(data);
+      QCOMPARE(data->formats(), QStringList{typist::ui::kSidebarLinkMime});
+      QCOMPARE(QUrl::fromEncoded(data->data(typist::ui::kSidebarLinkMime)).toLocalFile(), path);
+    };
+    auto folderIndex = tree.model()->index(0, 0);
+    verify(folder, folderIndex);
+    verify(note, tree.model()->index(0, 0, folderIndex));
+    auto options = tree.options();
+    options.view = FileBrowserView::List;
+    tree.setOptions(options);
+    verify(note, tree.model()->index(0, 0));
+    options.showNonMarkdown = true;
+    tree.setOptions(options);
+    verify(asset, tree.model()->index(0, 0));
+    options.showNonMarkdown = false;
+    options.groupByFolder = true;
+    tree.setOptions(options);
+    folderIndex = tree.model()->index(0, 0);
+    verify(folder, folderIndex);
+    const auto stale = tree.model()->index(0, 0, folderIndex);
+    QVERIFY(QFile::remove(note));
+    const QScopedPointer<QMimeData> data(tree.model()->mimeData({stale}));
+    QVERIFY(!data);
+  }
+
   void groupedListSortsWithinParentsAndNavigates() {
     QTemporaryDir directory;
     for (const auto& name : {"root.md", "folder2/10-note.md", "folder2/2-note.md",

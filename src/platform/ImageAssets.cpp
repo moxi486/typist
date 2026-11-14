@@ -1,5 +1,6 @@
 #include "ImageAssets.h"
 
+#include "FileOps.h"
 #include "ImageResources.h"
 #include "markdown.h"
 
@@ -32,7 +33,7 @@ QString targetFor(const QString& path, const QString& documentPath) {
   const auto base = documentPath.isEmpty()
                         ? QUrl()
                         : QUrl::fromLocalFile(QFileInfo(documentPath).absolutePath() + '/');
-  return imageTarget(path, base);
+  return localFileLinkTarget(path, base);
 }
 StoredImage store(const QByteArray& bytes, const QString& suffix, const QString& documentPath) {
   const QString directory = assetDirectory(documentPath);
@@ -55,16 +56,6 @@ StoredImage store(const QByteArray& bytes, const QString& suffix, const QString&
   return {path, targetFor(path, documentPath), {}};
 }
 }  // namespace
-QString imageTarget(const QString& path, const QUrl& documentBase) {
-  const auto absolute = QFileInfo(path).absoluteFilePath();
-  if (documentBase.isLocalFile()) {
-    const QString relative = QDir(documentBase.toLocalFile()).relativeFilePath(absolute);
-    if (!QFileInfo(relative).isAbsolute())
-      return QString::fromLatin1(QUrl::toPercentEncoding(relative, "/"));
-  }
-  return QUrl::fromLocalFile(absolute).toString(QUrl::FullyEncoded);
-}
-
 bool copyImageFile(const QString& source, const QString& destination, QString* error) {
   const QFileInfo original(source), target(destination);
   QFile input(source);

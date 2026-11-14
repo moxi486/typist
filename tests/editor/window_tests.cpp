@@ -33,6 +33,8 @@
 #include <QDir>
 #include <QDockWidget>
 #include <QDoubleSpinBox>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFile>
 #include <QFileDialog>
 #include <QInputDialog>
@@ -3718,6 +3720,127 @@ class WindowTests : public QObject {
     const auto linked = editor->document()->find("Source label");
     QCOMPARE(linked.charFormat().anchorHref(), QStringLiteral("https://example.test/a%20b"));
   }
+
+  void sidebarDropInsertsLinksAtTheCaretInBothViews() {
+    QTemporaryDir workspace;
+    QVERIFY(workspace.isValid());
+    const auto folder = workspace.filePath(QStringLiteral("资料 #1"));
+    QVERIFY(QDir().mkpath(folder));
+    const auto label = QStringLiteral("Note [A] (draft) #50%.md");
+    const auto note = folder + '/' + label;
+    QVERIFY(QDir(workspace.path()).mkpath(QStringLiteral("writing")));
+    const auto current = workspace.filePath(QStringLiteral("writing/current.md"));
+    const QByteArray contents = "First\n\nBefore TAIL\n\n```text\nCODE\n```\n";
+    for (const auto& path : {note, current}) {
+      QFile file(path);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      QCOMPARE(file.write(contents), contents.size());
+    }
+    typist::MainWindow window(nullptr, true);
+    QVERIFY(window.openFile(current));
+    window.resize(900, 640);
+    window.show();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* tree = window.findChild<typist::ui::FileTree*>();
+    QVERIFY(editor && tree);
+    tree->setRoot(workspace.path());
+    tree->selectPath(note);
+    const QScopedPointer<QMimeData> fileDrag(tree->model()->mimeData({tree->currentIndex()}));
+    const QScopedPointer<QMimeData> folderDrag(
+        tree->model()->mimeData({tree->currentIndex().parent()}));
+    QVERIFY(fileDrag && folderDrag);
+    QApplication::processEvents();
+
+    const auto dropAt = [&](const QMimeData* data, const QTextCursor& caret) {
+      const auto target = editor->cursorRect(caret).center();
+      QDragEnterEvent enter(target, Qt::CopyAction, data, Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(editor->viewport(), &enter);
+      if (!enter.isAccepted()) return false;
+      QDragMoveEvent move(target, Qt::CopyAction, data, Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(editor->viewport(), &move);
+      if (!move.isAccepted()) return false;
+      QDropEvent drop(target, Qt::CopyAction, data, Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(editor->viewport(), &drop);
+      return drop.isAccepted() && drop.dropAction() == Qt::CopyAction;
+    };
+
+    const auto before = editor->toPlainText();
+    const auto selection = editor->document()->find(QStringLiteral("First"));
+    editor->setTextCursor(selection);
+    auto target = editor->document()->find(QStringLiteral("TAIL"));
+    target.setPosition(target.selectionStart());
+    editor->setReadOnly(true);
+    QVERIFY(!dropAt(fileDrag.data(), target));
+    QCOMPARE(editor->toPlainText(), before);
+    editor->setReadOnly(false);
+    QVERIFY(dropAt(fileDrag.data(), target));
+    auto withLink = before;
+    withLink.insert(before.indexOf(QStringLiteral("TAIL")), label);
+    QCOMPARE(editor->toPlainText(), withLink);
+    const auto link = editor->document()->find(label);
+    QVERIFY(link.charFormat().isAnchor());
+    const auto href = link.charFormat().anchorHref();
+    QVERIFY(href.startsWith(QStringLiteral("../")));
+    QVERIFY(href.contains(QStringLiteral("%23")) && href.contains(QStringLiteral("%25")));
+    const auto resolved = typist::ui::resolveLink(href, editor->document()->baseUrl());
+    QCOMPARE(resolved.kind, typist::ui::LinkDestination::Markdown);
+    QCOMPARE(resolved.path, note);
+    editor->undo();
+    QCOMPARE(editor->toPlainText(), before);
+    editor->redo();
+    QVERIFY(editor->document()->find(label).charFormat().isAnchor());
+    editor->undo();
+
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    const auto source = editor->toPlainText();
+    target = editor->document()->find(QStringLiteral("TAIL"));
+    target.setPosition(target.selectionStart());
+    QVERIFY(dropAt(folderDrag.data(), target));
+    const auto folderTarget = QStringLiteral("../%E8%B5%84%E6%96%99%20%231/");
+    const auto folderLink = QStringLiteral("[资料 #1](%1)").arg(folderTarget);
+    auto withFolder = source;
+    withFolder.insert(source.indexOf(QStringLiteral("TAIL")), folderLink);
+    QCOMPARE(editor->toPlainText(), withFolder);
+    editor->undo();
+    QCOMPARE(editor->toPlainText(), source);
+    editor->redo();
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    const auto folderHref =
+        editor->document()->find(QStringLiteral("资料 #1")).charFormat().anchorHref();
+    QCOMPARE(folderHref, folderTarget);
+    const auto directory = typist::ui::resolveLink(folderHref, editor->document()->baseUrl());
+    QCOMPARE(directory.kind, typist::ui::LinkDestination::LocalFile);
+    QCOMPARE(QDir::cleanPath(directory.path), folder);
+    const auto beforeCode = editor->toPlainText();
+    target = editor->document()->find(QStringLiteral("CODE"));
+    target.setPosition(target.selectionStart());
+    QVERIFY(dropAt(folderDrag.data(), target));
+    const auto code = editor->document()->find(QStringLiteral("CODE")).block();
+    QCOMPARE(code.text(), folderLink + QStringLiteral("CODE"));
+    QVERIFY(code.blockFormat().hasProperty(typist::editor::kCodeBlockProperty));
+    QVERIFY(!editor->document()->find(folderLink).charFormat().isAnchor());
+    editor->undo();
+    QCOMPARE(editor->toPlainText(), beforeCode);
+    QFile unchanged(current);
+    QVERIFY(unchanged.open(QIODevice::ReadOnly));
+    QCOMPARE(unchanged.readAll(), contents);
+    unchanged.close();
+    unchanged.setFileName(note);
+    QVERIFY(unchanged.open(QIODevice::ReadOnly));
+    QCOMPARE(unchanged.readAll(), contents);
+
+    typist::MainWindow untitled(nullptr, true);
+    untitled.resize(900, 640);
+    untitled.show();
+    editor = untitled.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(editor);
+    QApplication::processEvents();
+    QVERIFY(dropAt(fileDrag.data(), editor->textCursor()));
+    const auto absolute = editor->document()->find(label).charFormat().anchorHref();
+    QVERIFY(QUrl(absolute).isLocalFile());
+    QCOMPARE(QUrl(absolute).toLocalFile(), note);
+  }
+
   void linkWorkflowVisuals() {
     const auto output = QString::fromUtf8(qgetenv("TYPIST_LINK_VISUAL_DIR"));
     if (output.isEmpty()) QSKIP("Set TYPIST_LINK_VISUAL_DIR to capture link specimens");

@@ -54,6 +54,9 @@ class FileTree : public QTreeWidget {
   void contextMenuEvent(QContextMenuEvent* event) override;
   void keyPressEvent(QKeyEvent* event) override;
   void changeEvent(QEvent* event) override;
+  QStringList mimeTypes() const override;
+  QMimeData* mimeData(const QList<QTreeWidgetItem*>& items) const override;
+  Qt::DropActions supportedDropActions() const override;
 
  private:
   QTreeWidgetItem* findLeaf(const QString& path) const;

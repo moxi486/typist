@@ -31,6 +31,11 @@ QTextDocument* ViewSwitch::active() const { return m_active; }
 
 bool ViewSwitch::isSourceMode() const { return m_sourceMode; }
 
+void ViewSwitch::setBaseUrl(const QUrl& base) {
+  m_rendered->setBaseUrl(base);
+  m_source->setBaseUrl(base);
+}
+
 QString ViewSwitch::currentMarkdown() const {
   // The plain document splits every source line into its own block, so serializing it
   // invents blank lines; its text content is the markdown.
