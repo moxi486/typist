@@ -70,6 +70,7 @@ class FileTree : public QTreeWidget {
   QTreeWidgetItem* findLeaf(const QString& path) const;
   QString draggedPath(const QDropEvent* event) const;
   QString dropFolder(const QPoint& position, const QString& source) const;
+  void importDroppedEntries(const QList<QUrl>& urls, const QString& destination, QDropEvent* event);
   void rebuild();
   QList<QFileInfo> scan() const;
   QString signature(const QList<QFileInfo>& entries) const;

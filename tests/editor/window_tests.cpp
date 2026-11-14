@@ -3955,6 +3955,55 @@ class WindowTests : public QObject {
     QVERIFY(file.readAll().startsWith("Saved Edited Original draft\r\n"));
   }
 
+  void externalSidebarDropPreservesTheOpenDocumentAndPendingEdits() {
+    QTemporaryDir workspace;
+    QTemporaryDir external;
+    const auto path = workspace.filePath(QStringLiteral("Current.md"));
+    const auto source = external.filePath(QStringLiteral("Incoming.md"));
+    const auto copied = workspace.filePath(QStringLiteral("Incoming.md"));
+    for (const auto& filePath : {path, source}) {
+      QFile file(filePath);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      QCOMPARE(file.write("Saved text\n"), qint64(11));
+    }
+    typist::MainWindow window(nullptr, true);
+    QVERIFY(window.openFile(path));
+    window.resize(900, 640);
+    window.show();
+    window.findChild<QToolButton*>(QStringLiteral("sidebarToggle"))->click();
+    auto* tree = window.findChild<typist::ui::FileTree*>();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(tree && editor);
+    QApplication::processEvents();
+    QCOMPARE(QDir(tree->rootPath()).canonicalPath(), QDir(workspace.path()).canonicalPath());
+    editor->moveCursor(QTextCursor::End);
+    editor->insertPlainText(QStringLiteral(" draft"));
+    editor->setTextCursor(editor->document()->find(QStringLiteral("draft")));
+    const auto undo = editor->document()->availableUndoSteps();
+    auto* document = editor->document();
+    const auto title = window.windowTitle();
+    QMimeData mime;
+    mime.setUrls({QUrl::fromLocalFile(source)});
+    const QPoint point(16, tree->viewport()->height() - 8);
+    for (auto expected : {Qt::CopyAction, Qt::IgnoreAction}) {
+      QDragEnterEvent enter(point, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(tree->viewport(), &enter);
+      QVERIFY(enter.isAccepted());
+      QDropEvent drop(point, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(tree->viewport(), &drop);
+      QVERIFY(drop.isAccepted());
+      QCOMPARE(drop.dropAction(), expected);
+      QCOMPARE(editor->document(), document);
+      QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("draft"));
+      QCOMPARE(editor->document()->availableUndoSteps(), undo);
+      QCOMPARE(window.windowTitle(), title);
+    }
+    QVERIFY(QFileInfo(source).isFile());
+    QFile copy(copied);
+    QVERIFY(copy.open(QIODevice::ReadOnly));
+    QCOMPARE(copy.readAll(), QByteArray("Saved text\n"));
+  }
+
   void linkWorkflowVisuals() {
     const auto output = QString::fromUtf8(qgetenv("TYPIST_LINK_VISUAL_DIR"));
     if (output.isEmpty()) QSKIP("Set TYPIST_LINK_VISUAL_DIR to capture link specimens");

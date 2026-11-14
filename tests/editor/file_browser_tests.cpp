@@ -88,7 +88,8 @@ class FileBrowserTests : public QObject {
     tree.setRoot(workspace.path());
     QCOMPARE(tree.dragDropMode(), QAbstractItemView::DragDrop);
     QCOMPARE(tree.model()->supportedDragActions(), Qt::CopyAction | Qt::MoveAction);
-    QCOMPARE(tree.model()->mimeTypes(), QStringList{typist::ui::kSidebarLinkMime});
+    QCOMPARE(tree.model()->mimeTypes(),
+             QStringList({typist::ui::kSidebarLinkMime, QStringLiteral("text/uri-list")}));
     const auto verify = [&](const QString& path, const QModelIndex& index) {
       QVERIFY(index.isValid());
       QVERIFY(tree.model()->flags(index).testFlag(Qt::ItemIsDragEnabled));
@@ -293,6 +294,104 @@ class FileBrowserTests : public QObject {
     QVERIFY(error.isEmpty());
     QVERIFY(QFileInfo(note).isFile());
     QVERIFY(QFileInfo(other).isFile());
+  }
+
+  void externalDropCopiesFilesAndFoldersWithoutReplacingExistingEntries() {
+    QTemporaryDir workspace;
+    QTemporaryDir external;
+    const auto inbox = workspace.filePath(QStringLiteral("Inbox"));
+    const auto existing = QDir(inbox).filePath(QStringLiteral("Existing.md"));
+    const auto note = external.filePath(QStringLiteral("中文 #笔记.md"));
+    const auto bundle = external.filePath(QStringLiteral("Folder"));
+    const auto sourceFile = QDir(bundle).filePath(QStringLiteral("Sub/Details.md"));
+    const auto incomingConflict = external.filePath(QStringLiteral("Existing.md"));
+    const auto rootNote = external.filePath(QStringLiteral("Root.md"));
+    QVERIFY(writeFile(existing, "Workspace\n"));
+    QVERIFY(writeFile(note, "External\r\n"));
+    QVERIFY(writeFile(sourceFile, "Details\n"));
+    QVERIFY(QDir().mkpath(QDir(bundle).filePath(QStringLiteral("Empty"))));
+    QVERIFY(writeFile(incomingConflict, "External conflict\n"));
+    QVERIFY(writeFile(rootNote, "Root note\n"));
+
+    FileTree tree;
+    tree.resize(400, 440);
+    tree.setRoot(workspace.path());
+    tree.show();
+    QApplication::processEvents();
+    QSignalSpy failures(&tree, &FileTree::fileOperationFailed);
+    QSignalSpy activated(&tree, &FileTree::entryActivated);
+
+    const auto drop = [&](const QPoint& point, const QList<QUrl>& urls, Qt::DropActions actions) {
+      QMimeData data;
+      data.setUrls(urls);
+      QDragEnterEvent enter(point, actions, &data, Qt::LeftButton, Qt::ShiftModifier);
+      QApplication::sendEvent(tree.viewport(), &enter);
+      if (!enter.isAccepted()) return Qt::IgnoreAction;
+      if (enter.dropAction() != Qt::CopyAction) return Qt::IgnoreAction;
+      QDragMoveEvent move(point, actions, &data, Qt::LeftButton, Qt::ShiftModifier);
+      QApplication::sendEvent(tree.viewport(), &move);
+      QDropEvent release(point, actions, &data, Qt::LeftButton, Qt::ShiftModifier);
+      QApplication::sendEvent(tree.viewport(), &release);
+      return release.isAccepted() ? release.dropAction() : Qt::IgnoreAction;
+    };
+    const auto read = [](const QString& path) {
+      QFile file(path);
+      return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+    };
+    constexpr auto actions = Qt::CopyAction | Qt::MoveAction;
+    QCOMPARE(drop(tree.visualItemRect(itemForPath(tree, inbox)).center(),
+                  {QUrl::fromLocalFile(note), QUrl::fromLocalFile(bundle + '/'),
+                   QUrl::fromLocalFile(incomingConflict), QUrl::fromLocalFile(note),
+                   QUrl(QStringLiteral("https://example.com/remote.md"))},
+                  actions),
+             Qt::CopyAction);
+    QCOMPARE(failures.count(), 1);
+    QVERIFY(failures.first().first().toString().contains(QStringLiteral("2 of 3")));
+    QCOMPARE(activated.count(), 0);
+    QCOMPARE(read(existing), QByteArray("Workspace\n"));
+    QCOMPARE(read(incomingConflict), QByteArray("External conflict\n"));
+    QCOMPARE(read(note), QByteArray("External\r\n"));
+    QCOMPARE(read(QDir(inbox).filePath(QFileInfo(note).fileName())), read(note));
+    QCOMPARE(read(QDir(inbox).filePath(QStringLiteral("Folder/Sub/Details.md"))), read(sourceFile));
+    QVERIFY(QFileInfo(QDir(inbox).filePath(QStringLiteral("Folder/Empty"))).isDir());
+
+    const auto filePoint = tree.visualItemRect(itemForPath(tree, existing)).center();
+    QCOMPARE(drop(filePoint, {QUrl::fromLocalFile(rootNote)}, actions), Qt::CopyAction);
+    QCOMPARE(read(QDir(inbox).filePath(QStringLiteral("Root.md"))), read(rootNote));
+    const auto rootPoint = QPoint(16, tree.viewport()->height() - 8);
+    QCOMPARE(drop(rootPoint, {QUrl::fromLocalFile(rootNote)}, Qt::MoveAction), Qt::IgnoreAction);
+    QVERIFY(!QFileInfo::exists(workspace.filePath(QStringLiteral("Root.md"))));
+    QCOMPARE(drop(rootPoint, {QUrl::fromLocalFile(rootNote)}, actions), Qt::CopyAction);
+    QCOMPARE(read(workspace.filePath(QStringLiteral("Root.md"))), read(rootNote));
+    QCOMPARE(failures.count(), 1);
+    QCOMPARE(activated.count(), 0);
+  }
+
+  void copyIntoWorkspaceRejectsRecursiveAndPartialImports() {
+    QTemporaryDir workspace;
+    QTemporaryDir external;
+    const auto inbox = workspace.filePath(QStringLiteral("Inbox"));
+    const auto source = external.filePath(QStringLiteral("Bundle"));
+    const auto note = QDir(source).filePath(QStringLiteral("First.md"));
+    QVERIFY(QDir().mkpath(inbox));
+    QVERIFY(writeFile(note));
+    QString error;
+    using typist::platform::copyIntoWorkspace;
+    QVERIFY(copyIntoWorkspace(workspace.path(), workspace.path(), inbox, &error).isEmpty());
+    QCOMPARE(error, QStringLiteral("Cannot copy into itself"));
+    QVERIFY(copyIntoWorkspace(workspace.path(), note, external.path(), &error).isEmpty());
+    QCOMPARE(error, QStringLiteral("Folder unavailable"));
+    QVERIFY(copyIntoWorkspace(workspace.path(), external.filePath("missing.md"), inbox, &error)
+                .isEmpty());
+    QCOMPARE(error, QStringLiteral("Entry unavailable"));
+#ifdef Q_OS_UNIX
+    QVERIFY(QFile::link(note, QDir(source).filePath(QStringLiteral("Link.md"))));
+    QVERIFY(copyIntoWorkspace(workspace.path(), source, inbox, &error).isEmpty());
+    QCOMPARE(error, QStringLiteral("Import failed"));
+    QVERIFY(
+        QDir(inbox).entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden).isEmpty());
+    QVERIFY(QFileInfo(note).isFile());
+#endif
   }
 
   void groupedListSortsWithinParentsAndNavigates() {

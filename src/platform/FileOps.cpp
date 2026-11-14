@@ -5,7 +5,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QTemporaryDir>
 #include <QUrl>
+#include <filesystem>
 
 #if defined(Q_OS_WIN)
 #include <qt_windows.h>
@@ -81,6 +83,23 @@ bool renameWithoutReplacing(const QString& source, const QString& target) {
 #endif
 }
 
+bool entryExists(const QFileInfo& entry) {
+  return entry.exists() || entry.isSymLink() || entry.isJunction();
+}
+
+bool copyEntry(const QFileInfo& source, const QString& target) {
+  if (source.isSymLink() || source.isJunction()) return false;
+  if (source.isFile()) return QFile::copy(source.absoluteFilePath(), target);
+  if (!source.isDir() || !QDir().mkdir(target)) return false;
+  std::error_code error;
+  std::filesystem::directory_iterator entries(source.filesystemAbsoluteFilePath(), error), end;
+  for (; !error && entries != end; entries.increment(error)) {
+    const QFileInfo child(entries->path());
+    if (!copyEntry(child, QDir(target).filePath(child.fileName()))) return false;
+  }
+  return !error;
+}
+
 QString relocateWorkspaceEntry(const QString& root, const QString& path, const QString& targetPath,
                                const QByteArray& expectedIdentity, QString* error) {
   if (error) error->clear();
@@ -102,15 +121,12 @@ QString relocateWorkspaceEntry(const QString& root, const QString& path, const Q
   if (source.isDir() && isWithin(from, to)) return fail("Cannot move into itself");
   const QFileInfo destination(QDir(to).filePath(target.fileName()));
   if (from == destination.absoluteFilePath()) return {};
-  if (destination.exists() || destination.isSymLink() || destination.isJunction())
-    return fail("A file with that name already exists");
+  if (entryExists(destination)) return fail("A file with that name already exists");
   if (!expectedIdentity.isEmpty() && workspaceEntryIdentity(from) != expectedIdentity)
     return fail("Entry replaced");
   if (!renameWithoutReplacing(from, destination.absoluteFilePath())) {
     const QFileInfo occupied(destination.absoluteFilePath());
-    return fail(occupied.exists() || occupied.isSymLink() || occupied.isJunction()
-                    ? "A file with that name already exists"
-                    : "Move failed");
+    return fail(entryExists(occupied) ? "A file with that name already exists" : "Move failed");
   }
   return target.absoluteFilePath();
 }
@@ -224,6 +240,41 @@ bool restoreWorkspaceEntry(const QString& root, const QString& path, const QStri
     return false;
   }
   return !relocateWorkspaceEntry(root, path, originalPath, identity, error).isEmpty();
+}
+
+QString copyIntoWorkspace(const QString& root, const QString& path, const QString& destination,
+                          QString* error) {
+  if (error) error->clear();
+  const auto fail = [error](const char* reason) {
+    if (error) *error = QString::fromLatin1(reason);
+    return QString();
+  };
+  auto sourcePath = QDir::fromNativeSeparators(path);
+  while (sourcePath.endsWith('/') && !QDir(sourcePath).isRoot()) sourcePath.chop(1);
+  const QFileInfo source(sourcePath), folder(destination);
+  const auto workspace = QDir(root).canonicalPath();
+  const auto into = folder.canonicalFilePath();
+  if (root.isEmpty() || destination.isEmpty() || workspace.isEmpty() || into.isEmpty() ||
+      !folder.isDir() || folder.isSymLink() || folder.isJunction() || !isWithin(workspace, into))
+    return fail("Folder unavailable");
+  const auto from = source.canonicalFilePath();
+  if ((!source.isFile() && !source.isDir()) || source.isSymLink() || source.isJunction() ||
+      from.isEmpty() || source.fileName().isEmpty())
+    return fail("Entry unavailable");
+  if (source.isDir() && isWithin(from, into)) return fail("Cannot copy into itself");
+  const QFileInfo target(QDir(into).filePath(source.fileName()));
+  if (entryExists(target)) return fail("A file with that name already exists");
+
+  // Stage in the target directory so a failed recursive copy leaves no partial entry
+  // and a same-filesystem rename can publish the complete copy in one operation.
+  QTemporaryDir staging(QDir(into).filePath(QStringLiteral(".typist-import-XXXXXX")));
+  const auto staged = staging.filePath(QStringLiteral("entry"));
+  if (!staging.isValid() || !copyEntry(source, staged)) return fail("Import failed");
+  if (!renameWithoutReplacing(staged, target.absoluteFilePath()))
+    return fail(entryExists(QFileInfo(target.absoluteFilePath()))
+                    ? "A file with that name already exists"
+                    : "Import failed");
+  return QDir(folder.absoluteFilePath()).filePath(source.fileName());
 }
 
 bool createDirectory(const QString& dir, const QString& name, QString* error) {
