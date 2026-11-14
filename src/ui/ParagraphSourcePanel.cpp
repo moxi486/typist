@@ -1,9 +1,11 @@
 #include "ParagraphSourcePanel.h"
 
+#include "LinkNavigation.h"
 #include "SyntaxHighlighter.h"
 
 #include <QApplication>
 #include <QClipboard>
+#include <QDropEvent>
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -44,6 +46,7 @@ ParagraphSourcePanel::ParagraphSourcePanel(QWidget* parent) : QFrame(parent) {
   m_input->setFont(font);
   m_input->setPlaceholderText(tr("Ctrl+Enter to apply · Esc to cancel"));
   m_input->installEventFilter(this);
+  m_input->viewport()->installEventFilter(this);
   layout->addWidget(m_input, 1);
   auto* hint = new QLabel(tr("Ctrl+Enter to apply · Esc to cancel"), this);
   hint->setObjectName(QStringLiteral("paragraphSourceHint"));
@@ -95,6 +98,15 @@ void ParagraphSourcePanel::changeEvent(QEvent* event) {
   QFrame::changeEvent(event);
 }
 bool ParagraphSourcePanel::eventFilter(QObject* object, QEvent* event) {
+  if ((event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove ||
+       event->type() == QEvent::Drop) &&
+      object == m_input->viewport()) {
+    auto* drop = static_cast<QDropEvent*>(event);
+    if (drop->mimeData()->hasFormat(kSidebarLinkMime)) {
+      drop->ignore();
+      return true;
+    }
+  }
   if (object == m_input &&
       (event->type() == QEvent::KeyPress || event->type() == QEvent::ShortcutOverride)) {
     auto* key = static_cast<QKeyEvent*>(event);
