@@ -184,6 +184,7 @@ class Editor : public QTextEdit {
   void paragraphSourceChanged();
   void paragraphSourceClosed();
   void markdownFileDropped(const QString& path);
+  void folderDropped(const QString& path);
   void pasteRejected(const QString& error);
   void linkActivated(const QString& target);
   void editLinkRequested();
@@ -222,7 +223,7 @@ class Editor : public QTextEdit {
   void paintEvent(QPaintEvent* event) override;
 
  private:
-  void insertSidebarLink(const QMimeData* source);
+  void insertFileLink(const QString& path);
   void addImageFileActions(QMenu* menu, const QContextMenuEvent& event);
   void saveImageResource(QTextCursor image, bool relink);
   QString selectedPlainText() const;

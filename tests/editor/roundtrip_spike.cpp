@@ -6,6 +6,7 @@
 #include "FileTree.h"
 #include "FileWriter.h"
 #include "FolderSearchRunner.h"
+#include "LinkNavigation.h"
 #include "Localization.h"
 #include "PdfWriter.h"
 #include "RecoveryStore.h"
@@ -23,6 +24,7 @@
 #include <QDir>
 #include <QFile>
 #include <QImage>
+#include <QMimeData>
 #include <QPageLayout>
 #include <QPageSize>
 #include <QPainter>
@@ -989,10 +991,12 @@ void EditorSpike::dropTargetPicksMarkdownFile() {
   file.close();
 
   const QList<QUrl> urls = {QUrl::fromLocalFile(text), QUrl::fromLocalFile(markdown)};
-  QCOMPARE(typist::platform::firstMarkdownPath(urls), markdown);
-  QVERIFY(typist::platform::firstMarkdownPath({QUrl::fromLocalFile(text)}).isEmpty());
-  QVERIFY(typist::platform::firstMarkdownPath({QUrl(QStringLiteral("https://example.com/a.md"))})
-              .isEmpty());
+  QMimeData drop;
+  drop.setUrls(urls);
+  QCOMPARE(typist::ui::fileDropTarget(&drop).path, markdown);
+  drop.setUrls({QUrl::fromLocalFile(text), QUrl(QStringLiteral("https://example.com/a.md")),
+                QUrl::fromLocalFile(QDir(dir).filePath(QStringLiteral("missing.md")))});
+  QVERIFY(typist::ui::fileDropTarget(&drop).path.isEmpty());
   QDir(dir).removeRecursively();
 }
 

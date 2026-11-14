@@ -2,8 +2,17 @@
 #include <QTextDocument>
 #include <QUrl>
 
+class QMimeData;
+
 namespace typist::ui {
 inline const auto kSidebarLinkMime = QStringLiteral("application/x-typist-sidebar-link");
+
+struct FileDropTarget {
+  enum Action { OpenMarkdown, OpenFolder, InsertLink } action = OpenMarkdown;
+  QString path;
+};
+FileDropTarget fileDropTarget(const QMimeData* data);
+QString localFileLinkMarkdown(const QString& path, const QUrl& base);
 
 struct HeadingLink {
   QString id, title;

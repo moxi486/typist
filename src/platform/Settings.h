@@ -41,6 +41,14 @@ void setLastClosedTarget(const StartupTarget& target);
 StartupTarget startupTarget(const QStringList& arguments, bool benchmark = false,
                             const QString& benchmarkFile = {});
 
+enum class FileDropAction { Open, InsertLink };
+struct FileDropPreferences {
+  FileDropAction markdown = FileDropAction::Open;
+  FileDropAction folder = FileDropAction::Open;
+};
+FileDropPreferences fileDropPreferences();
+void setFileDropPreferences(const FileDropPreferences& preferences);
+
 enum class ExportFolderMode { DocumentFolder, LastExportFolder, CustomFolder };
 enum class ExportFormat {
   Html = 1 << 0,

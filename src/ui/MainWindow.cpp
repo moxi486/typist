@@ -278,7 +278,9 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   static_cast<ui::Editor*>(m_editor)->setImagePasteHandler(
       [this](const QMimeData* source) { return pasteImages(source); });
   connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::markdownFileDropped, this,
-          &MainWindow::openFile);
+          &MainWindow::openDroppedMarkdown);
+  connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::folderDropped, this,
+          &MainWindow::openFolderPath);
   connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::pasteRejected, this,
           [this](const QString& error) { statusBar()->showMessage(error, 4000); });
   connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::linkActivated, this,
@@ -529,6 +531,7 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   QMenu* settingsMenu = new QMenu(tr("Settings"), menuBar());
   menuBar()->insertMenu(helpMenu->menuAction(), settingsMenu);
   createLaunchMenu(settingsMenu);
+  createFileDropMenu(settingsMenu);
   auto* recordRecent = settingsMenu->addAction(tr("Record Recent Files and Folders"));
   recordRecent->setObjectName(QStringLiteral("recordRecentLocations"));
   recordRecent->setCheckable(true);
@@ -1289,6 +1292,40 @@ void MainWindow::createLaunchMenu(QMenu* settings) {
     options.mode = mode;
     platform::setLaunchOptions(options);
   });
+}
+
+void MainWindow::createFileDropMenu(QMenu* settings) {
+  using Action = platform::FileDropAction;
+  auto* menu = settings->addMenu(tr("File Drop"));
+  menu->setObjectName(QStringLiteral("fileDropMenu"));
+  const auto add = [this, menu](const QString& label, const QString& id,
+                                Action platform::FileDropPreferences::*field) {
+    auto* choices = menu->addMenu(label);
+    auto* group = new QActionGroup(choices);
+    auto* open = choices->addAction(tr("Open in Typist"));
+    auto* link = choices->addAction(tr("Insert Link"));
+    open->setObjectName(id + QStringLiteral("Open"));
+    link->setObjectName(id + QStringLiteral("Link"));
+    for (auto* action : {open, link}) {
+      action->setCheckable(true);
+      group->addAction(action);
+      connect(action, &QAction::triggered, this, [field, action, link] {
+        auto preferences = platform::fileDropPreferences();
+        preferences.*field = action == link ? Action::InsertLink : Action::Open;
+        platform::setFileDropPreferences(preferences);
+      });
+    }
+    const auto sync = [open, link, field] {
+      const bool insert = platform::fileDropPreferences().*field == Action::InsertLink;
+      (insert ? link : open)->setChecked(true);
+    };
+    sync();
+    connect(choices, &QMenu::aboutToShow, choices, sync);
+  };
+  add(tr("When Dropping Markdown Files"), QStringLiteral("dropMarkdown"),
+      &platform::FileDropPreferences::markdown);
+  add(tr("When Dropping Folders"), QStringLiteral("dropFolder"),
+      &platform::FileDropPreferences::folder);
 }
 
 QString MainWindow::chooseDirectory(const QString& title, const QString& initial) {
@@ -2610,11 +2647,12 @@ void MainWindow::treeFileRemoved(const QString& path) {
   statusBar()->showMessage(tr("File moved to Trash. Use Save As to keep this document."));
 }
 
-bool MainWindow::openDroppedFiles(const QList<QUrl>& urls) {
-  const QString path = platform::firstMarkdownPath(urls);
-  if (path.isEmpty()) return false;
+void MainWindow::openDroppedMarkdown(const QString& path) {
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const bool focusCommit = editor->setParagraphSourceFocusCommitEnabled(false);
+  const auto restore = qScopeGuard(
+      [editor, focusCommit] { editor->setParagraphSourceFocusCommitEnabled(focusCommit); });
   openFile(path);
-  return true;
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
@@ -2622,7 +2660,15 @@ void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
     event->ignore();
     return;
   }
-  if (event->mimeData()->hasUrls() || event->mimeData()->hasImage()) event->acceptProposedAction();
+  const auto target = ui::fileDropTarget(event->mimeData());
+  if (!target.path.isEmpty()) {
+    const bool copy = (event->possibleActions() & Qt::CopyAction) &&
+                      target.action != ui::FileDropTarget::InsertLink;
+    event->setDropAction(copy ? Qt::CopyAction : Qt::IgnoreAction);
+    event->accept();
+  } else if (event->mimeData()->hasUrls() || event->mimeData()->hasImage()) {
+    event->acceptProposedAction();
+  }
 }
 
 void MainWindow::dropEvent(QDropEvent* event) {
@@ -2630,11 +2676,17 @@ void MainWindow::dropEvent(QDropEvent* event) {
     event->ignore();
     return;
   }
-  if (pasteImages(event->mimeData())) {
-    event->acceptProposedAction();
+  const auto target = ui::fileDropTarget(event->mimeData());
+  if (!target.path.isEmpty()) {
+    const bool copy = (event->possibleActions() & Qt::CopyAction) &&
+                      target.action != ui::FileDropTarget::InsertLink;
+    event->setDropAction(copy ? Qt::CopyAction : Qt::IgnoreAction);
+    event->accept();
+    if (copy && target.action == ui::FileDropTarget::OpenFolder) openFolderPath(target.path);
+    if (copy && target.action == ui::FileDropTarget::OpenMarkdown) openDroppedMarkdown(target.path);
     return;
   }
-  if (openDroppedFiles(event->mimeData()->urls())) event->acceptProposedAction();
+  if (pasteImages(event->mimeData())) event->acceptProposedAction();
 }
 
 void MainWindow::toggleSidebar() {

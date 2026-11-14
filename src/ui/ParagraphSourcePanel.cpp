@@ -63,7 +63,8 @@ ParagraphSourcePanel::ParagraphSourcePanel(QWidget* parent) : QFrame(parent) {
   connect(cancel, &QPushButton::clicked, this, &ParagraphSourcePanel::cancelRequested);
   setDark(false);
 }
-void ParagraphSourcePanel::setSource(const QString& source) {
+void ParagraphSourcePanel::setSource(const QString& source, QTextDocument* document) {
+  m_document = document;
   m_input->setPlainText(source);
   m_input->document()->clearUndoRedoStacks();
 }
@@ -104,6 +105,29 @@ bool ParagraphSourcePanel::eventFilter(QObject* object, QEvent* event) {
     auto* drop = static_cast<QDropEvent*>(event);
     if (drop->mimeData()->hasFormat(kSidebarLinkMime)) {
       drop->ignore();
+      return true;
+    }
+    const auto target = fileDropTarget(drop->mimeData());
+    if (!target.path.isEmpty()) {
+      const bool copy = (drop->possibleActions() & Qt::CopyAction) &&
+                        (target.action != FileDropTarget::InsertLink || !m_input->isReadOnly());
+      drop->setDropAction(copy ? Qt::CopyAction : Qt::IgnoreAction);
+      drop->accept();
+      if (copy && event->type() == QEvent::Drop) {
+        if (target.action == FileDropTarget::OpenMarkdown) {
+          emit markdownFileDropped(target.path);
+        } else if (target.action == FileDropTarget::OpenFolder) {
+          emit folderDropped(target.path);
+        } else {
+          const auto markdown =
+              localFileLinkMarkdown(target.path, m_document ? m_document->baseUrl() : QUrl());
+          if (!markdown.isEmpty()) {
+            auto cursor = m_input->cursorForPosition(drop->position().toPoint());
+            cursor.insertText(markdown);
+            m_input->setTextCursor(cursor);
+          }
+        }
+      }
       return true;
     }
   }
