@@ -14,6 +14,10 @@ bool createMarkdownFile(const QString& dir, const QString& name, QString* error)
 bool createEmptyFile(const QString& path, QString* error);
 bool renameFile(const QString& path, const QString& newName, QString* error);
 bool moveMarkdownToTrash(const QString& path, QString* error);
+// Moves one entry inside the workspace without replacing any destination entry.
+// Returns its new path, or an empty string on failure or if it is already there.
+QString moveWorkspaceEntry(const QString& root, const QString& path, const QString& destination,
+                           QString* error);
 bool createDirectory(const QString& dir, const QString& name, QString* error);
 // Copies saved bytes beside the source as name-copy.md, name-copy-2.md, etc.; never overwrites.
 QString duplicateMarkdownFile(const QString& path, QString* error);

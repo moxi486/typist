@@ -15,6 +15,8 @@
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDirIterator>
+#include <QDrag>
+#include <QDragEnterEvent>
 #include <QEvent>
 #include <QFileSystemWatcher>
 #include <QKeyEvent>
@@ -40,6 +42,18 @@ namespace {
 constexpr int kPathRole = Qt::UserRole;
 constexpr int kDirRole = Qt::UserRole + 1;
 constexpr int kOrderRole = Qt::UserRole + 2;
+
+class SidebarEntryDrag : public QMimeData {
+ public:
+  SidebarEntryDrag(const FileTree* origin, const QString& entryPath)
+      : tree(origin), root(origin->rootPath()), path(entryPath) {
+    setData(kSidebarLinkMime, QUrl::fromLocalFile(path).toEncoded());
+  }
+
+  const FileTree* const tree;
+  const QString root;
+  const QString path;
+};
 
 bool dateSort(platform::FileBrowserSort sort) {
   return sort == platform::FileBrowserSort::Modified || sort == platform::FileBrowserSort::Created;
@@ -127,7 +141,8 @@ FileTree::FileTree(QWidget* parent) : QTreeWidget(parent) {
   setUniformRowHeights(true);
   setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   setTextElideMode(Qt::ElideMiddle);
-  setDragDropMode(QAbstractItemView::DragOnly);
+  setDragDropMode(QAbstractItemView::DragDrop);
+  setDragDropOverwriteMode(true);
   connect(this, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int) {
     if (item && !item->data(0, kDirRole).toBool())
       emit entryActivated(item->data(0, kPathRole).toString());
@@ -140,12 +155,94 @@ QMimeData* FileTree::mimeData(const QList<QTreeWidgetItem*>& items) const {
   if (items.isEmpty()) return nullptr;
   const QFileInfo entry(items.first()->data(0, kPathRole).toString());
   if (entry.isSymLink() || (!entry.isFile() && !entry.isDir())) return nullptr;
-  auto* data = new QMimeData;
-  data->setData(kSidebarLinkMime, QUrl::fromLocalFile(entry.absoluteFilePath()).toEncoded());
-  return data;
+  return new SidebarEntryDrag(this, entry.absoluteFilePath());
 }
 
-Qt::DropActions FileTree::supportedDropActions() const { return Qt::CopyAction; }
+Qt::DropActions FileTree::supportedDropActions() const {
+  return m_options.view == platform::FileBrowserView::Tree ? Qt::CopyAction | Qt::MoveAction
+                                                           : Qt::CopyAction;
+}
+
+void FileTree::startDrag(Qt::DropActions actions) {
+  const auto items = selectedItems();
+  auto* data = mimeData(items);
+  if (!data) return;
+  // The drop target moves the filesystem entry. The default item view drag would
+  // try to remove the selected row again after a successful move.
+  auto* drag = new QDrag(this);
+  drag->setMimeData(data);
+  drag->setPixmap(items.first()->icon(0).pixmap(24, 24));
+  drag->exec(actions, Qt::CopyAction);
+}
+
+QString FileTree::draggedPath(const QDropEvent* event) const {
+  if (m_options.view != platform::FileBrowserView::Tree ||
+      !(event->possibleActions() & Qt::MoveAction))
+    return {};
+  // Only the live drag object from this tree can initiate a filesystem move.
+  const auto* drag = dynamic_cast<const SidebarEntryDrag*>(event->mimeData());
+  return drag && drag->tree == this && drag->root == m_root && m_items.contains(drag->path)
+             ? drag->path
+             : QString();
+}
+
+QString FileTree::dropFolder(const QPoint& position, const QString& source) const {
+  const auto* item = itemAt(position);
+  if (item && !item->data(0, kDirRole).toBool()) return {};
+  const auto folder = item ? item->data(0, kPathRole).toString() : m_root;
+  if (folder == QFileInfo(source).absolutePath() || folder == source ||
+      folder.startsWith(source + '/'))
+    return {};
+  return folder;
+}
+
+void FileTree::dragEnterEvent(QDragEnterEvent* event) {
+  if (draggedPath(event).isEmpty()) {
+    event->ignore();
+    return;
+  }
+  QTreeWidget::dragEnterEvent(event);
+}
+
+void FileTree::dragMoveEvent(QDragMoveEvent* event) {
+  const auto source = draggedPath(event);
+  const auto folder =
+      source.isEmpty() ? QString() : dropFolder(event->position().toPoint(), source);
+  QTreeWidget::dragMoveEvent(event);
+  if (folder.isEmpty()) {
+    event->ignore();
+    return;
+  }
+  event->setDropAction(Qt::MoveAction);
+  event->accept();
+}
+
+void FileTree::dropEvent(QDropEvent* event) {
+  const auto source = draggedPath(event);
+  const auto folder =
+      source.isEmpty() ? QString() : dropFolder(event->position().toPoint(), source);
+  // Let Qt clear the drop indicator and scrolling without applying a model drop.
+  event->accept();
+  QAbstractItemView::dropEvent(event);
+  event->ignore();
+  if (folder.isEmpty()) return;
+  QString error;
+  const auto target = platform::moveWorkspaceEntry(m_root, source, folder, &error);
+  if (target.isEmpty()) {
+    if (!error.isEmpty()) emit moveFailed(operationError(error));
+    return;
+  }
+  rebuild();
+  if (auto* item = m_items.value(target)) {
+    setCurrentItem(item);
+    for (auto* ancestor = item->parent(); ancestor; ancestor = ancestor->parent())
+      ancestor->setExpanded(true);
+    scrollToItem(item);
+  }
+  emit entryMoved(source, target);
+  event->setDropAction(Qt::MoveAction);
+  event->accept();
+}
 
 QList<QFileInfo> FileTree::scan() const {
   QList<QFileInfo> entries;
@@ -793,6 +890,8 @@ QString FileTree::operationError(const QString& error) const {
     return tr("Use a single name without path separators or reserved characters.");
   if (error == QLatin1String("Folder unavailable")) return tr("The folder is no longer available.");
   if (error == QLatin1String("File unavailable")) return tr("The file is no longer available.");
+  if (error == QLatin1String("Entry unavailable"))
+    return tr("The file or folder is no longer available.");
   if (error == QLatin1String("A file with that name already exists"))
     return tr("A file or folder with that name already exists.");
   if (error == QLatin1String("Cannot create file"))
@@ -803,6 +902,10 @@ QString FileTree::operationError(const QString& error) const {
     return tr("Cannot copy the file. Check the source and folder permissions.");
   if (error == QLatin1String("Rename failed"))
     return tr("Cannot rename the file. Check the name and permissions.");
+  if (error == QLatin1String("Cannot move into itself"))
+    return tr("A folder cannot be moved into itself.");
+  if (error == QLatin1String("Move failed"))
+    return tr("Cannot move the entry. Check permissions and use a folder on the same drive.");
   if (error == QLatin1String("Trash failed"))
     return tr("Cannot move the file to the system trash.");
   return error;

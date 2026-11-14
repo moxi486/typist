@@ -1314,6 +1314,18 @@
         <translation>无法重命名文件，请检查名称和权限。</translation>
     </message>
     <message>
+        <source>The file or folder is no longer available.</source>
+        <translation>文件或文件夹已不可用。</translation>
+    </message>
+    <message>
+        <source>A folder cannot be moved into itself.</source>
+        <translation>不能将文件夹移入自身。</translation>
+    </message>
+    <message>
+        <source>Cannot move the entry. Check permissions and use a folder on the same drive.</source>
+        <translation>无法移动条目，请检查权限并使用同一磁盘上的文件夹。</translation>
+    </message>
+    <message>
         <source>Cannot move the file to the system trash.</source>
         <translation>无法将文件移到系统废纸篓。</translation>
     </message>

@@ -1711,18 +1711,47 @@ QString droppedMarkdown(const QMimeData* source) {
 }
 }  // namespace
 void Editor::dragEnterEvent(QDragEnterEvent* event) {
+  if (event->mimeData()->hasFormat(kSidebarLinkMime)) {
+    if (event->possibleActions() & Qt::CopyAction) {
+      QTextEdit::dragEnterEvent(event);
+      if (event->isAccepted()) event->setDropAction(Qt::CopyAction);
+    } else
+      event->ignore();
+    return;
+  }
   if (!droppedMarkdown(event->mimeData()).isEmpty())
     event->acceptProposedAction();
   else
     QTextEdit::dragEnterEvent(event);
 }
 void Editor::dragMoveEvent(QDragMoveEvent* event) {
+  if (event->mimeData()->hasFormat(kSidebarLinkMime)) {
+    if (event->possibleActions() & Qt::CopyAction) {
+      QTextEdit::dragMoveEvent(event);
+      if (event->isAccepted()) event->setDropAction(Qt::CopyAction);
+    } else
+      event->ignore();
+    return;
+  }
   if (!droppedMarkdown(event->mimeData()).isEmpty())
     event->acceptProposedAction();
   else
     QTextEdit::dragMoveEvent(event);
 }
 void Editor::dropEvent(QDropEvent* event) {
+  if (event->mimeData()->hasFormat(kSidebarLinkMime)) {
+    if (!(event->possibleActions() & Qt::CopyAction)) {
+      QDragLeaveEvent leave;
+      QTextEdit::dragLeaveEvent(&leave);
+      event->ignore();
+      return;
+    }
+    event->setDropAction(Qt::CopyAction);
+    const QScopedValueRollback<bool> dropping(m_droppingText, true);
+    QTextEdit::dropEvent(event);
+    if (event->isAccepted()) event->setDropAction(Qt::CopyAction);
+    return;
+  }
   const QString path = droppedMarkdown(event->mimeData());
   if (!path.isEmpty()) {
     emit markdownFileDropped(path);
