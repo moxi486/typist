@@ -143,6 +143,10 @@ FileTree::FileTree(QWidget* parent) : QTreeWidget(parent) {
   setTextElideMode(Qt::ElideMiddle);
   setDragDropMode(QAbstractItemView::DragDrop);
   setDragDropOverwriteMode(true);
+  m_undoFileOperation = new QAction(tr("Undo File Operation"), this);
+  m_undoFileOperation->setObjectName(QStringLiteral("undoFileOperation"));
+  m_undoFileOperation->setEnabled(false);
+  connect(m_undoFileOperation, &QAction::triggered, this, &FileTree::undoFileOperation);
   connect(this, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int) {
     if (item && !item->data(0, kDirRole).toBool())
       emit entryActivated(item->data(0, kPathRole).toString());
@@ -229,17 +233,11 @@ void FileTree::dropEvent(QDropEvent* event) {
   QString error;
   const auto target = platform::moveWorkspaceEntry(m_root, source, folder, &error);
   if (target.isEmpty()) {
-    if (!error.isEmpty()) emit moveFailed(operationError(error));
+    if (!error.isEmpty()) emit fileOperationFailed(operationError(error));
     return;
   }
-  rebuild();
-  if (auto* item = m_items.value(target)) {
-    setCurrentItem(item);
-    for (auto* ancestor = item->parent(); ancestor; ancestor = ancestor->parent())
-      ancestor->setExpanded(true);
-    scrollToItem(item);
-  }
-  emit entryMoved(source, target);
+  recordFileOperation(source, target);
+  refreshAfterRelocation(source, target);
   event->setDropAction(Qt::MoveAction);
   event->accept();
 }
@@ -309,6 +307,7 @@ void FileTree::setRoot(const QString& rootDir) {
   if (sameRoot)
     rememberExpansion();
   else {
+    clearFileOperation();
     m_expanded.clear();
     m_collapsedGroups.clear();
     m_hasExpansionState = false;
@@ -658,6 +657,8 @@ QMenu* FileTree::createOptionsMenu(QWidget* parent) {
           &FileTree::editFileFilters);
   connect(add("browserRefresh", QT_TR_NOOP("Refresh"), false), &QAction::triggered, this,
           &FileTree::refresh);
+  m_optionsMenu->addSeparator();
+  m_optionsMenu->addAction(m_undoFileOperation);
   updateOptionsMenu();
   return m_optionsMenu;
 }
@@ -754,6 +755,7 @@ void FileTree::updateOptionsMenu() {
 }
 void FileTree::changeEvent(QEvent* event) {
   if (event->type() == QEvent::LanguageChange) {
+    m_undoFileOperation->setText(tr("Undo File Operation"));
     const auto selected = currentItem() ? currentItem()->data(0, kPathRole).toString() : QString();
     rememberExpansion();
     renderEntries();
@@ -853,6 +855,8 @@ QMenu* FileTree::createContextMenu(QWidget* parent) {
       QMessageBox::warning(this, tr("Open Folder"),
                            tr("Cannot open the folder in the file manager."));
   });
+  menu->addSeparator();
+  menu->addAction(m_undoFileOperation);
   return menu;
 }
 
@@ -892,6 +896,8 @@ QString FileTree::operationError(const QString& error) const {
   if (error == QLatin1String("File unavailable")) return tr("The file is no longer available.");
   if (error == QLatin1String("Entry unavailable"))
     return tr("The file or folder is no longer available.");
+  if (error == QLatin1String("Entry replaced"))
+    return tr("The original file or folder has been replaced.");
   if (error == QLatin1String("A file with that name already exists"))
     return tr("A file or folder with that name already exists.");
   if (error == QLatin1String("Cannot create file"))
@@ -919,6 +925,7 @@ void FileTree::newFileIn(const QString& dir) {
     QMessageBox::warning(this, tr("New Markdown File"), operationError(error));
     return;
   }
+  clearFileOperation();
   rebuild();
   emit entryActivated(QDir(dir).filePath(name.endsWith(QLatin1String(".md"), Qt::CaseInsensitive)
                                              ? name
@@ -932,6 +939,7 @@ void FileTree::newFolderIn(const QString& dir) {
     QMessageBox::warning(this, tr("New Folder"), operationError(error));
     return;
   }
+  clearFileOperation();
   rebuild();
   if (auto* item = m_items.value(QDir(dir).filePath(name))) {
     setCurrentItem(item);
@@ -948,6 +956,7 @@ void FileTree::duplicateFile(const QString& path) {
     QMessageBox::warning(this, tr("Duplicate"), operationError(error));
     return;
   }
+  clearFileOperation();
   rebuild();
   selectPath(target);
   if (currentItem()) scrollToItem(currentItem());
@@ -966,9 +975,9 @@ void FileTree::renameFile(const QString& path) {
                            .filePath(name.endsWith(QLatin1String(".md"), Qt::CaseInsensitive)
                                          ? name
                                          : name + QStringLiteral(".md"));
-  rebuild();
-  selectPath(newPath);
-  emit fileRenamed(path, newPath);
+  if (newPath == path) return;
+  recordFileOperation(path, newPath);
+  refreshAfterRelocation(path, newPath);
 }
 void FileTree::moveFileToTrash(const QString& path) {
   QMessageBox confirm(QMessageBox::Question, tr("Move to Trash"),
@@ -986,7 +995,57 @@ void FileTree::moveFileToTrash(const QString& path) {
     QMessageBox::warning(this, tr("Move to Trash"), operationError(error));
     return;
   }
+  clearFileOperation();
   rebuild();
   emit fileRemoved(path);
+}
+
+void FileTree::recordFileOperation(const QString& before, const QString& after) {
+  m_lastFileOperation = {before, after, platform::workspaceEntryIdentity(after)};
+  m_undoFileOperation->setEnabled(!m_lastFileOperation.identity.isEmpty());
+}
+
+void FileTree::clearFileOperation() {
+  m_lastFileOperation = {};
+  m_undoFileOperation->setEnabled(false);
+}
+
+void FileTree::undoFileOperation() {
+  const auto operation = m_lastFileOperation;
+  if (operation.identity.isEmpty()) return;
+  QString error;
+  if (!platform::restoreWorkspaceEntry(m_root, operation.after, operation.before,
+                                       operation.identity, &error)) {
+    emit fileOperationFailed(tr("Cannot undo the file operation. %1").arg(operationError(error)));
+    return;
+  }
+  clearFileOperation();
+  refreshAfterRelocation(operation.after, operation.before);
+}
+
+void FileTree::refreshAfterRelocation(const QString& oldPath, const QString& newPath) {
+  rebuild();
+  if (auto* item = m_items.value(newPath)) {
+    setCurrentItem(item);
+    for (auto* ancestor = item->parent(); ancestor; ancestor = ancestor->parent())
+      ancestor->setExpanded(true);
+    scrollToItem(item);
+  }
+  emit entryMoved(oldPath, newPath);
+}
+
+QByteArray FileTree::undoIdentityBeforeSave(const QString& path) const {
+  if (m_lastFileOperation.identity.isEmpty() ||
+      QFileInfo(path) != QFileInfo(m_lastFileOperation.after))
+    return {};
+  const auto identity = platform::workspaceEntryIdentity(path);
+  return identity == m_lastFileOperation.identity ? identity : QByteArray();
+}
+
+void FileTree::updateUndoIdentityAfterSave(const QByteArray& previousIdentity) {
+  if (previousIdentity.isEmpty() || previousIdentity != m_lastFileOperation.identity) return;
+  // Saving this tracked file legitimately replaces its on-disk identity.
+  m_lastFileOperation.identity = platform::workspaceEntryIdentity(m_lastFileOperation.after);
+  m_undoFileOperation->setEnabled(!m_lastFileOperation.identity.isEmpty());
 }
 }  // namespace typist::ui

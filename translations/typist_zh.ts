@@ -1326,6 +1326,18 @@
         <translation>无法移动条目，请检查权限并使用同一磁盘上的文件夹。</translation>
     </message>
     <message>
+        <source>Undo File Operation</source>
+        <translation>撤销文件操作</translation>
+    </message>
+    <message>
+        <source>The original file or folder has been replaced.</source>
+        <translation>原文件或文件夹已被替换。</translation>
+    </message>
+    <message>
+        <source>Cannot undo the file operation. %1</source>
+        <translation>无法撤销文件操作。%1</translation>
+    </message>
+    <message>
         <source>Cannot move the file to the system trash.</source>
         <translation>无法将文件移到系统废纸篓。</translation>
     </message>

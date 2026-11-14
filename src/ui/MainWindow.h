@@ -145,7 +145,6 @@ class MainWindow : public QMainWindow {
   void openFolder();
   void openTreeEntry(const QString& path);
   void openNewWindow(const QString& path = {});
-  void treeFileRenamed(const QString& oldPath, const QString& newPath);
   void treeEntryMoved(const QString& oldPath, const QString& newPath);
   void treeFileRemoved(const QString& path);
 

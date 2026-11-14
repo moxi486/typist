@@ -7,6 +7,7 @@
 #include <QSet>
 #include <QTreeWidget>
 
+class QAction;
 class QFileSystemWatcher;
 class QTimer;
 class QMenu;
@@ -32,6 +33,8 @@ class FileTree : public QTreeWidget {
   QMenu* createOptionsMenu(QWidget* parent);
   // Snapshot of the current entry (or workspace on empty space); caller owns the menu.
   QMenu* createContextMenu(QWidget* parent = nullptr);
+  QByteArray undoIdentityBeforeSave(const QString& path) const;
+  void updateUndoIdentityAfterSave(const QByteArray& previousIdentity);
 
   // Rebuilds only when the directory listing differs from what the tree shows.
   bool refreshIfChanged();
@@ -46,9 +49,8 @@ class FileTree : public QTreeWidget {
 
   // Emitted when the watcher sees a change under the root; the refresh itself is debounced.
   void directoryChanged();
-  void fileRenamed(const QString& oldPath, const QString& newPath);
   void entryMoved(const QString& oldPath, const QString& newPath);
-  void moveFailed(const QString& message);
+  void fileOperationFailed(const QString& message);
   void fileRemoved(const QString& path);
   void optionsChanged();
 
@@ -84,6 +86,10 @@ class FileTree : public QTreeWidget {
   void duplicateFile(const QString& path);
   void renameFile(const QString& path);
   void moveFileToTrash(const QString& path);
+  void recordFileOperation(const QString& before, const QString& after);
+  void clearFileOperation();
+  void undoFileOperation();
+  void refreshAfterRelocation(const QString& oldPath, const QString& newPath);
   QString askName(const QString& title, const QString& label, const QString& value);
   QString operationError(const QString& error) const;
 
@@ -96,6 +102,12 @@ class FileTree : public QTreeWidget {
   QList<QFileInfo> m_entries;
   QHash<QString, QTreeWidgetItem*> m_items;
   platform::FileBrowserOptions m_options;
+  struct FileOperation {
+    QString before, after;
+    QByteArray identity;
+  };
+  FileOperation m_lastFileOperation;
+  QAction* m_undoFileOperation = nullptr;
   QMenu* m_optionsMenu = nullptr;
   QFileSystemWatcher* m_watcher = nullptr;
   QTimer* m_debounce = nullptr;

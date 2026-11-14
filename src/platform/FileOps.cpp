@@ -1,5 +1,6 @@
 #include "FileOps.h"
 
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
@@ -23,6 +24,9 @@
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>
 #include <QStringList>
+#endif
+#ifdef Q_OS_UNIX
+#include <sys/stat.h>
 #endif
 
 namespace typist::platform {
@@ -75,6 +79,40 @@ bool renameWithoutReplacing(const QString& source, const QString& target) {
 #else
   return QFile::rename(source, target);
 #endif
+}
+
+QString relocateWorkspaceEntry(const QString& root, const QString& path, const QString& targetPath,
+                               const QByteArray& expectedIdentity, QString* error) {
+  if (error) error->clear();
+  const auto fail = [error](const char* reason) {
+    if (error) *error = QString::fromLatin1(reason);
+    return QString();
+  };
+  const QFileInfo source(path), target(targetPath);
+  const QFileInfo folder(target.absolutePath());
+  const auto workspace = QDir(root).canonicalPath();
+  const auto from = source.canonicalFilePath();
+  const auto to = folder.canonicalFilePath();
+  if (root.isEmpty() || workspace.isEmpty() || !folder.isDir() || folder.isSymLink() ||
+      folder.isJunction() || to.isEmpty() || !isWithin(workspace, to))
+    return fail("Folder unavailable");
+  if ((!source.isFile() && !source.isDir()) || source.isSymLink() || source.isJunction() ||
+      from.isEmpty() || from == workspace || !isWithin(workspace, from))
+    return fail("Entry unavailable");
+  if (source.isDir() && isWithin(from, to)) return fail("Cannot move into itself");
+  const QFileInfo destination(QDir(to).filePath(target.fileName()));
+  if (from == destination.absoluteFilePath()) return {};
+  if (destination.exists() || destination.isSymLink() || destination.isJunction())
+    return fail("A file with that name already exists");
+  if (!expectedIdentity.isEmpty() && workspaceEntryIdentity(from) != expectedIdentity)
+    return fail("Entry replaced");
+  if (!renameWithoutReplacing(from, destination.absoluteFilePath())) {
+    const QFileInfo occupied(destination.absoluteFilePath());
+    return fail(occupied.exists() || occupied.isSymLink() || occupied.isJunction()
+                    ? "A file with that name already exists"
+                    : "Move failed");
+  }
+  return target.absoluteFilePath();
 }
 
 }  // namespace
@@ -142,31 +180,50 @@ bool moveMarkdownToTrash(const QString& path, QString* error) {
 
 QString moveWorkspaceEntry(const QString& root, const QString& path, const QString& destination,
                            QString* error) {
-  if (error) error->clear();
-  const auto fail = [error](const char* reason) {
-    if (error) *error = QString::fromLatin1(reason);
-    return QString();
-  };
-  const QFileInfo source(path), folder(destination);
-  const auto workspace = QDir(root).canonicalPath();
-  const auto from = source.canonicalFilePath();
-  const auto to = folder.canonicalFilePath();
-  if (root.isEmpty() || !QFileInfo(workspace).isDir() || !folder.isDir() || folder.isSymLink() ||
-      folder.isJunction() || to.isEmpty() || !isWithin(workspace, to))
-    return fail("Folder unavailable");
-  if ((!source.isFile() && !source.isDir()) || source.isSymLink() || source.isJunction() ||
-      from.isEmpty() || from == workspace || !isWithin(workspace, from))
-    return fail("Entry unavailable");
-  if (source.isDir() && isWithin(from, to)) return fail("Cannot move into itself");
-  if (QFileInfo(from).absolutePath() == to) return {};
-  const QFileInfo target(QDir(to).filePath(source.fileName()));
-  if (target.exists() || target.isSymLink()) return fail("A file with that name already exists");
-  if (!renameWithoutReplacing(from, target.absoluteFilePath())) {
-    const QFileInfo occupied(target.absoluteFilePath());
-    return fail(occupied.exists() || occupied.isSymLink() ? "A file with that name already exists"
-                                                          : "Move failed");
+  if (destination.isEmpty()) {
+    if (error) *error = QStringLiteral("Folder unavailable");
+    return {};
   }
-  return QDir(folder.absoluteFilePath()).filePath(source.fileName());
+  return relocateWorkspaceEntry(root, path, QDir(destination).filePath(QFileInfo(path).fileName()),
+                                {}, error);
+}
+
+QByteArray workspaceEntryIdentity(const QString& path) {
+#ifdef Q_OS_WIN
+  const auto native = QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath());
+  const auto handle =
+      CreateFileW(reinterpret_cast<LPCWSTR>(native.utf16()), FILE_READ_ATTRIBUTES,
+                  FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                  FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+  if (handle == INVALID_HANDLE_VALUE) return {};
+  BY_HANDLE_FILE_INFORMATION info{};
+  const bool ok = GetFileInformationByHandle(handle, &info);
+  CloseHandle(handle);
+  if (!ok || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) return {};
+  const auto index = (qulonglong(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+  const auto created =
+      (qulonglong(info.ftCreationTime.dwHighDateTime) << 32) | info.ftCreationTime.dwLowDateTime;
+  return QByteArray::number(qulonglong(info.dwVolumeSerialNumber)) + ':' +
+         QByteArray::number(index) + ':' + QByteArray::number(created);
+#elif defined(Q_OS_UNIX)
+  struct stat info {};
+  if (lstat(QFile::encodeName(path).constData(), &info) || S_ISLNK(info.st_mode)) return {};
+  const auto birth = QFileInfo(path).birthTime();
+  return QByteArray::number(qulonglong(info.st_dev)) + ':' +
+         QByteArray::number(qulonglong(info.st_ino)) + ':' +
+         (birth.isValid() ? QByteArray::number(birth.toMSecsSinceEpoch()) : QByteArray());
+#else
+  return {};
+#endif
+}
+
+bool restoreWorkspaceEntry(const QString& root, const QString& path, const QString& originalPath,
+                           const QByteArray& identity, QString* error) {
+  if (identity.isEmpty()) {
+    if (error) *error = QStringLiteral("Entry replaced");
+    return false;
+  }
+  return !relocateWorkspaceEntry(root, path, originalPath, identity, error).isEmpty();
 }
 
 bool createDirectory(const QString& dir, const QString& name, QString* error) {
