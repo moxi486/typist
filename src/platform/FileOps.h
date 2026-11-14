@@ -39,9 +39,6 @@ QString localFileLinkTarget(const QString& path, const QUrl& documentBase);
 
 bool isMarkdownPath(const QString& path);
 
-// First local .md path among dropped URLs; empty when none applies.
-QString firstMarkdownPath(const QList<QUrl>& urls);
-
 // First local image path among dropped URLs; empty when none applies.
 QString firstImagePath(const QList<QUrl>& urls);
 

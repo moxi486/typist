@@ -15,6 +15,7 @@ QSettings openSettings(QSettings::Format format = QSettings::NativeFormat) {
 const auto writingAreaKey = QStringLiteral("editor/writingAreaWidths");
 const auto lineEndingKey = QStringLiteral("editor/defaultLineEnding");
 const auto launchOptionsKey = QStringLiteral("startup/options");
+const auto fileDropKey = QStringLiteral("files/dropPreferences");
 const auto lastClosedKey = QStringLiteral("startup/lastClosed");
 const auto closedFilesKey = QStringLiteral("history/closedFiles");
 const auto recentFilesKey = QStringLiteral("recentFiles");
@@ -133,6 +134,21 @@ StartupTarget startupTarget(const QStringList& arguments, bool benchmark,
   if (mode == LaunchMode::LastFolder || !QFileInfo(target.file).isFile()) target.file.clear();
   if (!QFileInfo(target.folder).isDir()) target.folder.clear();
   return target;
+}
+
+FileDropPreferences fileDropPreferences() {
+  const auto values = openSettings(QSettings::defaultFormat()).value(fileDropKey).toMap();
+  const auto action = [&values](const QString& key) {
+    return values.value(key).toInt() == int(FileDropAction::InsertLink) ? FileDropAction::InsertLink
+                                                                        : FileDropAction::Open;
+  };
+  return {action(QStringLiteral("markdown")), action(QStringLiteral("folder"))};
+}
+
+void setFileDropPreferences(const FileDropPreferences& preferences) {
+  openSettings(QSettings::defaultFormat())
+      .setValue(fileDropKey, QVariantMap{{QStringLiteral("markdown"), int(preferences.markdown)},
+                                         {QStringLiteral("folder"), int(preferences.folder)}});
 }
 
 ExportPreferences exportPreferences() {

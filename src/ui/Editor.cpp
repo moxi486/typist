@@ -363,6 +363,9 @@ bool Editor::startParagraphSourceEdit() {
             [this] { finishParagraphSourceEdit(false); });
     connect(m_paragraphPanel, &ParagraphSourcePanel::imagePasteRequested, this,
             [this] { paste(); });
+    connect(m_paragraphPanel, &ParagraphSourcePanel::markdownFileDropped, this,
+            &Editor::markdownFileDropped);
+    connect(m_paragraphPanel, &ParagraphSourcePanel::folderDropped, this, &Editor::folderDropped);
     connect(m_paragraphPanel, &ParagraphSourcePanel::indentRequested, this,
             [this](bool outdent) { changeListIndent(outdent ? -1 : 1); });
     connect(m_paragraphPanel, &ParagraphSourcePanel::clipboardRequested, this,
@@ -383,7 +386,7 @@ bool Editor::startParagraphSourceEdit() {
   m_paragraphRange.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
   m_paragraphDocument = document();
   m_paragraphCommitted = source;
-  m_paragraphPanel->setSource(source);
+  m_paragraphPanel->setSource(source, document());
   m_paragraphSourceActive = true;
   m_paragraphPanel->setDark(m_dark);
   m_paragraphPanel->show();
@@ -1610,7 +1613,11 @@ QString Editor::insertHtmlAsMarkdown(const QString& html) {
 void Editor::insertFromMimeData(const QMimeData* source) {
   if (!source || isReadOnly()) return;
   if (source->hasFormat(kSidebarLinkMime)) {
-    if (m_droppingText && !m_paragraphSourceActive) insertSidebarLink(source);
+    if (m_droppingText && !m_paragraphSourceActive) {
+      const auto url = QUrl::fromEncoded(source->data(kSidebarLinkMime), QUrl::StrictMode);
+      if (url.isValid() && url.isLocalFile() && !QFileInfo(url.toLocalFile()).isSymLink())
+        insertFileLink(url.toLocalFile());
+    }
     return;
   }
   const auto text = source->hasText() ? source->text() : QString();
@@ -1654,24 +1661,9 @@ void Editor::insertFromMimeData(const QMimeData* source) {
   }
 }
 
-void Editor::insertSidebarLink(const QMimeData* source) {
-  const auto url = QUrl::fromEncoded(source->data(kSidebarLinkMime), QUrl::StrictMode);
-  const auto path = url.toLocalFile();
-  if (!url.isValid() || !QDir::isAbsolutePath(path) || path.contains(QChar::Null)) return;
-  const QFileInfo file(path);
-  if (file.isSymLink() || (!file.isFile() && !file.isDir())) return;
-  auto target = editor::normalizedLink(platform::localFileLinkTarget(path, document()->baseUrl()));
-  target.replace('&', QStringLiteral("%26"));
-  if (file.isDir() && !target.endsWith('/')) target += '/';
-  auto label = file.fileName();
-  if (label.isEmpty()) label = path;
-  label.replace(QRegularExpression(QStringLiteral("[\\r\\n\\t\\x{2028}\\x{2029}]")),
-                QStringLiteral(" "));
-  core::InlineRun link;
-  link.text = label.toStdString();
-  link.url = target.toStdString();
-  link.link = true;
-  const auto markdown = QString::fromStdString(core::serializeInline({link}));
+void Editor::insertFileLink(const QString& path) {
+  const auto markdown = localFileLinkMarkdown(path, document()->baseUrl());
+  if (markdown.isEmpty()) return;
   auto cursor = textCursor();
   if (!m_rendered)
     cursor.insertText(markdown);
@@ -1702,14 +1694,6 @@ bool Editor::canInsertFromMimeData(const QMimeData* source) const {
   return (m_imagePasteHandler && (source->hasImage() || source->hasUrls())) ||
          QTextEdit::canInsertFromMimeData(source);
 }
-namespace {
-QString droppedMarkdown(const QMimeData* source) {
-  for (const auto& url : source->urls())
-    if (url.isLocalFile() && url.toLocalFile().endsWith(QStringLiteral(".md"), Qt::CaseInsensitive))
-      return url.toLocalFile();
-  return {};
-}
-}  // namespace
 void Editor::dragEnterEvent(QDragEnterEvent* event) {
   if (event->mimeData()->hasFormat(kSidebarLinkMime)) {
     if (event->possibleActions() & Qt::CopyAction) {
@@ -1719,10 +1703,16 @@ void Editor::dragEnterEvent(QDragEnterEvent* event) {
       event->ignore();
     return;
   }
-  if (!droppedMarkdown(event->mimeData()).isEmpty())
-    event->acceptProposedAction();
-  else
+  const auto target = fileDropTarget(event->mimeData());
+  if (target.path.isEmpty()) {
     QTextEdit::dragEnterEvent(event);
+    return;
+  }
+  const bool copy =
+      (event->possibleActions() & Qt::CopyAction) &&
+      (target.action != FileDropTarget::InsertLink || (!isReadOnly() && !m_paragraphSourceActive));
+  event->setDropAction(copy ? Qt::CopyAction : Qt::IgnoreAction);
+  event->accept();
 }
 void Editor::dragMoveEvent(QDragMoveEvent* event) {
   if (event->mimeData()->hasFormat(kSidebarLinkMime)) {
@@ -1733,10 +1723,16 @@ void Editor::dragMoveEvent(QDragMoveEvent* event) {
       event->ignore();
     return;
   }
-  if (!droppedMarkdown(event->mimeData()).isEmpty())
-    event->acceptProposedAction();
-  else
+  const auto target = fileDropTarget(event->mimeData());
+  if (target.path.isEmpty()) {
     QTextEdit::dragMoveEvent(event);
+    return;
+  }
+  const bool copy =
+      (event->possibleActions() & Qt::CopyAction) &&
+      (target.action != FileDropTarget::InsertLink || (!isReadOnly() && !m_paragraphSourceActive));
+  event->setDropAction(copy ? Qt::CopyAction : Qt::IgnoreAction);
+  event->accept();
 }
 void Editor::dropEvent(QDropEvent* event) {
   if (event->mimeData()->hasFormat(kSidebarLinkMime)) {
@@ -1752,10 +1748,22 @@ void Editor::dropEvent(QDropEvent* event) {
     if (event->isAccepted()) event->setDropAction(Qt::CopyAction);
     return;
   }
-  const QString path = droppedMarkdown(event->mimeData());
-  if (!path.isEmpty()) {
-    emit markdownFileDropped(path);
-    event->acceptProposedAction();
+  const auto target = fileDropTarget(event->mimeData());
+  if (!target.path.isEmpty()) {
+    const bool copy = event->possibleActions() & Qt::CopyAction;
+    event->setDropAction(copy ? Qt::CopyAction : Qt::IgnoreAction);
+    event->accept();
+    if (!copy) return;
+    if (target.action == FileDropTarget::OpenMarkdown) {
+      emit markdownFileDropped(target.path);
+    } else if (target.action == FileDropTarget::OpenFolder) {
+      emit folderDropped(target.path);
+    } else if (!isReadOnly() && !m_paragraphSourceActive) {
+      setTextCursor(cursorForPosition(event->position().toPoint()));
+      insertFileLink(target.path);
+    } else {
+      event->setDropAction(Qt::IgnoreAction);
+    }
     return;
   }
   // Import external images at the actual drop location, without allowing a move

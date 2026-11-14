@@ -3959,6 +3959,111 @@ class WindowTests : public QObject {
     QCOMPARE(QUrl(absolute).toLocalFile(), note);
   }
 
+  void externalDropPreferencesChooseBetweenOpeningAndInsertingLinks() {
+    using namespace typist::platform;
+    const auto key = QStringLiteral("files/dropPreferences");
+    QSettings settings;
+    const auto previous = settings.value(key);
+    const auto restore = qScopeGuard([&] {
+      if (previous.isValid())
+        settings.setValue(key, previous);
+      else
+        settings.remove(key);
+    });
+    settings.remove(key);
+    QTemporaryDir workspace;
+    QVERIFY(workspace.isValid());
+    const auto root = QFileInfo(workspace.path()).canonicalFilePath();
+    const auto folder = QDir(root).filePath(QStringLiteral("资料 #1"));
+    QVERIFY(QDir().mkdir(folder));
+    const auto original = QDir(root).filePath(QStringLiteral("Original.md"));
+    const auto name = QStringLiteral("Draft [1] #50%.md");
+    const auto note = QDir(folder).filePath(name);
+    for (const auto& path : {original, note}) {
+      QFile file(path);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      QCOMPARE(file.write("Before TAIL\n"), qint64(12));
+    }
+    typist::MainWindow window(nullptr, true);
+    QVERIFY(window.openFile(original));
+    window.resize(900, 640);
+    window.show();
+    QApplication::processEvents();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* tree = window.findChild<typist::ui::FileTree*>();
+    QVERIFY(editor && tree);
+    const auto drop = [](QWidget* viewport, const QPoint& point, const QString& path) {
+      QMimeData mime;
+      mime.setUrls({QUrl::fromLocalFile(path)});
+      constexpr auto actions = Qt::CopyAction | Qt::MoveAction;
+      QDragEnterEvent enter(point, actions, &mime, Qt::LeftButton, Qt::ShiftModifier);
+      QApplication::sendEvent(viewport, &enter);
+      if (!enter.isAccepted()) return Qt::IgnoreAction;
+      QDropEvent release(point, actions, &mime, Qt::LeftButton, Qt::ShiftModifier);
+      QApplication::sendEvent(viewport, &release);
+      return release.isAccepted() ? release.dropAction() : Qt::IgnoreAction;
+    };
+    auto* markdownOpen = window.findChild<QAction*>(QStringLiteral("dropMarkdownOpen"));
+    auto* markdownLink = window.findChild<QAction*>(QStringLiteral("dropMarkdownLink"));
+    auto* folderOpen = window.findChild<QAction*>(QStringLiteral("dropFolderOpen"));
+    auto* folderLink = window.findChild<QAction*>(QStringLiteral("dropFolderLink"));
+    QVERIFY(markdownOpen && markdownLink && folderOpen && folderLink);
+    QVERIFY(markdownOpen->isChecked() && folderOpen->isChecked());
+    QCOMPARE(drop(editor->viewport(), editor->cursorRect().center(), note), Qt::CopyAction);
+    QVERIFY(window.windowTitle().contains(name));
+    QVERIFY(window.openFile(original));
+    QCOMPARE(drop(editor->viewport(), editor->cursorRect().center(), folder), Qt::CopyAction);
+    QCOMPARE(tree->rootPath(), folder);
+    QVERIFY(window.windowTitle().contains(QStringLiteral("Original.md")));
+
+    markdownLink->trigger();
+    QVERIFY(folderOpen->isChecked());
+    QCOMPARE(fileDropPreferences().markdown, FileDropAction::InsertLink);
+    auto atTail = editor->document()->find(QStringLiteral("TAIL"));
+    atTail.setPosition(atTail.selectionStart());
+    const auto before = editor->toPlainText();
+    QCOMPARE(drop(editor->viewport(), editor->cursorRect(atTail).center(), note), Qt::CopyAction);
+    QCOMPARE(editor->toPlainText(), QStringLiteral("Before ") + name + QStringLiteral("TAIL"));
+    const auto inserted = editor->document()->find(name);
+    QVERIFY(inserted.charFormat().isAnchor());
+    const auto href = inserted.charFormat().anchorHref();
+    QCOMPARE(typist::ui::resolveLink(href, editor->document()->baseUrl()).path, note);
+    editor->undo();
+    QCOMPARE(editor->toPlainText(), before);
+    editor->setReadOnly(true);
+    QCOMPARE(drop(editor->viewport(), editor->cursorRect().center(), note), Qt::IgnoreAction);
+    QCOMPARE(editor->toPlainText(), before);
+    editor->setReadOnly(false);
+
+    folderLink->trigger();
+    QCOMPARE(fileDropPreferences().folder, FileDropAction::InsertLink);
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    atTail = editor->document()->find(QStringLiteral("TAIL"));
+    atTail.setPosition(atTail.selectionStart());
+    QCOMPARE(drop(editor->viewport(), editor->cursorRect(atTail).center(), folder + '/'),
+             Qt::CopyAction);
+    const auto expected = QStringLiteral("[资料 #1](%E8%B5%84%E6%96%99%20%231/)");
+    QVERIFY(editor->toPlainText().contains(expected + QStringLiteral("TAIL")));
+    editor->undo();
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView", Qt::DirectConnection));
+    editor->moveCursor(QTextCursor::Start);
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* paragraph = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(paragraph);
+    const auto draft = paragraph->toPlainText();
+    QCOMPARE(drop(paragraph->viewport(), paragraph->cursorRect().center(), folder), Qt::CopyAction);
+    QVERIFY(paragraph->toPlainText().contains(expected));
+    paragraph->undo();
+    QCOMPARE(paragraph->toPlainText(), draft);
+    editor->finishParagraphSourceEdit(false);
+
+    typist::MainWindow reopened(nullptr, true);
+    const auto* reopenedMarkdown = reopened.findChild<QAction*>(QStringLiteral("dropMarkdownLink"));
+    const auto* reopenedFolder = reopened.findChild<QAction*>(QStringLiteral("dropFolderLink"));
+    QVERIFY(reopenedMarkdown && reopenedMarkdown->isChecked());
+    QVERIFY(reopenedFolder && reopenedFolder->isChecked());
+  }
+
   void treeMoveRetargetsTheOpenDocumentAndKeepsItsUndoHistory() {
     QTemporaryDir workspace;
     QVERIFY(workspace.isValid());

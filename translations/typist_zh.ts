@@ -592,6 +592,26 @@
         <translation>启动时</translation>
     </message>
     <message>
+        <source>File Drop</source>
+        <translation>文件拖放</translation>
+    </message>
+    <message>
+        <source>Open in Typist</source>
+        <translation>在 Typist 中打开</translation>
+    </message>
+    <message>
+        <source>Insert Link</source>
+        <translation>插入链接</translation>
+    </message>
+    <message>
+        <source>When Dropping Markdown Files</source>
+        <translation>拖入 Markdown 文件时</translation>
+    </message>
+    <message>
+        <source>When Dropping Folders</source>
+        <translation>拖入文件夹时</translation>
+    </message>
+    <message>
         <source>Record Recent Files and Folders</source>
         <translation>记录最近文件和文件夹</translation>
     </message>

@@ -99,8 +99,6 @@ class MainWindow : public QMainWindow {
   // Bench seam: sidebar directory count for a root directory.
   int fileTreeDirectoriesForBench(const QString& rootDir);
 
-  // Opens the first Markdown URL from a drop; returns false when nothing applies.
-  bool openDroppedFiles(const QList<QUrl>& urls);
   bool saveDocumentAs(const QString& path);
 
  private slots:
@@ -168,6 +166,8 @@ class MainWindow : public QMainWindow {
   void createEditorToolbar(QMenu* view, QMenu* appearance);
   void updateEditorToolbar();
   void createLaunchMenu(QMenu* settings);
+  void createFileDropMenu(QMenu* settings);
+  void openDroppedMarkdown(const QString& path);
   void createLineEndingMenu(QMenu* settings);
   bool writeMarkdownFile(const QString& path, const QString& markdown);
   void createExportMenu(QMenu* settings);
