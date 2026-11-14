@@ -3751,9 +3751,40 @@ class WindowTests : public QObject {
     QVERIFY(fileDrag && folderDrag);
     QApplication::processEvents();
 
+    const auto before = editor->toPlainText();
+    QDragEnterEvent windowEnter(QPoint(5, 5), Qt::CopyAction, fileDrag.data(), Qt::LeftButton,
+                                Qt::NoModifier);
+    QApplication::sendEvent(&window, &windowEnter);
+    QVERIFY(!windowEnter.isAccepted());
+    QDropEvent windowDrop(QPointF(5, 5), Qt::CopyAction, fileDrag.data(), Qt::LeftButton,
+                          Qt::NoModifier);
+    QApplication::sendEvent(&window, &windowDrop);
+    QVERIFY(!windowDrop.isAccepted());
+    QCOMPARE(editor->toPlainText(), before);
+    QCOMPARE(editor->document()->baseUrl(),
+             QUrl::fromLocalFile(QFileInfo(current).absolutePath() + '/'));
+
+    editor->moveCursor(QTextCursor::Start);
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* paragraph = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(paragraph);
+    const auto paragraphBefore = paragraph->toPlainText();
+    const auto paragraphPoint = paragraph->cursorRect().center();
+    QDragEnterEvent paragraphEnter(paragraphPoint, Qt::CopyAction, fileDrag.data(), Qt::LeftButton,
+                                   Qt::NoModifier);
+    QApplication::sendEvent(paragraph->viewport(), &paragraphEnter);
+    QVERIFY(!paragraphEnter.isAccepted());
+    QDropEvent paragraphDrop(paragraphPoint, Qt::CopyAction, fileDrag.data(), Qt::LeftButton,
+                             Qt::NoModifier);
+    QApplication::sendEvent(paragraph->viewport(), &paragraphDrop);
+    QVERIFY(!paragraphDrop.isAccepted());
+    QCOMPARE(paragraph->toPlainText(), paragraphBefore);
+    editor->finishParagraphSourceEdit(false);
+    QVERIFY(!editor->paragraphSourceActive());
+
     const auto dropAt = [&](const QMimeData* data, const QTextCursor& caret) {
       const auto target = editor->cursorRect(caret).center();
-      constexpr auto actions = Qt::CopyAction | Qt::MoveAction;
+      constexpr auto actions = Qt::CopyAction;
       QDragEnterEvent enter(target, actions, data, Qt::LeftButton, Qt::ShiftModifier);
       QApplication::sendEvent(editor->viewport(), &enter);
       if (!enter.isAccepted() || enter.dropAction() != Qt::CopyAction) return false;
@@ -3765,7 +3796,6 @@ class WindowTests : public QObject {
       return drop.isAccepted() && drop.dropAction() == Qt::CopyAction;
     };
 
-    const auto before = editor->toPlainText();
     const auto selection = editor->document()->find(QStringLiteral("First"));
     editor->setTextCursor(selection);
     auto target = editor->document()->find(QStringLiteral("TAIL"));
@@ -3881,7 +3911,7 @@ class WindowTests : public QObject {
       const QScopedPointer<QMimeData> data(tree->model()->mimeData({tree->currentIndex()}));
       if (!data) return false;
       const auto point = tree->visualItemRect(destination).center();
-      constexpr auto actions = Qt::CopyAction | Qt::MoveAction;
+      constexpr auto actions = Qt::CopyAction;
       QDragEnterEvent enter(point, actions, data.data(), Qt::LeftButton, Qt::NoModifier);
       QApplication::sendEvent(tree->viewport(), &enter);
       if (!enter.isAccepted()) return false;
@@ -3890,7 +3920,7 @@ class WindowTests : public QObject {
       if (!move.isAccepted()) return false;
       QDropEvent drop(point, actions, data.data(), Qt::LeftButton, Qt::NoModifier);
       QApplication::sendEvent(tree->viewport(), &drop);
-      return drop.isAccepted() && drop.dropAction() == Qt::MoveAction;
+      return drop.isAccepted() && drop.dropAction() == Qt::CopyAction;
     };
 
     editor->moveCursor(QTextCursor::End);

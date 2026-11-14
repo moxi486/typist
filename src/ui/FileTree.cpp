@@ -61,7 +61,9 @@ class SidebarEntryDrag : public QMimeData {
  public:
   SidebarEntryDrag(const FileTree* origin, const QString& entryPath)
       : tree(origin), root(origin->rootPath()), path(entryPath) {
-    setData(kSidebarLinkMime, QUrl::fromLocalFile(path).toEncoded());
+    const auto url = QUrl::fromLocalFile(path);
+    setData(kSidebarLinkMime, url.toEncoded());
+    setUrls({url});
   }
 
   const FileTree* const tree;
@@ -172,30 +174,28 @@ QStringList FileTree::mimeTypes() const { return {kSidebarLinkMime, kLocalFileMi
 QMimeData* FileTree::mimeData(const QList<QTreeWidgetItem*>& items) const {
   if (items.isEmpty()) return nullptr;
   const QFileInfo entry(items.first()->data(0, kPathRole).toString());
-  if (entry.isSymLink() || (!entry.isFile() && !entry.isDir())) return nullptr;
+  if (entry.isSymLink() || entry.isJunction() || (!entry.isFile() && !entry.isDir()))
+    return nullptr;
   return new SidebarEntryDrag(this, entry.absoluteFilePath());
 }
 
-Qt::DropActions FileTree::supportedDropActions() const {
-  return m_options.view == platform::FileBrowserView::Tree ? Qt::CopyAction | Qt::MoveAction
-                                                           : Qt::CopyAction;
-}
+Qt::DropActions FileTree::supportedDropActions() const { return Qt::CopyAction; }
 
-void FileTree::startDrag(Qt::DropActions actions) {
+void FileTree::startDrag(Qt::DropActions) {
   const auto items = selectedItems();
   auto* data = mimeData(items);
   if (!data) return;
-  // The drop target moves the filesystem entry. The default item view drag would
-  // try to remove the selected row again after a successful move.
+  // Native file managers may act on a Move offer themselves. Only this tree's
+  // drop handler may move the source and update Typist's file-operation history.
   auto* drag = new QDrag(this);
   drag->setMimeData(data);
   drag->setPixmap(items.first()->icon(0).pixmap(24, 24));
-  drag->exec(actions, Qt::CopyAction);
+  drag->exec(Qt::CopyAction);
 }
 
 QString FileTree::draggedPath(const QDropEvent* event) const {
   if (m_options.view != platform::FileBrowserView::Tree ||
-      !(event->possibleActions() & Qt::MoveAction))
+      !(event->possibleActions() & Qt::CopyAction))
     return {};
   // Only the live drag object from this tree can initiate a filesystem move.
   const auto* drag = dynamic_cast<const SidebarEntryDrag*>(event->mimeData());
@@ -250,7 +250,7 @@ void FileTree::dragMoveEvent(QDragMoveEvent* event) {
     event->ignore();
     return;
   }
-  event->setDropAction(Qt::MoveAction);
+  event->setDropAction(Qt::CopyAction);
   event->accept();
 }
 
@@ -280,7 +280,7 @@ void FileTree::dropEvent(QDropEvent* event) {
   }
   recordFileOperation(source, target);
   refreshAfterRelocation(source, target);
-  event->setDropAction(Qt::MoveAction);
+  event->setDropAction(Qt::CopyAction);
   event->accept();
 }
 

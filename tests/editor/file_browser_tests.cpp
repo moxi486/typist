@@ -77,7 +77,7 @@ class FolderReceiver : public QObject {
 class FileBrowserTests : public QObject {
   Q_OBJECT
  private slots:
-  void sidebarDragsFileAndDirectoryLinksAsCopy() {
+  void sidebarDragsExposeLocalFileUrlsAndEditorLinks() {
     QTemporaryDir workspace;
     const auto folder = workspace.filePath(QStringLiteral("资料 #1"));
     const auto note = folder + QStringLiteral("/Note [A]%.md");
@@ -87,7 +87,7 @@ class FileBrowserTests : public QObject {
     FileTree tree;
     tree.setRoot(workspace.path());
     QCOMPARE(tree.dragDropMode(), QAbstractItemView::DragDrop);
-    QCOMPARE(tree.model()->supportedDragActions(), Qt::CopyAction | Qt::MoveAction);
+    QCOMPARE(tree.model()->supportedDragActions(), Qt::DropActions(Qt::CopyAction));
     QCOMPARE(tree.model()->mimeTypes(),
              QStringList({typist::ui::kSidebarLinkMime, QStringLiteral("text/uri-list")}));
     const auto verify = [&](const QString& path, const QModelIndex& index) {
@@ -95,7 +95,11 @@ class FileBrowserTests : public QObject {
       QVERIFY(tree.model()->flags(index).testFlag(Qt::ItemIsDragEnabled));
       const QScopedPointer<QMimeData> data(tree.model()->mimeData({index}));
       QVERIFY(data);
-      QCOMPARE(data->formats(), QStringList{typist::ui::kSidebarLinkMime});
+      QCOMPARE(data->urls(), QList<QUrl>{QUrl::fromLocalFile(path)});
+      QMimeData external;
+      const auto mime = QStringLiteral("text/uri-list");
+      external.setData(mime, data->data(mime));
+      QCOMPARE(external.urls(), data->urls());
       QCOMPARE(QUrl::fromEncoded(data->data(typist::ui::kSidebarLinkMime)).toLocalFile(), path);
     };
     auto folderIndex = tree.model()->index(0, 0);
@@ -139,7 +143,7 @@ class FileBrowserTests : public QObject {
     QSignalSpy failed(&tree, &FileTree::fileOperationFailed);
 
     const auto drop = [&](const QMimeData* data, const QPoint& point) {
-      constexpr auto actions = Qt::CopyAction | Qt::MoveAction;
+      constexpr auto actions = Qt::CopyAction;
       QDragEnterEvent enter(point, actions, data, Qt::LeftButton, Qt::NoModifier);
       QApplication::sendEvent(tree.viewport(), &enter);
       if (!enter.isAccepted()) return false;
@@ -147,7 +151,7 @@ class FileBrowserTests : public QObject {
       QApplication::sendEvent(tree.viewport(), &move);
       QDropEvent release(point, actions, data, Qt::LeftButton, Qt::NoModifier);
       QApplication::sendEvent(tree.viewport(), &release);
-      return release.isAccepted() && release.dropAction() == Qt::MoveAction;
+      return release.isAccepted() && release.dropAction() == Qt::CopyAction;
     };
     const auto mimeFor = [&](const QString& path) {
       tree.setCurrentItem(itemForPath(tree, path));
@@ -161,6 +165,7 @@ class FileBrowserTests : public QObject {
     QVERIFY(drag);
     QMimeData external;
     external.setData(typist::ui::kSidebarLinkMime, drag->data(typist::ui::kSidebarLinkMime));
+    external.setUrls(drag->urls());
     QVERIFY(!drop(&external, pointFor(target)));
     QCOMPARE(failed.count(), 0);
     QVERIFY(!drop(drag.data(), pointFor(target)));

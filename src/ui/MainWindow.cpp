@@ -2609,10 +2609,18 @@ bool MainWindow::openDroppedFiles(const QList<QUrl>& urls) {
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
+  if (event->mimeData()->hasFormat(ui::kSidebarLinkMime)) {
+    event->ignore();
+    return;
+  }
   if (event->mimeData()->hasUrls() || event->mimeData()->hasImage()) event->acceptProposedAction();
 }
 
 void MainWindow::dropEvent(QDropEvent* event) {
+  if (event->mimeData()->hasFormat(ui::kSidebarLinkMime)) {
+    event->ignore();
+    return;
+  }
   if (pasteImages(event->mimeData())) {
     event->acceptProposedAction();
     return;
