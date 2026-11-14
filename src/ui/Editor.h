@@ -40,6 +40,7 @@ class Editor : public QTextEdit {
     connect(this, &QTextEdit::cursorPositionChanged, this, [this] {
       updateCodeBlockBar();
       updateTableBar();
+      if (m_editorToolbar && m_toolbarEnabled) updateWritingArea();
       if (m_focusMode) updateDecorations();
       if (m_typewriterMode) centerWritingLine();
     });
@@ -63,9 +64,10 @@ class Editor : public QTextEdit {
         updateDecorations();
         updateCodeBlockBar();
         updateTableBar();
+        if (m_editorToolbar && m_toolbarEnabled) updateWritingArea();
       });
     });
-    if (viewChanged || m_codeLineNumbers) updateWritingArea();
+    if (viewChanged || m_codeLineNumbers || m_toolbarEnabled) updateWritingArea();
     updateDecorations();
     updateCodeBlockBar(true);
     updateTableBar();
@@ -86,6 +88,7 @@ class Editor : public QTextEdit {
     updateParagraphSourceTheme();
     updateCodeBlockTheme();
     updateTableTheme();
+    if (m_editorToolbar) updateWritingArea();
   }
 
   void setSearchHighlights(const QList<ExtraSelection>& highlights) {
@@ -96,6 +99,8 @@ class Editor : public QTextEdit {
   void formatInline(editor::InlineStyle style);
   void formatParagraph(editor::ParagraphStyle style, int heading = 0);
   bool renderedEditingAvailable() const { return m_rendered && !m_paragraphSourceActive; }
+  void setEditorToolbar(QWidget* toolbar);
+  void setEditorToolbarEnabled(bool enabled);
   bool shiftHeadingLevels(int delta);
   void insertLink(const QString& target, const QString& label = QString());
   void createTable(int rows, int columns);
@@ -195,6 +200,7 @@ class Editor : public QTextEdit {
   void insertFromMimeData(const QMimeData* source) override;
   QMimeData* createMimeDataFromSelection() const override;
   bool canInsertFromMimeData(const QMimeData* source) const override;
+  void changeEvent(QEvent* event) override;
   void dragEnterEvent(QDragEnterEvent* event) override;
   void dragMoveEvent(QDragMoveEvent* event) override;
   void dropEvent(QDropEvent* event) override;
@@ -261,6 +267,8 @@ class Editor : public QTextEdit {
   void updateTableBar();
   void updateTableTheme();
   TableBar* m_tableBar = nullptr;
+  QWidget* m_editorToolbar = nullptr;
+  bool m_toolbarEnabled = false;
   CodeBlockBar* m_codeBar = nullptr;
   CodeLineNumberGutter* m_codeLineNumberGutter = nullptr;
   std::function<bool(const QMimeData*)> m_imagePasteHandler;

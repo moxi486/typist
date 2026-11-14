@@ -233,6 +233,24 @@ void Editor::setWritingAreaWidths(const platform::WritingAreaWidths& widths) {
   updateTableBar();
 }
 
+void Editor::setEditorToolbar(QWidget* toolbar) {
+  m_editorToolbar = toolbar;
+  connect(this, &Editor::renderedEditingAvailableChanged, this, [this] { updateWritingArea(); });
+  updateWritingArea();
+}
+
+void Editor::setEditorToolbarEnabled(bool enabled) {
+  m_toolbarEnabled = enabled;
+  updateWritingArea();
+  ensureCursorVisible();
+}
+
+void Editor::changeEvent(QEvent* event) {
+  QTextEdit::changeEvent(event);
+  if (event->type() == QEvent::ReadOnlyChange && m_editorToolbar && m_toolbarEnabled)
+    updateWritingArea();
+}
+
 void Editor::updateWritingArea() {
   QScopedValueRollback<bool> guard(m_updatingMargins, true);
   // Use the editor width. Resize events forwarded from the viewport already exclude margins.
@@ -240,7 +258,26 @@ void Editor::updateWritingArea() {
   const int side = maximum > 0 ? qMax(24, (width() - maximum + 1) / 2) : 24;
   const bool numbers = m_rendered && m_codeLineNumbers;
   const int gutterWidth = numbers ? m_codeLineNumberGutter->numberWidth() : 0;
-  const QMargins margins(qMax(side, gutterWidth), 36, side, 28);
+  int bottom = 28;
+  if (m_editorToolbar) {
+    bool show = m_toolbarEnabled && renderedEditingAvailable() && !isReadOnly();
+    if (show) {
+      const auto cursor = textCursor();
+      const auto size = m_editorToolbar->sizeHint();
+      show = !cursor.currentTable() &&
+             !cursor.blockFormat().hasProperty(editor::kCodeBlockProperty) &&
+             size.width() + 24 <= width();
+      if (show) {
+        constexpr int inset = 8;
+        bottom = size.height() + 2 * inset;
+        m_editorToolbar->setGeometry((width() - size.width()) / 2, height() - size.height() - inset,
+                                     size.width(), size.height());
+        m_editorToolbar->raise();
+      }
+    }
+    m_editorToolbar->setVisible(show);
+  }
+  const QMargins margins(qMax(side, gutterWidth), 36, side, bottom);
   if (viewportMargins() != margins) setViewportMargins(margins);
   if (!m_codeLineNumberGutter) return;
   if (numbers) {

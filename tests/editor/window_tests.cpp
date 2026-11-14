@@ -1338,6 +1338,107 @@ class WindowTests : public QObject {
     QVERIFY(editor->toPlainText().startsWith(QStringLiteral("Typist")));
   }
 
+  void floatingEditorToolbarAppliesCommandsAndFollowsEditingContext() {
+    QSettings settings;
+    const auto key = QStringLiteral("editor/showToolbar");
+    const auto previous = settings.value(key);
+    const auto language = typist::platform::languagePreference();
+    const auto theme = typist::platform::themePreference();
+    const auto restore = qScopeGuard([&] {
+      if (previous.isValid())
+        settings.setValue(key, previous);
+      else
+        settings.remove(key);
+      typist::platform::setLanguagePreference(language);
+      typist::platform::setThemePreference(theme);
+    });
+    settings.remove(key);
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    typist::platform::setThemePreference(QStringLiteral("light"));
+    typist::MainWindow window(nullptr, true);
+    window.resize(900, 650);
+    window.show();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* toggle = window.findChild<QAction*>(QStringLiteral("showEditorToolbar"));
+    auto* toolbar = window.findChild<QFrame*>(QStringLiteral("editorToolbar"));
+    QVERIFY(editor && toggle && toolbar);
+    QCOMPARE(toggle->associatedObjects().size(), 2);
+    QVERIFY(!toggle->isChecked() && !toolbar->isVisible());
+    const auto originalViewport = editor->viewport()->height();
+    toggle->trigger();
+    QTRY_VERIFY(toolbar->isVisible());
+    QVERIFY(editor->viewport()->height() < originalViewport);
+    QVERIFY(toolbar->geometry().top() > editor->viewport()->geometry().bottom());
+    QCOMPARE(toolbar->geometry().left(), (editor->width() - toolbar->width()) / 2);
+    QVERIFY(typist::editor::loadMarkdown(
+        QStringLiteral("First paragraph\n\n```cpp\ncode content\n```\n\n"
+                       "| Head |\n| --- |\n| cell |\n"),
+        editor->document(), nullptr));
+    const auto original = typist::editor::serializeDocument(editor->document());
+    editor->setTextCursor(editor->document()->find(QStringLiteral("First")));
+    auto* bold = toolbar->findChild<QToolButton*>(QStringLiteral("toolbar_format_bold"));
+    QVERIFY(bold &&
+            bold->defaultAction() == window.findChild<QAction*>(QStringLiteral("format_bold")));
+    QVERIFY(!bold->icon().isNull());
+    QTest::mouseClick(bold, Qt::LeftButton);
+    QVERIFY(typist::editor::serializeDocument(editor->document())
+                .startsWith(QStringLiteral("**First** paragraph")));
+    QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("First"));
+    editor->undo();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+    auto* paragraph = toolbar->findChild<QToolButton*>(QStringLiteral("toolbarParagraph"));
+    QVERIFY(paragraph && paragraph->menu());
+    auto* heading = window.findChild<QAction*>(QStringLiteral("heading_2"));
+    QVERIFY(heading && paragraph->menu()->actions().contains(heading));
+    editor->setTextCursor(editor->document()->find(QStringLiteral("First")));
+    heading->trigger();
+    QVERIFY(typist::editor::serializeDocument(editor->document())
+                .startsWith(QStringLiteral("## First paragraph")));
+    editor->undo();
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+
+    editor->setTextCursor(editor->document()->find(QStringLiteral("code content")));
+    QVERIFY(!toolbar->isVisible());
+    editor->setTextCursor(editor->document()->find(QStringLiteral("cell")));
+    QVERIFY(!toolbar->isVisible());
+    editor->setTextCursor(editor->document()->find(QStringLiteral("First")));
+    QVERIFY(toolbar->isVisible());
+    QVERIFY(editor->startParagraphSourceEdit());
+    QVERIFY(!toolbar->isVisible());
+    editor->finishParagraphSourceEdit(false);
+    QVERIFY(toolbar->isVisible());
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView"));
+    QVERIFY(!toolbar->isVisible());
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView"));
+    editor->moveCursor(QTextCursor::Start);
+    QVERIFY(toolbar->isVisible());
+    editor->setReadOnly(true);
+    QVERIFY(!toolbar->isVisible());
+    editor->setReadOnly(false);
+    QVERIFY(toolbar->isVisible());
+
+    const auto screenshot = qEnvironmentVariable("TYPIST_EDITOR_TOOLBAR_SCREENSHOT");
+    if (!screenshot.isEmpty())
+      QVERIFY(window.grab().save(screenshot + QStringLiteral("-light.png")));
+    const auto lightIcon = bold->icon().pixmap(18, 18).toImage();
+    window.findChild<QAction*>(QStringLiteral("appearance_dark"))->trigger();
+    window.findChild<QAction*>(QStringLiteral("language_zh"))->trigger();
+    QCOMPARE(toggle->text(), QStringLiteral("编辑工具栏"));
+    QCOMPARE(toolbar->accessibleName(), QStringLiteral("编辑工具栏"));
+    QCOMPARE(paragraph->text(), QStringLiteral("段落"));
+    QCOMPARE(bold->accessibleName(), bold->defaultAction()->text());
+    QVERIFY(bold->icon().pixmap(18, 18).toImage() != lightIcon);
+    QVERIFY(toolbar->geometry().top() > editor->viewport()->geometry().bottom());
+    if (!screenshot.isEmpty())
+      QVERIFY(window.grab().save(screenshot + QStringLiteral("-dark.png")));
+    typist::MainWindow reopened(nullptr, true);
+    QVERIFY(reopened.findChild<QAction*>(QStringLiteral("showEditorToolbar"))->isChecked());
+    toggle->trigger();
+    QVERIFY(!toolbar->isVisible());
+    QVERIFY(!settings.value(key).toBool());
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+  }
+
   void writingAreaWidthsApplyIndependentlyAndPersist() {
     using Width = typist::platform::WritingWidth;
     const auto key = QStringLiteral("editor/writingAreaWidths");

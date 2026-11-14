@@ -40,6 +40,12 @@ QString editorStyleSheet(Theme theme) {
     QStatusBar QToolButton { padding: 3px 6px; border: none; }
     QStatusBar QLabel { background: transparent; color: %4; }
     QStatusBar::item { border: none; }
+    QFrame#editorToolbar { background: %2; border: 1px solid %5; border-radius: 18px; }
+    QFrame#editorToolbar QToolButton { padding: 2px; border-radius: 6px; min-width: 26px; min-height: 24px; }
+    QFrame#editorToolbar QToolButton[popupMode="2"] { padding: 2px 14px 2px 5px; }
+    QFrame#editorToolbar QToolButton::menu-indicator { subcontrol-position: right center; right: 4px; }
+    QFrame#editorToolbar QToolButton:focus { border-color: %7; }
+    QFrame#editorToolbar QFrame#editorToolbarDivider { background: %5; }
     QDockWidget { color: %4; border: none; }
     QDockWidget::title { background: %2; padding: 10px; }
     QWidget#sidebarSurface { background: %2; border-right: 1px solid %5; }

@@ -1,5 +1,11 @@
 # 代码高亮与段落 Markdown 编辑
 
+## 编辑工具栏
+
+在「视图 → 编辑工具栏」或「设置 → 外观」开启后，渲染视图底部会显示浮动工具栏。可快速设置正文和标题、粗体、斜体、行内代码、链接、图片、引用和列表，更多格式在「⋯」菜单中。工具栏与菜单共用命令，选中的文本可直接应用格式并撤销。
+
+工具栏随界面语言和主题切换。进入源码视图、段落源码、代码块或表格时自动收起，回到正文后恢复。开关默认关闭，重启后保留。 [Typora 1.14 工具栏说明](https://support.typora.io/What%27s-New-1.14/#floating-editor-toolbar)
+
 代码块按围栏中的语言标识着色。在「段落 → 代码语言」修改当前整个代码块的语言；修改可一次撤销。留空或使用未知语言时显示普通代码。「设置 → 语法高亮」可开关编辑器中的着色。
 
 常用标识包括 cpp / c++、c、python / py、javascript / js、typescript / ts、json、bash / sh、powershell / ps1、java、cs / csharp、go、rust、swift、kotlin、sql、html / xml、css、yaml / yml、toml、markdown / md、latex / tex。此高亮器使用轻量词法规则，不等同于 IDE 的语义分析。支持常见多行注释、Python 三引号字符串和 C++ 原始字符串；超过 32768 字符的单行跳过高亮，保留全部原文。

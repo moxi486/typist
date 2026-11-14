@@ -65,6 +65,8 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QFrame>
+#include <QHBoxLayout>
 #include <QImage>
 #include <QInputDialog>
 #include <QKeySequence>
@@ -201,6 +203,46 @@ QIcon navigationIcon(bool source, const QColor& color) {
     painter.drawLine(QPointF(15, 8), QPointF(15, 32));
     painter.drawLine(QPointF(8, 13), QPointF(11, 13));
     painter.drawLine(QPointF(8, 18), QPointF(11, 18));
+  }
+  return QIcon(pixmap);
+}
+
+QIcon toolbarIcon(const QString& symbol, const QColor& color) {
+  QPixmap pixmap(48, 48);
+  pixmap.fill(Qt::transparent);
+  QPainter painter(&pixmap);
+  painter.setRenderHint(QPainter::Antialiasing);
+  painter.scale(2, 2);
+  painter.setPen(QPen(color, 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  if (symbol == QLatin1String("link")) {
+    painter.translate(12, 12);
+    painter.rotate(-45);
+    painter.drawRoundedRect(QRectF(-9, -3, 10, 6), 3, 3);
+    painter.drawRoundedRect(QRectF(-1, -3, 10, 6), 3, 3);
+  } else if (symbol == QLatin1String("image")) {
+    painter.drawRoundedRect(QRectF(3, 4, 18, 16), 2, 2);
+    painter.drawEllipse(QPointF(8, 9), 1, 1);
+    painter.drawPolyline(QPolygonF({{4, 17}, {9, 12}, {12, 15}, {16, 10}, {21, 15}}));
+  } else if (symbol == QLatin1String("list")) {
+    for (int y : {6, 12, 18}) {
+      painter.drawPoint(QPointF(4, y));
+      painter.drawLine(QPointF(9, y), QPointF(19, y));
+    }
+  } else if (symbol == QLatin1String("more")) {
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(color);
+    for (int x : {6, 12, 18}) painter.drawEllipse(QPointF(x, 12), 1.4, 1.4);
+  } else if (symbol == QLatin1String("code")) {
+    painter.drawPolyline(QPolygonF({{8, 7}, {3, 12}, {8, 17}}));
+    painter.drawLine(QPointF(14, 5), QPointF(10, 19));
+    painter.drawPolyline(QPolygonF({{16, 7}, {21, 12}, {16, 17}}));
+  } else {
+    QFont font = painter.font();
+    font.setPixelSize(20);
+    font.setBold(symbol != QLatin1String("I"));
+    font.setItalic(symbol == QLatin1String("I"));
+    painter.setFont(font);
+    painter.drawText(QRectF(0, 0, 24, 24), Qt::AlignCenter, symbol);
   }
   return QIcon(pixmap);
 }
@@ -522,6 +564,7 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   }
 
   createEditingActions(fileMenu, editMenu, viewMenu, settingsMenu);
+  createEditorToolbar(viewMenu, appearanceMenu);
 
   statusBar()->setSizeGripEnabled(false);
   auto* sidebarButton = new QToolButton(this);
@@ -606,6 +649,109 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   if (drafts > 0)
     statusBar()->showMessage(
         tr("%1 drafts can be recovered with File > Recover Draft").arg(drafts));
+}
+
+void MainWindow::createEditorToolbar(QMenu* view, QMenu* appearance) {
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  auto* toolbar = new QFrame(editor);
+  m_editorToolbar = toolbar;
+  toolbar->setObjectName(QStringLiteral("editorToolbar"));
+  toolbar->hide();
+  auto* row = new QHBoxLayout(toolbar);
+  row->setContentsMargins(9, 3, 9, 3);
+  row->setSpacing(3);
+  const auto button = [toolbar, row](const QString& id, const QString& symbol = {}) {
+    auto* tool = new QToolButton(toolbar);
+    tool->setObjectName(id);
+    tool->setProperty("toolbarSymbol", symbol);
+    tool->setFocusPolicy(Qt::TabFocus);
+    tool->setIconSize(QSize(18, 18));
+    row->addWidget(tool);
+    return tool;
+  };
+  const auto action = [this](const char* id) {
+    return findChild<QAction*>(QString::fromLatin1(id));
+  };
+  const auto direct = [&](const char* id, const QString& symbol) {
+    button(QStringLiteral("toolbar_") + QString::fromLatin1(id), symbol)
+        ->setDefaultAction(action(id));
+  };
+  const auto menuButton = [&](const QString& id, const QString& symbol) {
+    auto* tool = button(id, symbol);
+    tool->setMenu(new QMenu(tool));
+    tool->setPopupMode(QToolButton::InstantPopup);
+    return tool;
+  };
+  const auto divider = [toolbar, row] {
+    auto* line = new QFrame(toolbar);
+    line->setObjectName(QStringLiteral("editorToolbarDivider"));
+    line->setFixedSize(1, 18);
+    row->addWidget(line);
+  };
+  auto* paragraph = menuButton(QStringLiteral("toolbarParagraph"), {});
+  paragraph->setToolButtonStyle(Qt::ToolButtonTextOnly);
+  paragraph->menu()->addAction(action("paragraph_body"));
+  for (int level = 1; level <= 6; ++level)
+    paragraph->menu()->addAction(findChild<QAction*>(QStringLiteral("heading_%1").arg(level)));
+  divider();
+  direct("format_bold", QStringLiteral("B"));
+  direct("format_italic", QStringLiteral("I"));
+  direct("format_code", QStringLiteral("code"));
+  direct("format_link", QStringLiteral("link"));
+  divider();
+  direct("insert_image", QStringLiteral("image"));
+  direct("paragraph_quote", QString(QChar(0x275e)));
+  auto* lists = menuButton(QStringLiteral("toolbarLists"), QStringLiteral("list"));
+  for (const char* id : {"paragraph_bullet", "paragraph_ordered", "paragraph_task"})
+    lists->menu()->addAction(action(id));
+  divider();
+  auto* more = menuButton(QStringLiteral("toolbarMore"), QStringLiteral("more"));
+  for (const char* id : {"format_underline", "format_strike", "format_clear", "paragraph_code",
+                         "insert_table", "insert_math", "insert_footnote"})
+    more->menu()->addAction(action(id));
+
+  editor->setEditorToolbar(toolbar);
+  auto* toggle = view->addAction(tr("Editor Toolbar"));
+  toggle->setObjectName(QStringLiteral("showEditorToolbar"));
+  toggle->setCheckable(true);
+  appearance->addSeparator();
+  appearance->addAction(toggle);
+  const auto key = QStringLiteral("editor/showToolbar");
+  toggle->setChecked(QSettings().value(key, false).toBool());
+  editor->setEditorToolbarEnabled(toggle->isChecked());
+  connect(toggle, &QAction::toggled, this, [editor, key](bool enabled) {
+    editor->setEditorToolbarEnabled(enabled);
+    QSettings().setValue(key, enabled);
+  });
+}
+
+void MainWindow::updateEditorToolbar() {
+  if (!m_editorToolbar) return;
+  m_editorToolbar->setAccessibleName(tr("Editor Toolbar"));
+  const auto color = m_editor->palette().color(QPalette::ButtonText);
+  for (auto* button :
+       m_editorToolbar->findChildren<QToolButton*>(QString(), Qt::FindDirectChildrenOnly)) {
+    const auto symbol = button->property("toolbarSymbol").toString();
+    if (!symbol.isEmpty()) {
+      const auto icon = toolbarIcon(symbol, color);
+      if (auto* action = button->defaultAction())
+        action->setIcon(icon);
+      else
+        button->setIcon(icon);
+    }
+    QString label;
+    if (button->defaultAction())
+      label = button->defaultAction()->text();
+    else if (button->objectName() == QLatin1String("toolbarParagraph")) {
+      label = tr("Paragraph");
+      button->setText(label);
+    } else if (button->objectName() == QLatin1String("toolbarLists"))
+      label = tr("Lists");
+    else
+      label = tr("More Formatting");
+    button->setAccessibleName(label);
+    if (!button->defaultAction()) button->setToolTip(label);
+  }
 }
 
 void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMenu* settings) {
@@ -2611,6 +2757,7 @@ void MainWindow::applyTheme() {
   const ui::Theme theme = ui::resolveTheme(themePreference(), systemPrefersDark());
   setStyleSheet(ui::editorStyleSheet(theme));
   applyThemePalette(themedPalette(theme));
+  updateEditorToolbar();
   static_cast<ui::Editor*>(m_editor)->setDarkTheme(theme == ui::Theme::Dark);
   const QColor iconColor = theme == ui::Theme::Dark ? QColor("#aab0b6") : QColor("#858585");
   m_sourceAction->setIcon(navigationIcon(true, iconColor));
