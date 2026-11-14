@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QByteArray>
 #include <QString>
 #include <QUrl>
 #include <functional>
@@ -18,6 +19,10 @@ bool moveMarkdownToTrash(const QString& path, QString* error);
 // Returns its new path, or an empty string on failure or if it is already there.
 QString moveWorkspaceEntry(const QString& root, const QString& path, const QString& destination,
                            QString* error);
+// File identity survives a rename and in-place edits, but changes on replacement.
+QByteArray workspaceEntryIdentity(const QString& path);
+bool restoreWorkspaceEntry(const QString& root, const QString& path, const QString& originalPath,
+                           const QByteArray& identity, QString* error);
 bool createDirectory(const QString& dir, const QString& name, QString* error);
 // Copies saved bytes beside the source as name-copy.md, name-copy-2.md, etc.; never overwrites.
 QString duplicateMarkdownFile(const QString& path, QString* error);

@@ -3927,8 +3927,32 @@ class WindowTests : public QObject {
     file.setFileName(inArchive);
     QVERIFY(file.open(QIODevice::ReadOnly));
     QVERIFY(file.readAll().startsWith("Edited Original draft\r\n"));
+    file.close();
     QVERIFY(!QFileInfo::exists(note));
     QVERIFY(!QFileInfo::exists(inLibrary));
+    auto* undoFileOperation = tree->findChild<QAction*>(QStringLiteral("undoFileOperation"));
+    QVERIFY(undoFileOperation && undoFileOperation->isEnabled());
+    const auto undoStepsBeforeRestore = editor->document()->availableUndoSteps();
+    undoFileOperation->trigger();
+    QVERIFY(!undoFileOperation->isEnabled());
+    QVERIFY(!QFileInfo::exists(inArchive));
+    QVERIFY(QFileInfo(inLibrary).isFile());
+    QCOMPARE(editor->textCursor().selectedText(), QStringLiteral("Edited"));
+    QCOMPARE(editor->document()->availableUndoSteps(), undoStepsBeforeRestore);
+    QCOMPARE(editor->document()->baseUrl(), QUrl::fromLocalFile(library + '/'));
+
+    // Saving the relocated file replaces it on disk, but it remains eligible for undo.
+    QVERIFY(moveEntry(inLibrary, inbox));
+    QVERIFY(undoFileOperation->isEnabled());
+    editor->moveCursor(QTextCursor::Start);
+    editor->insertPlainText(QStringLiteral("Saved "));
+    QVERIFY(QMetaObject::invokeMethod(&window, "save", Qt::DirectConnection));
+    undoFileOperation->trigger();
+    QVERIFY(!undoFileOperation->isEnabled());
+    QVERIFY(!QFileInfo::exists(note));
+    file.setFileName(inLibrary);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QVERIFY(file.readAll().startsWith("Saved Edited Original draft\r\n"));
   }
 
   void linkWorkflowVisuals() {

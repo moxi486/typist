@@ -355,9 +355,8 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
 
   connect(m_tree, &ui::FileTree::entryActivated, this, &MainWindow::openTreeEntry);
   connect(m_tree, &ui::FileTree::entryOpenInNewWindow, this, &MainWindow::openNewWindow);
-  connect(m_tree, &ui::FileTree::fileRenamed, this, &MainWindow::treeFileRenamed);
   connect(m_tree, &ui::FileTree::entryMoved, this, &MainWindow::treeEntryMoved);
-  connect(m_tree, &ui::FileTree::moveFailed, this,
+  connect(m_tree, &ui::FileTree::fileOperationFailed, this,
           [this](const QString& message) { statusBar()->showMessage(message, 5000); });
   connect(m_tree, &ui::FileTree::fileRemoved, this, &MainWindow::treeFileRemoved);
   connect(m_tree, &ui::FileTree::directoryChanged, this, &MainWindow::checkCurrentFileConflict);
@@ -1898,11 +1897,13 @@ void MainWindow::importHtmlDialog() {
 bool MainWindow::writeMarkdownFile(const QString& path, const QString& markdown) {
   const auto ending = m_lineEnding ? *m_lineEnding : platform::defaultLineEnding();
   const auto contents = platform::normalizeLineEndings(markdown, ending);
+  const auto undoIdentity = m_tree->undoIdentityBeforeSave(path);
   QString error;
   if (!platform::writeAtomic(path, contents, &error)) {
     statusBar()->showMessage(error);
     return false;
   }
+  m_tree->updateUndoIdentityAfterSave(undoIdentity);
   m_lineEnding = platform::detectLineEnding(contents);
   return true;
 }
@@ -2529,13 +2530,6 @@ int MainWindow::fileTreeEntriesForBench(const QString& rootDir) {
 int MainWindow::fileTreeDirectoriesForBench(const QString& rootDir) {
   m_tree->setRoot(rootDir);
   return m_tree->directoryCount();
-}
-
-void MainWindow::treeFileRenamed(const QString& oldPath, const QString& newPath) {
-  if (m_currentPath == oldPath) {
-    m_currentPath = newPath;
-    updateTitleAndStatus();
-  }
 }
 
 void MainWindow::treeEntryMoved(const QString& oldPath, const QString& newPath) {

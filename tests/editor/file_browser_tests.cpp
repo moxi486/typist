@@ -135,7 +135,7 @@ class FileBrowserTests : public QObject {
     tree.show();
     QApplication::processEvents();
     QSignalSpy moved(&tree, &FileTree::entryMoved);
-    QSignalSpy failed(&tree, &FileTree::moveFailed);
+    QSignalSpy failed(&tree, &FileTree::fileOperationFailed);
 
     const auto drop = [&](const QMimeData* data, const QPoint& point) {
       constexpr auto actions = Qt::CopyAction | Qt::MoveAction;
@@ -193,6 +193,82 @@ class FileBrowserTests : public QObject {
     QFile movedChild(nested);
     QVERIFY(movedChild.open(QIODevice::ReadOnly));
     QCOMPARE(movedChild.readAll(), QByteArray("Nested\n"));
+    movedChild.close();
+    const QScopedPointer<QMenu> context(tree.createContextMenu());
+    auto* undo = tree.findChild<QAction*>(QStringLiteral("undoFileOperation"));
+    QVERIFY(undo && undo->isEnabled() && context->actions().contains(undo));
+    undo->trigger();
+    QVERIFY(!undo->isEnabled());
+    QVERIFY(!QFileInfo::exists(nested));
+    QVERIFY(QFileInfo(QDir(child).filePath(QStringLiteral("Nested.md"))).isFile());
+    QVERIFY(QFileInfo(note).isFile());
+  }
+
+  void undoRenamePreservesBothFilesOnConflictAndCanBeRetried() {
+    QTemporaryDir workspace;
+    QTemporaryDir other;
+    const auto original = workspace.filePath(QStringLiteral("Original.md"));
+    const auto renamed = workspace.filePath(QStringLiteral("Renamed.md"));
+    const auto displaced = workspace.filePath(QStringLiteral("Displaced.md"));
+    QVERIFY(writeFile(original, "Original\n"));
+    FileTree tree;
+    tree.setRoot(workspace.path());
+    const QScopedPointer<QMenu> options(tree.createOptionsMenu(&tree));
+    auto* undo = tree.findChild<QAction*>(QStringLiteral("undoFileOperation"));
+    QVERIFY(undo && !undo->isEnabled() && options->actions().contains(undo));
+    QSignalSpy failed(&tree, &FileTree::fileOperationFailed);
+    const auto rename = [&] {
+      tree.selectPath(original);
+      const QScopedPointer<QMenu> menu(tree.createContextMenu());
+      auto* action = menu->findChild<QAction*>(QStringLiteral("fileRename"));
+      QVERIFY(action);
+      QTimer::singleShot(0, &tree, [] {
+        auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        auto* field = dialog->findChild<QLineEdit*>(QStringLiteral("fileNameInput"));
+        if (field) field->setText(QStringLiteral("Renamed"));
+        dialog->accept();
+      });
+      action->trigger();
+    };
+    rename();
+    QVERIFY(undo->isEnabled());
+    QVERIFY(!QFileInfo::exists(original));
+    QCOMPARE(tree.selectedPath(), renamed);
+
+    QVERIFY(writeFile(original, "Occupied\n"));
+    undo->trigger();
+    QCOMPARE(failed.count(), 1);
+    QVERIFY(undo->isEnabled());
+    QFile occupied(original);
+    QVERIFY(occupied.open(QIODevice::ReadOnly));
+    QCOMPARE(occupied.readAll(), QByteArray("Occupied\n"));
+    occupied.close();
+    QVERIFY(occupied.remove());
+    // Keep the former entry elsewhere to ensure the replacement has a different identity.
+    QVERIFY(QFile::rename(renamed, displaced));
+    QVERIFY(writeFile(renamed, "Replacement\n"));
+    undo->trigger();
+    QCOMPARE(failed.count(), 2);
+    QVERIFY(!QFileInfo::exists(original));
+    QFile replacement(renamed);
+    QVERIFY(replacement.open(QIODevice::ReadOnly));
+    QCOMPARE(replacement.readAll(), QByteArray("Replacement\n"));
+    replacement.close();
+    QVERIFY(replacement.remove());
+    QVERIFY(QFile::rename(displaced, renamed));
+    tree.refresh();
+    undo->trigger();
+    QVERIFY(!undo->isEnabled());
+    QVERIFY(!QFileInfo::exists(renamed));
+    QFile restored(original);
+    QVERIFY(restored.open(QIODevice::ReadOnly));
+    QCOMPARE(restored.readAll(), QByteArray("Original\n"));
+    restored.close();
+    rename();
+    QVERIFY(undo->isEnabled());
+    tree.setRoot(other.path());
+    QVERIFY(!undo->isEnabled());
   }
 
   void workspaceMoveRejectsUnavailableAndOutsideEntries() {
