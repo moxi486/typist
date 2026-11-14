@@ -43,6 +43,20 @@ constexpr int kPathRole = Qt::UserRole;
 constexpr int kDirRole = Qt::UserRole + 1;
 constexpr int kOrderRole = Qt::UserRole + 2;
 
+const auto kLocalFileMime = QStringLiteral("text/uri-list");
+
+bool isLocalDropUrl(const QUrl& url) {
+  if (!url.isValid() || !url.isLocalFile()) return false;
+  const auto path = url.toLocalFile();
+  return !path.contains(QChar::Null) && QDir::isAbsolutePath(path);
+}
+
+bool isExternalLocalDrop(const QDropEvent* event) {
+  if (event->mimeData()->hasFormat(kSidebarLinkMime)) return false;
+  const auto urls = event->mimeData()->urls();
+  return std::any_of(urls.cbegin(), urls.cend(), isLocalDropUrl);
+}
+
 class SidebarEntryDrag : public QMimeData {
  public:
   SidebarEntryDrag(const FileTree* origin, const QString& entryPath)
@@ -153,7 +167,7 @@ FileTree::FileTree(QWidget* parent) : QTreeWidget(parent) {
   });
 }
 
-QStringList FileTree::mimeTypes() const { return {kSidebarLinkMime}; }
+QStringList FileTree::mimeTypes() const { return {kSidebarLinkMime, kLocalFileMime}; }
 
 QMimeData* FileTree::mimeData(const QList<QTreeWidgetItem*>& items) const {
   if (items.isEmpty()) return nullptr;
@@ -192,8 +206,12 @@ QString FileTree::draggedPath(const QDropEvent* event) const {
 
 QString FileTree::dropFolder(const QPoint& position, const QString& source) const {
   const auto* item = itemAt(position);
-  if (item && !item->data(0, kDirRole).toBool()) return {};
-  const auto folder = item ? item->data(0, kPathRole).toString() : m_root;
+  auto folder = item ? item->data(0, kPathRole).toString() : m_root;
+  if (item && !item->data(0, kDirRole).toBool()) {
+    if (!source.isEmpty()) return {};
+    folder = QFileInfo(folder).absolutePath();
+  }
+  if (source.isEmpty()) return folder;
   if (folder == QFileInfo(source).absolutePath() || folder == source ||
       folder.startsWith(source + '/'))
     return {};
@@ -201,14 +219,29 @@ QString FileTree::dropFolder(const QPoint& position, const QString& source) cons
 }
 
 void FileTree::dragEnterEvent(QDragEnterEvent* event) {
-  if (draggedPath(event).isEmpty()) {
+  if (isExternalLocalDrop(event)) {
+    const bool copy = !m_root.isEmpty() && (event->possibleActions() & Qt::CopyAction);
+    event->setDropAction(copy ? Qt::CopyAction : Qt::IgnoreAction);
+    if (copy) QTreeWidget::dragEnterEvent(event);
+    event->accept();
+  } else if (!draggedPath(event).isEmpty()) {
+    QTreeWidget::dragEnterEvent(event);
+  } else {
     event->ignore();
-    return;
   }
-  QTreeWidget::dragEnterEvent(event);
 }
 
 void FileTree::dragMoveEvent(QDragMoveEvent* event) {
+  if (isExternalLocalDrop(event)) {
+    const bool copy = !m_root.isEmpty() && (event->possibleActions() & Qt::CopyAction);
+    event->setDropAction(copy ? Qt::CopyAction : Qt::IgnoreAction);
+    if (copy) {
+      QTreeWidget::dragMoveEvent(event);
+      event->setDropAction(Qt::CopyAction);
+    }
+    event->accept();
+    return;
+  }
   const auto source = draggedPath(event);
   const auto folder =
       source.isEmpty() ? QString() : dropFolder(event->position().toPoint(), source);
@@ -223,12 +256,21 @@ void FileTree::dragMoveEvent(QDragMoveEvent* event) {
 
 void FileTree::dropEvent(QDropEvent* event) {
   const auto source = draggedPath(event);
-  const auto folder =
-      source.isEmpty() ? QString() : dropFolder(event->position().toPoint(), source);
   // Let Qt clear the drop indicator and scrolling without applying a model drop.
   event->accept();
   QAbstractItemView::dropEvent(event);
   event->ignore();
+  if (source.isEmpty() && !isExternalLocalDrop(event)) return;
+  const auto folder = dropFolder(event->position().toPoint(), source);
+  if (source.isEmpty()) {
+    if (folder.isEmpty() || !(event->possibleActions() & Qt::CopyAction)) {
+      event->setDropAction(Qt::IgnoreAction);
+      event->accept();
+    } else {
+      importDroppedEntries(event->mimeData()->urls(), folder, event);
+    }
+    return;
+  }
   if (folder.isEmpty()) return;
   QString error;
   const auto target = platform::moveWorkspaceEntry(m_root, source, folder, &error);
@@ -240,6 +282,37 @@ void FileTree::dropEvent(QDropEvent* event) {
   refreshAfterRelocation(source, target);
   event->setDropAction(Qt::MoveAction);
   event->accept();
+}
+
+void FileTree::importDroppedEntries(const QList<QUrl>& urls, const QString& destination,
+                                    QDropEvent* event) {
+  QString firstFailure;
+  int copied = 0;
+  QSet<QString> seen;
+  for (const auto& url : urls) {
+    if (!isLocalDropUrl(url)) continue;
+    const auto path = url.toLocalFile();
+    if (seen.contains(path)) continue;
+    seen.insert(path);
+    QString error;
+    if (!platform::copyIntoWorkspace(m_root, path, destination, &error).isEmpty()) {
+      ++copied;
+    } else if (firstFailure.isEmpty()) {
+      firstFailure =
+          QStringLiteral("%1 — %2").arg(QFileInfo(path).fileName(), operationError(error));
+    }
+  }
+  if (copied > 0) {
+    clearFileOperation();
+    rebuild();
+  }
+  // Claim the drop even if all copies failed, so the window cannot open a
+  // dropped document or insert an image after a sidebar import failure.
+  event->setDropAction(copied > 0 ? Qt::CopyAction : Qt::IgnoreAction);
+  event->accept();
+  if (!firstFailure.isEmpty())
+    emit fileOperationFailed(
+        tr("Copied %1 of %2 entries. %3").arg(copied).arg(seen.size()).arg(firstFailure));
 }
 
 QList<QFileInfo> FileTree::scan() const {
@@ -910,6 +983,10 @@ QString FileTree::operationError(const QString& error) const {
     return tr("Cannot rename the file. Check the name and permissions.");
   if (error == QLatin1String("Cannot move into itself"))
     return tr("A folder cannot be moved into itself.");
+  if (error == QLatin1String("Cannot copy into itself"))
+    return tr("A folder cannot be copied into itself.");
+  if (error == QLatin1String("Import failed"))
+    return tr("Cannot copy the entry. Check permissions and folder contents.");
   if (error == QLatin1String("Move failed"))
     return tr("Cannot move the entry. Check permissions and use a folder on the same drive.");
   if (error == QLatin1String("Trash failed"))

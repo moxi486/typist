@@ -1322,6 +1322,18 @@
         <translation>不能将文件夹移入自身。</translation>
     </message>
     <message>
+        <source>A folder cannot be copied into itself.</source>
+        <translation>不能将文件夹复制到自身或其子目录。</translation>
+    </message>
+    <message>
+        <source>Cannot copy the entry. Check permissions and folder contents.</source>
+        <translation>无法复制条目，请检查权限和文件夹内容。</translation>
+    </message>
+    <message>
+        <source>Copied %1 of %2 entries. %3</source>
+        <translation>已复制 %1 / %2 个条目。%3</translation>
+    </message>
+    <message>
         <source>Cannot move the entry. Check permissions and use a folder on the same drive.</source>
         <translation>无法移动条目，请检查权限并使用同一磁盘上的文件夹。</translation>
     </message>

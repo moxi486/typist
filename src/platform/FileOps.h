@@ -23,6 +23,9 @@ QString moveWorkspaceEntry(const QString& root, const QString& path, const QStri
 QByteArray workspaceEntryIdentity(const QString& path);
 bool restoreWorkspaceEntry(const QString& root, const QString& path, const QString& originalPath,
                            const QByteArray& identity, QString* error);
+// Copies one file or directory into the workspace and publishes it without overwriting.
+QString copyIntoWorkspace(const QString& root, const QString& path, const QString& destination,
+                          QString* error);
 bool createDirectory(const QString& dir, const QString& name, QString* error);
 // Copies saved bytes beside the source as name-copy.md, name-copy-2.md, etc.; never overwrites.
 QString duplicateMarkdownFile(const QString& path, QString* error);
