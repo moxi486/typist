@@ -74,10 +74,17 @@ bool formatMarkdownSelection(QTextCursor& cursor, QChar typed) {
   if (cursor.hasComplexSelection() || cursor.document()->findBlock(cursor.selectionStart()) !=
                                           cursor.document()->findBlock(cursor.selectionEnd()))
     return false;
-  const auto text = cursor.selectedText();
-  if (text.contains(QChar::ObjectReplacementCharacter)) return false;
+  const auto selected = cursor.selectedText();
+  const auto text = QStringView(selected).trimmed();
+  if (text.isEmpty() || text.contains(QChar::ObjectReplacementCharacter) ||
+      ((typed == '$' || typed == '`') && text.contains(QChar::LineSeparator)))
+    return false;
+  const auto original = cursor;
+  const int start = cursor.selectionStart() + int(text.data() - selected.constData());
+  cursor.setPosition(start);
+  cursor.setPosition(start + int(text.size()), QTextCursor::KeepAnchor);
   if (typed == '$') {
-    const auto markdown = '$' + text + '$';
+    const auto markdown = '$' + text.toString() + '$';
     const auto parsed = core::parseMarkdown(markdown.toStdString());
     if (!parsed.ok || parsed.blocks.size() != 1 ||
         parsed.blocks.front().type != core::BlockType::Paragraph ||
@@ -96,6 +103,7 @@ bool formatMarkdownSelection(QTextCursor& cursor, QChar typed) {
   cursor.beginEditBlock();
   cursor.mergeCharFormat(format);
   cursor.endEditBlock();
+  cursor = original;
   return true;
 }
 

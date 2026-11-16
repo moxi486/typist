@@ -104,6 +104,15 @@ class EditingTests : public QObject {
     QTest::keyClicks(&editor, "$");
     QVERIFY(markdown(editor).startsWith(QStringLiteral("Lead **kept** $tail$")));
 
+    prepare(editor, view, QStringLiteral("Before two words after"));
+    const auto spaced = QStringLiteral(" two words ");
+    editor.setTextCursor(editor.document()->find(spaced));
+    QTest::keyClicks(&editor, "*");
+    QCOMPARE(editor.textCursor().selectedText(), spaced);
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("Before *two words* after")));
+    editor.undo();
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("Before two words after")));
+
     prepare(editor, view);
     QTest::keyClicks(&editor, "* item");
     QVERIFY(editor.textCursor().currentList());
