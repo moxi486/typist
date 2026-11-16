@@ -1532,6 +1532,49 @@ class WindowTests : public QObject {
     QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
   }
 
+  void markdownAutoPairPreferenceIsIndependentAndPersists() {
+    const auto markdownKey = QStringLiteral("editor/markdownAutoPair");
+    const auto bracketsKey = QStringLiteral("editor/autoPair");
+    QSettings settings;
+    const auto oldMarkdown = settings.value(markdownKey);
+    const auto oldBrackets = settings.value(bracketsKey);
+    const auto restore = qScopeGuard([&] {
+      for (const auto& entry :
+           {qMakePair(markdownKey, oldMarkdown), qMakePair(bracketsKey, oldBrackets)}) {
+        if (entry.second.isValid())
+          settings.setValue(entry.first, entry.second);
+        else
+          settings.remove(entry.first);
+      }
+    });
+    settings.remove(markdownKey);
+    settings.setValue(bracketsKey, false);
+    typist::MainWindow window(nullptr, true);
+    auto* action = window.findChild<QAction*>(QStringLiteral("markdownAutoPair"));
+    auto* brackets = window.findChild<QAction*>(QStringLiteral("autoPair"));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(action && brackets && editor);
+    QVERIFY(!action->isChecked());
+    QVERIFY(!brackets->isChecked());
+    QTest::keyClicks(editor, "Lead *");
+    QCOMPARE(editor->toPlainText(), QStringLiteral("Lead *"));
+    QTest::keyClick(editor, Qt::Key_Backspace);
+    action->trigger();
+    QTest::keyClicks(editor, "*");
+    QCOMPARE(editor->toPlainText(), QStringLiteral("Lead **"));
+    QVERIFY(settings.value(markdownKey).toBool());
+    QVERIFY(!settings.value(bracketsKey).toBool());
+
+    typist::MainWindow second(nullptr, true);
+    auto* secondAction = second.findChild<QAction*>(QStringLiteral("markdownAutoPair"));
+    auto* secondEditor = second.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(secondAction && secondAction->isChecked() && secondEditor);
+    QTest::keyClicks(secondEditor, "Second _");
+    QCOMPARE(secondEditor->toPlainText(), QStringLiteral("Second __"));
+    secondAction->trigger();
+    QVERIFY(!settings.value(markdownKey).toBool());
+  }
+
   void liveDocumentStatisticsFollowsMarkdownSelectionAndPreferences() {
     const auto unitKey = QStringLiteral("editor/statisticsUnit");
     const auto speedKey = QStringLiteral("editor/readingSpeed");

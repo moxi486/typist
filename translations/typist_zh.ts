@@ -388,6 +388,10 @@
         <translation>自动配对括号与引号</translation>
     </message>
     <message>
+        <source>Auto Pair Markdown Syntax</source>
+        <translation>自动配对 Markdown 符号</translation>
+    </message>
+    <message>
         <source>Copy and Cut Whole Line</source>
         <translation>复制和剪切整行</translation>
     </message>

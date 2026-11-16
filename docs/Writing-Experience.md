@@ -16,6 +16,12 @@
 
 工具栏随界面语言和主题切换。进入源码视图、段落源码、代码块或表格时自动收起，回到正文后恢复。开关默认关闭，重启后保留。 [Typora 1.14 工具栏说明](https://support.typora.io/What%27s-New-1.14/#floating-editor-toolbar)
 
+## Markdown 符号自动配对
+
+「设置 → 自动配对 Markdown 符号」默认关闭，与括号引号开关独立。开启后，在渲染视图的段内输入星号、下划线、反引号或美元符号时，编辑器会在合适的边界补上闭合符号。输入同一个闭合符号可跳过它，在空对中按 Backspace 会成对删除。在空的星号、下划线或反引号对内重复输入符号，可构造粗体或较长的行内代码分隔符。
+
+选中同一段的文字后，星号和下划线应用斜体，反引号应用行内代码，波浪线应用删除线，美元符号可将有效的公式源码转为行内公式。格式从选区的首个非空白字符应用到最后一个非空白字符。行首列表、分隔线和代码围栏沿用 Markdown 的普通输入方式。源码视图、段落源码框和代码块按原文输入这些符号。 [Typora 自动配对说明](https://support.typora.io/Auto-Pair/)
+
 代码块按围栏中的语言标识着色。在「段落 → 代码语言」修改当前整个代码块的语言；修改可一次撤销。留空或使用未知语言时显示普通代码。「设置 → 语法高亮」可开关编辑器中的着色。
 
 常用标识包括 cpp / c++、c、python / py、javascript / js、typescript / ts、json、bash / sh、powershell / ps1、java、cs / csharp、go、rust、swift、kotlin、sql、html / xml、css、yaml / yml、toml、markdown / md、latex / tex。此高亮器使用轻量词法规则，不等同于 IDE 的语义分析。支持常见多行注释、Python 三引号字符串和 C++ 原始字符串；超过 32768 字符的单行跳过高亮，保留全部原文。

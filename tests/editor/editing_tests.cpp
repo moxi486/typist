@@ -32,6 +32,109 @@ class EditingTests : public QObject {
     QTest::qWait(5);
   }
  private slots:
+  void markdownAutoPairTypesAndClosesInlineDelimiters() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    editor.setMarkdownAutoPair(true);
+    prepare(editor, view, QStringLiteral("Lead"));
+    editor.moveCursor(QTextCursor::End);
+    QTest::keyClicks(&editor, " *");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Lead **"));
+    QCOMPARE(editor.textCursor().positionInBlock(), 6);
+    QTest::keyClicks(&editor, "*bold*");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Lead **bold**"));
+    QTest::keyClicks(&editor, "* and _italic_ and `code`");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Lead bold and italic and code"));
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("Lead **bold** and *italic* and `code`")));
+    editor.undo();
+    QVERIFY(editor.toPlainText().endsWith(QStringLiteral("`code`")));
+
+    prepare(editor, view, QStringLiteral("Lead"));
+    editor.moveCursor(QTextCursor::End);
+    QTest::keyClicks(&editor, " _");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Lead __"));
+    QTest::keyClick(&editor, Qt::Key_Backspace);
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Lead "));
+    editor.undo();
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Lead __"));
+
+    prepare(editor, view, QStringLiteral("Lead"));
+    editor.moveCursor(QTextCursor::End);
+    QTest::keyClicks(&editor, " $x^2$");
+    QVERIFY(markdown(editor).contains(QStringLiteral("$x^2$")));
+    QVERIFY(editor.toPlainText().endsWith(QChar::ObjectReplacementCharacter));
+
+    prepare(editor, view, QStringLiteral("Lead"));
+    editor.moveCursor(QTextCursor::End);
+    QTest::keyClicks(&editor, " *");
+    QInputMethodEvent input;
+    input.setCommitString(QStringLiteral("中文"));
+    QApplication::sendEvent(&editor, &input);
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Lead *中文*"));
+    QTest::keyClicks(&editor, "*");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Lead 中文"));
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("Lead *中文*")));
+  }
+
+  void markdownAutoPairWrapsSelectionAndPreservesBlockSyntax() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    editor.setMarkdownAutoPair(true);
+    prepare(editor, view, QStringLiteral("Lead **kept** tail"));
+    const auto reversed = editor.document()->find(QStringLiteral("tail"));
+    auto selection = reversed;
+    selection.setPosition(reversed.selectionEnd());
+    selection.setPosition(reversed.selectionStart(), QTextCursor::KeepAnchor);
+    editor.setTextCursor(selection);
+    QTest::keyClicks(&editor, "~");
+    QCOMPARE(editor.textCursor().anchor(), reversed.selectionEnd());
+    QCOMPARE(editor.textCursor().position(), reversed.selectionStart());
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("Lead **kept** ~~tail~~")));
+    editor.undo();
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("Lead **kept** tail")));
+    editor.setTextCursor(editor.document()->find(QStringLiteral("tail")));
+    QTest::keyClicks(&editor, "_");
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("Lead **kept** *tail*")));
+    editor.undo();
+    editor.setTextCursor(editor.document()->find(QStringLiteral("tail")));
+    QTest::keyClicks(&editor, "`");
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("Lead **kept** `tail`")));
+    editor.undo();
+    editor.setTextCursor(editor.document()->find(QStringLiteral("tail")));
+    QTest::keyClicks(&editor, "$");
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("Lead **kept** $tail$")));
+
+    prepare(editor, view, QStringLiteral("Before two words after"));
+    const auto spaced = QStringLiteral(" two words ");
+    editor.setTextCursor(editor.document()->find(spaced));
+    QTest::keyClicks(&editor, "*");
+    QCOMPARE(editor.textCursor().selectedText(), spaced);
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("Before *two words* after")));
+    editor.undo();
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("Before two words after")));
+
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "* item");
+    QVERIFY(editor.textCursor().currentList());
+    QCOMPARE(editor.toPlainText(), QStringLiteral("item"));
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "```");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("```"));
+    QTest::keyClick(&editor, Qt::Key_Return);
+    QVERIFY(editor.textCursor().blockFormat().hasProperty(typist::editor::kCodeBlockProperty));
+    QTest::keyClicks(&editor, "code *");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("code *"));
+    prepare(editor, view, QStringLiteral("Lead"));
+    editor.moveCursor(QTextCursor::End);
+    QTest::keyClicks(&editor, " \\*");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Lead \\*"));
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    editor.clear();
+    QTest::keyClicks(&editor, "Source *");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Source *"));
+  }
+
   void liveHeadingAndUndo() {
     typist::ui::ViewSwitch view;
     typist::ui::Editor editor;
