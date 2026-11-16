@@ -38,6 +38,8 @@ QString editorStyleSheet(Theme theme) {
     QToolButton:disabled, QPushButton:disabled { color: %4; }
     QStatusBar { background: %1; color: %4; border: none; padding: 0 12px 3px 10px; font-size: 11px; }
     QStatusBar QToolButton { padding: 3px 6px; border: none; }
+    QStatusBar QToolButton#documentStatistics { padding-right: 16px; }
+    QStatusBar QToolButton#documentStatistics::menu-indicator { right: 4px; }
     QStatusBar QLabel { background: transparent; color: %4; }
     QStatusBar::item { border: none; }
     QFrame#editorToolbar { background: %2; border: 1px solid %5; border-radius: 18px; }

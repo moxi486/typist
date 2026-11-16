@@ -16,6 +16,8 @@ QSettings openSettings(QSettings::Format format = QSettings::NativeFormat) {
 }
 const auto writingAreaKey = QStringLiteral("editor/writingAreaWidths");
 const auto wheelZoomKey = QStringLiteral("editor/wheelZoom");
+const auto statisticsUnitKey = QStringLiteral("editor/statisticsUnit");
+const auto readingSpeedKey = QStringLiteral("editor/readingSpeed");
 const auto lineEndingKey = QStringLiteral("editor/defaultLineEnding");
 const auto markdownSuffixKey = QStringLiteral("files/defaultMarkdownSuffix");
 const auto launchOptionsKey = QStringLiteral("startup/options");
@@ -228,6 +230,28 @@ bool wheelZoomEnabled() {
 
 void setWheelZoomEnabled(bool enabled) {
   openSettings(QSettings::defaultFormat()).setValue(wheelZoomKey, enabled);
+}
+
+StatisticsUnit statisticsUnit() {
+  const int value = openSettings(QSettings::defaultFormat()).value(statisticsUnitKey).toInt();
+  return value >= int(StatisticsUnit::Words) && value <= int(StatisticsUnit::Lines)
+             ? StatisticsUnit(value)
+             : StatisticsUnit::Words;
+}
+
+void setStatisticsUnit(StatisticsUnit unit) {
+  openSettings(QSettings::defaultFormat()).setValue(statisticsUnitKey, int(unit));
+}
+
+int readingSpeed() {
+  bool valid = false;
+  const int speed = openSettings(QSettings::defaultFormat()).value(readingSpeedKey).toInt(&valid);
+  return valid && speed >= kMinReadingSpeed && speed <= kMaxReadingSpeed ? speed : 200;
+}
+
+void setReadingSpeed(int wordsPerMinute) {
+  openSettings(QSettings::defaultFormat())
+      .setValue(readingSpeedKey, qBound(kMinReadingSpeed, wordsPerMinute, kMaxReadingSpeed));
 }
 
 WritingAreaWidths writingAreaWidths() {

@@ -344,10 +344,6 @@
         <translation>未命名</translation>
     </message>
     <message>
-        <source>%1 characters</source>
-        <translation>%1 字符</translation>
-    </message>
-    <message>
         <source>Workspace</source>
         <translation>工作区</translation>
     </message>
@@ -416,14 +412,6 @@
         <translation>Windows (CRLF)</translation>
     </message>
     <message>
-        <source>Characters without spaces: %1</source>
-        <translation>字符数（不含空格）：%1</translation>
-    </message>
-    <message>
-        <source>Characters: %1</source>
-        <translation>字符数：%1</translation>
-    </message>
-    <message>
         <source>Clear Format</source>
         <translation>清除格式</translation>
     </message>
@@ -478,6 +466,18 @@
     <message>
         <source>Document Statistics</source>
         <translation>文档统计</translation>
+    </message>
+    <message>
+        <source>Reading Speed…</source>
+        <translation>阅读速度…</translation>
+    </message>
+    <message>
+        <source>Reading Speed</source>
+        <translation>阅读速度</translation>
+    </message>
+    <message>
+        <source>Words per minute</source>
+        <translation>每分钟字词数</translation>
     </message>
     <message>
         <source>Emphasis</source>
@@ -776,10 +776,6 @@
         <translation>引用</translation>
     </message>
     <message>
-        <source>Reading time: %1 min</source>
-        <translation>预计阅读时间：%1 分钟</translation>
-    </message>
-    <message>
         <source>Replace</source>
         <translation>替换</translation>
     </message>
@@ -894,10 +890,6 @@
     <message>
         <source>Unsaved Document</source>
         <translation>未保存的文档</translation>
-    </message>
-    <message>
-        <source>Words: %1</source>
-        <translation>字词数：%1</translation>
     </message>
     <message>
         <source>Zoom In</source>
@@ -2524,6 +2516,41 @@ Output: ${outputPath}, ${outputFileName}, ${outputFileFullName}</source>
     <message>
         <source>Cancel</source>
         <translation>取消</translation>
+    </message>
+</context>
+<context>
+    <name>DocumentStatisticsButton</name>
+    <message>
+        <source>Document Statistics</source>
+        <translation>文档统计</translation>
+    </message>
+    <message>
+        <source>Selection Statistics</source>
+        <translation>选区统计</translation>
+    </message>
+    <message>
+        <source>Words: %1</source>
+        <translation>字词数：%1</translation>
+    </message>
+    <message>
+        <source>Characters: %1</source>
+        <translation>字符数：%1</translation>
+    </message>
+    <message>
+        <source>Characters without spaces: %1</source>
+        <translation>不含空白的字符数：%1</translation>
+    </message>
+    <message>
+        <source>Lines: %1</source>
+        <translation>行数：%1</translation>
+    </message>
+    <message>
+        <source>Reading time: %1 min</source>
+        <translation>预计阅读时间：%1 分钟</translation>
+    </message>
+    <message>
+        <source>Selection · %1</source>
+        <translation>选区 · %1</translation>
     </message>
 </context>
 </TS>

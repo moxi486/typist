@@ -1532,6 +1532,125 @@ class WindowTests : public QObject {
     QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
   }
 
+  void liveDocumentStatisticsFollowsMarkdownSelectionAndPreferences() {
+    const auto unitKey = QStringLiteral("editor/statisticsUnit");
+    const auto speedKey = QStringLiteral("editor/readingSpeed");
+    const auto language = typist::platform::languagePreference();
+    QSettings settings;
+    const auto oldUnit = settings.value(unitKey);
+    const auto oldSpeed = settings.value(speedKey);
+    const auto restore = qScopeGuard([&] {
+      for (const auto& entry : {qMakePair(unitKey, oldUnit), qMakePair(speedKey, oldSpeed)}) {
+        if (entry.second.isValid())
+          settings.setValue(entry.first, entry.second);
+        else
+          settings.remove(entry.first);
+      }
+      typist::platform::setLanguagePreference(language);
+    });
+    settings.remove(unitKey);
+    settings.remove(speedKey);
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    const auto markdown = QStringLiteral(
+        "# 中文 cafe\u0301\n\n- [x] **alpha** [beta](https://example.org/path)\n"
+        "\n**delta** \U0001f44b\n\n```cpp\n// gamma\n```\n");
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QFile file(directory.filePath(QStringLiteral("statistics.md")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    const auto bytes = markdown.toUtf8();
+    QCOMPARE(file.write(bytes), qint64(bytes.size()));
+    file.close();
+    typist::MainWindow window(nullptr, true);
+    QVERIFY(window.openFile(file.fileName()));
+    window.show();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* stats = window.findChild<QToolButton*>(QStringLiteral("documentStatistics"));
+    auto* viewAction = window.findChild<QAction*>(QStringLiteral("wordCount"));
+    auto* readingSpeed = window.findChild<QAction*>(QStringLiteral("readingSpeed"));
+    auto* source = window.findChild<QToolButton*>(QStringLiteral("sourceToggle"));
+    auto* chinese = window.findChild<QAction*>(QStringLiteral("language_zh"));
+    QVERIFY(editor && stats && viewAction && readingSpeed && source && chinese);
+    auto* menu = stats->menu();
+    QVERIFY(menu);
+    auto* scope = menu->findChild<QAction*>(QStringLiteral("statisticsScope"));
+    auto* words = menu->findChild<QAction*>(QStringLiteral("statisticsWords"));
+    auto* chars = menu->findChild<QAction*>(QStringLiteral("statisticsCharacters"));
+    auto* nonSpace = menu->findChild<QAction*>(QStringLiteral("statisticsNonSpace"));
+    auto* lines = menu->findChild<QAction*>(QStringLiteral("statisticsLines"));
+    auto* time = menu->findChild<QAction*>(QStringLiteral("statisticsReadingTime"));
+    QVERIFY(scope && words && chars && nonSpace && lines && time);
+    QTRY_COMPARE(stats->text(), QStringLiteral("Words: 7"));
+    QCOMPARE(scope->text(), QStringLiteral("Document Statistics"));
+    const auto codePoints = markdown.toUcs4();
+    QCOMPARE(chars->text(), QStringLiteral("Characters: %1").arg(codePoints.size()));
+    const auto withoutSpace = std::count_if(codePoints.begin(), codePoints.end(),
+                                            [](auto ch) { return !QChar::isSpace(ch); });
+    QCOMPARE(nonSpace->text(), QStringLiteral("Characters without spaces: %1").arg(withoutSpace));
+    QCOMPARE(lines->text(), QStringLiteral("Lines: 9"));
+    QCOMPARE(time->text(), QStringLiteral("Reading time: 1 min"));
+    QVERIFY(!editor->document()->isUndoAvailable());
+    QVERIFY(!window.windowTitle().contains('*'));
+    QSignalSpy opened(menu, &QMenu::aboutToShow);
+    QTimer::singleShot(50, menu, &QMenu::close);
+    viewAction->trigger();
+    QCOMPARE(opened.count(), 1);
+
+    auto delta = editor->document()->find(QStringLiteral("delta"));
+    QVERIFY(delta.hasSelection());
+    editor->setTextCursor(delta);
+    QTRY_COMPARE(stats->text(), QStringLiteral("Selection · Words: 1"));
+    chars->trigger();
+    QCOMPARE(typist::platform::statisticsUnit(), typist::platform::StatisticsUnit::Characters);
+    QCOMPARE(stats->text(), QStringLiteral("Selection · Characters: 9"));
+    delta.clearSelection();
+    editor->setTextCursor(delta);
+    QVERIFY(editor->startParagraphSourceEdit());
+    auto* draft = editor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(draft);
+    draft->setPlainText(QStringLiteral("**新稿** \U00020000"));
+    draft->selectAll();
+    QTRY_COMPARE(words->text(), QStringLiteral("Words: 3"));
+    QCOMPARE(scope->text(), QStringLiteral("Selection Statistics"));
+    QCOMPARE(stats->text(), QStringLiteral("Selection · Characters: 8"));
+    QVERIFY(editor->paragraphSourceActive());
+    editor->finishParagraphSourceEdit(false);
+
+    source->click();
+    QTRY_COMPARE(words->text(), QStringLiteral("Words: 7"));
+    QCOMPARE(chars->text(), QStringLiteral("Characters: %1").arg(codePoints.size()));
+    editor->setPlainText(QStringLiteral("word ").repeated(51));
+    editor->selectAll();
+    QTRY_COMPARE(time->text(), QStringLiteral("Reading time: 1 min"));
+    QTRY_COMPARE(words->text(), QStringLiteral("Words: 51"));
+    bool adjusted = false;
+    QTimer::singleShot(25, &window, [&] {
+      if (auto* dialog = qobject_cast<QInputDialog*>(QApplication::activeModalWidget())) {
+        adjusted = dialog->intValue() == 200;
+        dialog->setIntValue(25);
+        dialog->accept();
+      }
+    });
+    QTimer safety;
+    safety.setSingleShot(true);
+    connect(&safety, &QTimer::timeout, &window, [] {
+      if (auto* modal = QApplication::activeModalWidget()) modal->close();
+    });
+    safety.start(2500);
+    readingSpeed->trigger();
+    safety.stop();
+    QVERIFY(adjusted);
+    QCOMPARE(typist::platform::readingSpeed(), 25);
+    QCOMPARE(time->text(), QStringLiteral("Reading time: 3 min"));
+    chinese->trigger();
+    QTRY_COMPARE(stats->text(), QStringLiteral("选区 · 字符数：255"));
+    QVERIFY(editor->textCursor().hasSelection());
+    typist::MainWindow second(nullptr, true);
+    auto* secondStatus = second.findChild<QToolButton*>(QStringLiteral("documentStatistics"));
+    QVERIFY(secondStatus);
+    QCOMPARE(secondStatus->text(), QStringLiteral("字符数：0"));
+  }
+
   void mouseWheelZoomSharesMenuAndControlsAcrossViews() {
     const auto key = QStringLiteral("editor/wheelZoom");
     QSettings settings;
