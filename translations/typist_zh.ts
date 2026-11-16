@@ -412,8 +412,8 @@
         <translation>智能破折号</translation>
     </message>
     <message>
-        <source>Unicode Markdown Block Markers</source>
-        <translation>Unicode Markdown 块标记</translation>
+        <source>Unicode Markdown Markers</source>
+        <translation>Unicode Markdown 标记</translation>
     </message>
     <message>
         <source>Copy and Cut Whole Line</source>

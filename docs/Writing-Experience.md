@@ -36,11 +36,13 @@
 
 源码视图、代码、公式源码、链接目标和 HTML 标记保留原始标点。行首连字符仍可用于 Markdown 分隔线，反斜杠转义也可保留连字符。 [Typora 智能破折号说明](https://support.typora.io/SmartyPants/#smart-dashes)
 
-## Unicode Markdown 块标记
+## Unicode Markdown 标记
 
-开启「设置 → Unicode Markdown 块标记」后，在渲染视图的普通段落行首输入 `》` 或 `＞` 加一个半角或全角空格，即可创建引用。输入法一次提交标记、空格和正文也可触发。单独一行的长破折号 `—` 在行尾按 Enter 会创建分隔线。两种转换可一步撤销，并分别保存为 Markdown 的 `>` 和 `---`。
+开启「设置 → Unicode Markdown 标记」后，在渲染视图的普通段落行首输入 `》` 或 `＞` 加一个半角或全角空格，即可创建引用。输入法一次提交标记、空格和正文也可触发。单独一行的长破折号 `—` 在行尾按 Enter 会创建分隔线。两种转换可一步撤销，并分别保存为 Markdown 的 `>` 和 `---`。
 
-此选项默认关闭，只处理渲染视图中的这两种输入。打开文件、粘贴、源码视图及代码中的 Unicode 字符按原文处理。 [Typora Unicode 标点说明](https://support.typora.io/SmartyPants/#remap-unicode-punctuation-on-parse)
+渲染视图中的链接和图片标题也可用 `“…”` 或 `«…»` 包裹，例如 `[文字](note.md “说明”)`。地址与标题可用半角或全角空格分隔。关闭括号后按标准 Markdown 渲染和保存，撤销可恢复输入的 Unicode 定界符。
+
+此选项默认关闭。打开文件、粘贴、源码视图及代码中的 Unicode 字符按原文处理。 [Typora Unicode 标点说明](https://support.typora.io/SmartyPants/#remap-unicode-punctuation-on-parse)
 
 代码块按围栏中的语言标识着色。在「段落 → 代码语言」修改当前整个代码块的语言；修改可一次撤销。留空或使用未知语言时显示普通代码。「设置 → 语法高亮」可开关编辑器中的着色。
 

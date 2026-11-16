@@ -78,7 +78,8 @@ void pushRun(std::vector<InlineRun>& runs, const InlineRun& run) {
       runs.back().strike == run.strike && runs.back().underline == run.underline &&
       runs.back().code == run.code && runs.back().link == run.link &&
       runs.back().image == run.image && !run.math && !run.footnote && !runs.back().math &&
-      !runs.back().footnote && !run.html && !runs.back().html && runs.back().url == run.url) {
+      !runs.back().footnote && !run.html && !runs.back().html && runs.back().url == run.url &&
+      runs.back().title == run.title) {
     runs.back().text += run.text;
     return;
   }
@@ -154,13 +155,18 @@ void collectInline(cmark_node* node, const InlineRun& inherited, std::vector<Inl
       }
       run.link = true;
       if (url != nullptr) run.url = url;
+      if (const char* title = cmark_node_get_title(child)) run.title = title;
       collectInline(child, run, runs);
     } else if (type == "image") {
       InlineRun run = base;
       run.image = true;
       const char* url = cmark_node_get_url(child);
       if (url != nullptr) run.url = url;
-      collectInline(child, run, runs);
+      if (const char* title = cmark_node_get_title(child)) run.title = title;
+      if (!run.title.empty() && cmark_node_first_child(child) == nullptr)
+        runs.push_back(run);
+      else
+        collectInline(child, run, runs);
     } else {
       collectInline(child, base, runs);
     }
@@ -197,6 +203,39 @@ std::string wrapCode(const std::string& text) {
   return marker + text + marker;
 }
 
+std::string renderLinkDestination(const InlineRun& run) {
+  if (run.title.empty()) return run.url;
+
+  const bool wrap = run.url.empty() || run.url.find_first_of(" \t()<>\\") != std::string::npos;
+  std::string destination = wrap ? "<" : "";
+  for (const char ch : run.url) {
+    if (ch == '&') {
+      destination += "&amp;";
+    } else {
+      if (ch == '\\' || ch == '<' || ch == '>') destination += '\\';
+      destination += ch;
+    }
+  }
+  if (wrap) destination += '>';
+  destination += " \"";
+  for (const char ch : run.title) {
+    if (ch == '&')
+      destination += "&amp;";
+    else if (ch == '\n')
+      destination += "&#10;";
+    else if (ch == '\r')
+      destination += "&#13;";
+    else if (ch == '"')
+      destination += "&quot;";
+    else if (ch == '\\')
+      destination += "&#92;&#92;";
+    else
+      destination += ch;
+  }
+  destination += '"';
+  return destination;
+}
+
 std::string renderRun(const InlineRun& run) {
   if (run.math) return "$" + run.text + "$";
   if (run.footnote) return "[^" + run.text + "]";
@@ -206,7 +245,7 @@ std::string renderRun(const InlineRun& run) {
       if (ch == '\\' || ch == '[' || ch == ']') alt += '\\';
       alt += ch;
     }
-    return "![" + alt + "](" + run.url + ")";
+    return "![" + alt + "](" + renderLinkDestination(run) + ")";
   }
   std::string body = run.text;
   if (!run.code && !run.html) {
@@ -236,7 +275,7 @@ std::string renderRun(const InlineRun& run) {
   if (run.bold) body = "**" + body + "**";
   if (run.italic) body = "*" + body + "*";
   if (run.strike) body = "~~" + body + "~~";
-  if (run.link) body = "[" + body + "](" + run.url + ")";
+  if (run.link) body = "[" + body + "](" + renderLinkDestination(run) + ")";
   return body;
 }
 
@@ -586,7 +625,9 @@ std::string serializeBlock(const Block& block, int indent) {
       out += " " + renderInline(block.runs, block.text) + "\n\n";
       break;
     case BlockType::Paragraph:
-      out += block.text.empty() ? "\n" : prefix + renderInline(block.runs, block.text) + "\n\n";
+      out += block.text.empty() && block.runs.empty()
+                 ? "\n"
+                 : prefix + renderInline(block.runs, block.text) + "\n\n";
       break;
     case BlockType::CodeBlock: {
       const auto fence = codeFence(block.text, block.info);
@@ -963,10 +1004,10 @@ bool runsEqual(const std::vector<InlineRun>& lhs, const std::vector<InlineRun>& 
   for (std::size_t i = 0; i < lhs.size(); ++i) {
     const InlineRun& a = lhs[i];
     const InlineRun& b = rhs[i];
-    if (a.text != b.text || a.url != b.url || a.bold != b.bold || a.italic != b.italic ||
-        a.strike != b.strike || a.underline != b.underline || a.code != b.code ||
-        a.link != b.link || a.image != b.image || a.math != b.math || a.footnote != b.footnote ||
-        a.html != b.html) {
+    if (a.text != b.text || a.url != b.url || a.title != b.title || a.bold != b.bold ||
+        a.italic != b.italic || a.strike != b.strike || a.underline != b.underline ||
+        a.code != b.code || a.link != b.link || a.image != b.image || a.math != b.math ||
+        a.footnote != b.footnote || a.html != b.html) {
       return false;
     }
   }

@@ -1153,7 +1153,7 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   auto* smartDashes =
       command(settings, QStringLiteral("smartDashes"), tr("Smart Dashes"), QString(), [] {});
   auto* unicodeMarkers = command(settings, QStringLiteral("unicodeBlockMarkers"),
-                                 tr("Unicode Markdown Block Markers"), QString(), [] {});
+                                 tr("Unicode Markdown Markers"), QString(), [] {});
   QAction* syntax = command(settings, QStringLiteral("syntaxHighlight"), tr("Syntax Highlighting"),
                             QString(), [] {});
   syntax->setCheckable(true);

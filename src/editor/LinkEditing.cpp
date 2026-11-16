@@ -2,13 +2,14 @@
 
 #include "editor_document.h"
 
+#include <QPair>
 #include <QTextBlock>
 #include <QTextDocument>
 #include <QUrl>
 
 namespace typist::editor {
 namespace {
-QString targetAt(QTextDocument* document, int position) {
+QPair<QString, QString> targetAt(QTextDocument* document, int position) {
   if (position < 0 || position >= document->characterCount() - 1) return {};
   QTextCursor character(document);
   character.setPosition(position);
@@ -17,7 +18,7 @@ QString targetAt(QTextDocument* document, int position) {
   if (!format.isAnchor() || format.hasProperty(kImageProperty) ||
       format.hasProperty(kFootnoteReferenceProperty) || format.hasProperty(kMathSourceProperty))
     return {};
-  return format.anchorHref();
+  return {format.anchorHref(), format.property(kLinkTitleProperty).toString()};
 }
 }  // namespace
 QTextCursor linkSelection(const QTextCursor& cursor) {
@@ -25,8 +26,8 @@ QTextCursor linkSelection(const QTextCursor& cursor) {
   auto* document = cursor.document();
   int start = cursor.selectionStart();
   auto target = targetAt(document, start);
-  if (target.isEmpty() && !cursor.hasSelection()) target = targetAt(document, --start);
-  if (target.isEmpty()) return {};
+  if (target.first.isEmpty() && !cursor.hasSelection()) target = targetAt(document, --start);
+  if (target.first.isEmpty()) return {};
   const auto block = document->findBlock(start);
   int end = start + 1;
   while (start > block.position() && targetAt(document, start - 1) == target) --start;
@@ -58,6 +59,13 @@ bool replaceLink(QTextCursor& cursor, const QString& destination, const QString&
   format.setAnchor(true);
   format.setAnchorHref(target);
   format.setFontUnderline(true);
+  if (cursor.hasSelection()) {
+    const auto existing = linkSelection(cursor);
+    const auto title = existing.isNull()
+                           ? QString()
+                           : existing.charFormat().property(kLinkTitleProperty).toString();
+    format.setProperty(kLinkTitleProperty, title);
+  }
   if (cursor.hasSelection() && cursor.selectedText() == label)
     cursor.mergeCharFormat(format);
   else {
@@ -81,6 +89,7 @@ bool removeLink(QTextCursor& cursor) {
     auto format = range.format;
     format.setAnchor(false);
     format.setAnchorHref(QString());
+    format.clearProperty(kLinkTitleProperty);
     format.setFontUnderline(format.boolProperty(kUnderlineProperty));
     QTextCursor text(block);
     text.setPosition(start);
