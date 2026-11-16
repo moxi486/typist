@@ -32,6 +32,67 @@ class EditingTests : public QObject {
     QTest::qWait(5);
   }
  private slots:
+  void unicodeLinkTitleQuotesRenderOnKeyboardAndInputMethodCommit() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    editor.setUnicodeBlockMarkers(true);
+    editor.setAutoPair(false);
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "Before [Guide](https://example.test/a_b(c) ");
+    const auto title = QStringLiteral("Read \"this\" (draft)");
+    QInputMethodEvent titleInput;
+    titleInput.setCommitString(QStringLiteral("\u201c") + title + QStringLiteral("\u201d"));
+    QApplication::sendEvent(&editor, &titleInput);
+    QTest::keyClicks(&editor, ")");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Before Guide"));
+    const auto guide = editor.document()->find(QStringLiteral("Guide"));
+    QVERIFY(guide.charFormat().isAnchor());
+    QCOMPARE(guide.charFormat().anchorHref(), QStringLiteral("https://example.test/a_b(c)"));
+    QCOMPARE(guide.charFormat().property(typist::editor::kLinkTitleProperty).toString(), title);
+    QVERIFY(markdown(editor).contains(QStringLiteral(" \"Read &quot;this&quot; (draft)\"")));
+    editor.undo();
+    QCOMPARE(editor.toPlainText(),
+             QStringLiteral("Before [Guide](https://example.test/a_b(c) \u201c") + title +
+                 QStringLiteral("\u201d)"));
+    editor.redo();
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Before Guide"));
+
+    prepare(editor, view, QStringLiteral("tail"));
+    editor.moveCursor(QTextCursor::Start);
+    QInputMethodEvent imageInput;
+    imageInput.setCommitString(QStringLiteral("![](thumb.png\u3000\u00abPreview\u00bb)"));
+    QApplication::sendEvent(&editor, &imageInput);
+    QCOMPARE(editor.toPlainText(), QStringLiteral("thumb.pngtail"));
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("![](thumb.png \"Preview\")")));
+  }
+
+  void unicodeLinkTitlesRespectTheSettingAndLiteralMarkdown() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    editor.setAutoPair(false);
+    const auto source = QStringLiteral("[Guide](note.md \u201cTitle\u201d)");
+    prepare(editor, view);
+    QInputMethodEvent input;
+    input.setCommitString(source);
+    QApplication::sendEvent(&editor, &input);
+    QCOMPARE(editor.toPlainText(), source);
+
+    editor.setUnicodeBlockMarkers(true);
+    prepare(editor, view, source);
+    QCOMPARE(editor.toPlainText(), source);
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "\x60");
+    QApplication::sendEvent(&editor, &input);
+    QTest::keyClicks(&editor, "\x60");
+    QCOMPARE(editor.toPlainText(), source);
+    QVERIFY(!editor.document()->find(QStringLiteral("Guide")).charFormat().isAnchor());
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    editor.clear();
+    QApplication::sendEvent(&editor, &input);
+    QCOMPARE(editor.toPlainText(), source);
+  }
+
   void unicodeBlockMarkersConvertKeyboardAndInputMethodText() {
     typist::ui::ViewSwitch view;
     typist::ui::Editor editor;

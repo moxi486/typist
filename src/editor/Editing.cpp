@@ -6,6 +6,7 @@
 #include "editor_document.h"
 
 #include <QFontDatabase>
+#include <QRegularExpression>
 #include <QTextBlock>
 #include <QTextBoundaryFinder>
 #include <QTextDocumentFragment>
@@ -99,7 +100,8 @@ QTextCharFormat inlineScopeStyle(const QTextCharFormat& format) {
   if (format.boolProperty(kUnderlineProperty)) style.setProperty(kUnderlineProperty, true);
   if (isInlineCodeFormat(format)) style.setFontFixedPitch(true);
   if (format.isAnchor()) style.setAnchorHref(format.anchorHref());
-  for (const auto property : {kMathSourceProperty, kImageProperty, kFootnoteReferenceProperty})
+  for (const auto property :
+       {kMathSourceProperty, kImageProperty, kFootnoteReferenceProperty, kLinkTitleProperty})
     if (format.hasProperty(property)) style.setProperty(property, format.property(property));
   return style;
 }
@@ -659,7 +661,7 @@ bool editTable(QTextCursor& cursor, TableCommand command) {
   return true;
 }
 
-bool renderInlineMarkdown(QTextCursor& cursor) {
+bool renderInlineMarkdown(QTextCursor& cursor, bool unicodeLinkTitles) {
   if (cursor.hasSelection() || cursor.block().text().size() > 4096 ||
       cursor.blockFormat().hasProperty(kCodeBlockProperty))
     return false;
@@ -675,18 +677,44 @@ bool renderInlineMarkdown(QTextCursor& cursor) {
   }
   const QString text =
       cursor.block().text().mid(start - cursor.block().position(), cursor.position() - start);
-  for (QChar marker : {QChar('*'), QChar('_'), QChar('~'), QChar('`')}) {
-    int count = 0;
-    for (int index = 0; index < text.size(); ++index)
-      if (text.at(index) == marker && (index == 0 || text.at(index - 1) != QLatin1Char('\\')))
-        ++count;
-    if (count % 2 != 0) return false;
-  }
   int leading = 0;
   while (leading < text.size() &&
          (text.at(leading) == QLatin1Char(' ') || text.at(leading) == QLatin1Char('\t')))
     ++leading;
-  const auto parsed = core::parseMarkdown(text.toStdString());
+  core::ParseResult parsed;
+  if (unicodeLinkTitles && text.endsWith(')') && text.contains(QStringLiteral("]("))) {
+    static const QRegularExpression unicodeTitle(QStringLiteral(
+        R"([ \t\x{3000}]+(?:\x{201c}([^\x{201d}]*)\x{201d}|\x{ab}([^\x{bb}]*)\x{bb})[ \t\x{3000}]*\)\z)"));
+    const auto match = unicodeTitle.match(text);
+    if (match.hasMatch()) {
+      const auto title = match.capturedView(match.capturedStart(1) >= 0 ? 1 : 2);
+      QString normalized = text.left(match.capturedStart()) + QStringLiteral(" \"");
+      bool escaped = false;
+      for (const QChar ch : title) {
+        if (ch == '"' && !escaped) normalized += '\\';
+        normalized += ch;
+        escaped = ch == '\\' && !escaped;
+      }
+      normalized += QStringLiteral("\")");
+      auto candidate = core::parseMarkdown(normalized.toStdString());
+      if (candidate.ok && candidate.blocks.size() == 1 &&
+          candidate.blocks.front().type == core::BlockType::Paragraph &&
+          !candidate.blocks.front().runs.empty()) {
+        const auto& last = candidate.blocks.front().runs.back();
+        if ((last.link || last.image) && !last.title.empty()) parsed = std::move(candidate);
+      }
+    }
+  }
+  if (!parsed.ok) {
+    for (QChar marker : {QChar('*'), QChar('_'), QChar('~'), QChar('`')}) {
+      int count = 0;
+      for (int index = 0; index < text.size(); ++index)
+        if (text.at(index) == marker && (index == 0 || text.at(index - 1) != QLatin1Char('\\')))
+          ++count;
+      if (count % 2 != 0) return false;
+    }
+    parsed = core::parseMarkdown(text.toStdString());
+  }
   if (!parsed.ok || parsed.blocks.size() != 1 ||
       parsed.blocks.front().type != core::BlockType::Paragraph)
     return false;

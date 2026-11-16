@@ -28,7 +28,7 @@ void setLink(QTextCursor& cursor, const QString& destination, const QString& lab
 bool indentList(QTextCursor& cursor, int delta);
 QTextTable* insertTable(QTextCursor& cursor, int rows, int columns);
 bool editTable(QTextCursor& cursor, TableCommand command);
-bool renderInlineMarkdown(QTextCursor& cursor);
+bool renderInlineMarkdown(QTextCursor& cursor, bool unicodeLinkTitles = false);
 QString selectedMarkdown(const QTextCursor& cursor);
 void selectRange(QTextCursor& cursor, SelectionRange range, bool rendered);
 bool deleteRange(QTextCursor& cursor, SelectionRange range, bool rendered);

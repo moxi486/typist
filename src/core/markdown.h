@@ -31,7 +31,8 @@ inline constexpr char kPageBreakMarkdown[] = "<div style=\"page-break-after:alwa
 // with both flags rather than a nested tree.
 struct InlineRun {
   std::string text;
-  std::string url;  // link or image destination
+  std::string url;    // link or image destination
+  std::string title;  // optional Markdown link or image title
   bool bold = false;
   bool italic = false;
   bool strike = false;

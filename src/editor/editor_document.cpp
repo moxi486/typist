@@ -90,6 +90,8 @@ QTextCharFormat formatForRun(const typist::core::InlineRun& run) {
     fmt.setProperty(QTextFormat::TextUnderlineStyle,
                     QVariant::fromValue(QTextCharFormat::SingleUnderline));
   }
+  if (!run.title.empty()) fmt.setProperty(kLinkTitleProperty, QString::fromStdString(run.title));
+  if (run.image && run.text.empty()) fmt.setProperty(kImageAltProperty, QString());
   return fmt;
 }
 
@@ -150,6 +152,10 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
       continue;
     }
     const QString target = run.image ? QString::fromStdString(run.url) : QString();
+    const QString display =
+        run.image && text.isEmpty()
+            ? (target.isEmpty() ? QString(QChar::ObjectReplacementCharacter) : target)
+            : text;
     const QString localTarget =
         target.isEmpty() ? QString() : render::localImagePath(target, cursor.document()->baseUrl());
     if (run.image && !target.isEmpty() && QFileInfo(localTarget).isFile()) {
@@ -160,7 +166,7 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
       if (loaded.isNull()) {
         QTextCharFormat fallback = base;
         fallback.merge(formatForRun(run));
-        cursor.insertText(text, fallback);
+        cursor.insertText(display, fallback);
         continue;
       }
       const QUrl resourceUrl = QUrl::fromLocalFile(localTarget);
@@ -178,6 +184,8 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
         QTextCharFormat objectFormat = cursor.charFormat();
         objectFormat.setProperty(kImageProperty, QVariant(target));
         objectFormat.setProperty(kImageAltProperty, QVariant(text));
+        if (!run.title.empty())
+          objectFormat.setProperty(kLinkTitleProperty, QString::fromStdString(run.title));
         if (run.underline) setExplicitUnderline(objectFormat, true);
         cursor.setCharFormat(objectFormat);
       }
@@ -188,7 +196,7 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
     QTextCharFormat format = base;
     format.merge(formatForRun(run));
     if (run.bold) format.clearProperty(kPresentationBoldProperty);
-    cursor.insertText(QString(text).replace(QLatin1Char('\n'), QChar::LineSeparator), format);
+    cursor.insertText(QString(display).replace(QLatin1Char('\n'), QChar::LineSeparator), format);
   }
 }
 
@@ -501,6 +509,7 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
 struct MarkdownRun {
   QString text;
   QString url;
+  QString title;
   bool bold = false;
   bool italic = false;
   bool strike = false;
@@ -516,14 +525,14 @@ struct MarkdownRun {
 };
 
 void pushMarkdownRun(QVector<MarkdownRun>& runs, const MarkdownRun& run) {
-  if (run.text.isEmpty() && run.specialType.isEmpty()) return;
+  if (run.text.isEmpty() && !run.image && run.specialType.isEmpty()) return;
   if (!runs.empty() && runs.back().bold == run.bold && runs.back().italic == run.italic &&
       runs.back().strike == run.strike && runs.back().underline == run.underline &&
       runs.back().code == run.code && runs.back().link == run.link &&
       runs.back().image == run.image && runs.back().html == run.html &&
       runs.back().literal == run.literal && !run.math && !run.footnote && !runs.back().math &&
       !runs.back().footnote && run.specialType.isEmpty() && runs.back().specialType.isEmpty() &&
-      runs.back().url == run.url) {
+      runs.back().url == run.url && runs.back().title == run.title) {
     runs.back().text += run.text;
     return;
   }
@@ -584,6 +593,7 @@ QString wrapMarkdownRuns(const QVector<MarkdownRun>& runs, bool rawSource = fals
     core::InlineRun span;
     span.text = run.text.toStdString();
     span.url = run.url.toStdString();
+    span.title = run.title.toStdString();
     span.bold = run.bold;
     span.italic = run.italic;
     span.strike = run.strike;
@@ -653,12 +663,12 @@ QString inlineFromBlock(const QTextBlock& block) {
     } else if (fmt.hasProperty(kImageProperty)) {
       run.image = true;
       run.url = fmt.property(kImageProperty).toString();
-      const QString alt = fmt.property(kImageAltProperty).toString();
-      if (!alt.isEmpty()) run.text = alt;  // the block text here is the object placeholder
+      if (fmt.hasProperty(kImageAltProperty)) run.text = fmt.property(kImageAltProperty).toString();
     } else if (fmt.isAnchor()) {
       run.link = true;
       run.url = fmt.anchorHref();
     }
+    if (run.image || run.link) run.title = fmt.property(kLinkTitleProperty).toString();
     pushMarkdownRun(runs, run);
     pos = end;
   }

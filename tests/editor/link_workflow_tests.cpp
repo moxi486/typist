@@ -13,6 +13,7 @@
 #include <QContextMenuEvent>
 #include <QDialogButtonBox>
 #include <QFile>
+#include <QImage>
 #include <QLineEdit>
 #include <QMenu>
 #include <QPushButton>
@@ -61,6 +62,45 @@ void roundTrip(const QString& source) {
 class LinkWorkflowTests : public QObject {
   Q_OBJECT
  private slots:
+  void titlesSurviveRoundTripAndEditing() {
+    const auto source = QStringLiteral(
+        "[First](note \"First &amp; only\")[Second](note 'Another')\n\n"
+        "![Preview](<sample image.png> (Image title))\n\n"
+        "![](thumbnail.png \"Thumbnail\")\n");
+    roundTrip(source);
+    ui::Editor editor;
+    ui::ViewSwitch view;
+    prepare(editor, view, source);
+    auto first = editor::linkSelection(find(editor, QStringLiteral("First")));
+    QCOMPARE(first.selectedText(), QStringLiteral("First"));
+    QVERIFY(editor::replaceLink(first, QStringLiteral("updated.md"), QStringLiteral("Edit")));
+    auto second = editor::linkSelection(find(editor, QStringLiteral("Second")));
+    QCOMPARE(second.selectedText(), QStringLiteral("Second"));
+    QVERIFY(editor::removeLink(second));
+    const auto saved = editor::serializeDocument(editor.document());
+    QVERIFY(saved.contains(QStringLiteral("[Edit](updated.md \"First &amp; only\")Second")));
+    QVERIFY(saved.contains(QStringLiteral("![](thumbnail.png \"Thumbnail\")")));
+    const auto html = render::html(saved);
+    QVERIFY(html.contains(QStringLiteral("title=\"First &amp; only\"")));
+    QVERIFY(html.contains(QStringLiteral("title=\"Image title\"")));
+
+    QTemporaryDir images;
+    QVERIFY(images.isValid());
+    QImage image(12, 8, QImage::Format_RGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(images.filePath(QStringLiteral("thumbnail.png"))));
+    QTextDocument rendered;
+    rendered.setBaseUrl(QUrl::fromLocalFile(images.filePath(QStringLiteral("notes.md"))));
+    QVERIFY(editor::loadMarkdown(QStringLiteral("![](thumbnail.png \"Thumbnail\")"), &rendered,
+                                 nullptr));
+    const auto object = rendered.begin().begin().fragment();
+    QVERIFY(object.charFormat().isImageFormat());
+    QCOMPARE(object.charFormat().property(editor::kLinkTitleProperty).toString(),
+             QStringLiteral("Thumbnail"));
+    QCOMPARE(editor::serializeDocument(&rendered).trimmed(),
+             QStringLiteral("![](thumbnail.png \"Thumbnail\")"));
+  }
+
   void headingWhitespaceKeepsCopiedAndExportedTargetsConsistent() {
     ui::Editor editor;
     ui::ViewSwitch view;

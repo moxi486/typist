@@ -94,6 +94,11 @@ bool literalMarkdownPunctuationContext(QStringView prefix) {
       const bool quotedField = tagEnd.size() == 1 || (linkDepth > 0 && prefix.at(i - 1).isSpace());
       if (quotedField && (ch == '\'' || ch == '"')) {
         markupQuote = ch;
+      } else if (quotedField && linkDepth > 0 && (ch == u'\u201c' || ch == u'\u00ab')) {
+        markupQuote = ch == u'\u201c' ? u'\u201d' : u'\u00bb';
+      } else if (linkDepth > 0 && ch == '<' &&
+                 (prefix.at(i - 1) == '(' || prefix.at(i - 1).isSpace())) {
+        markupQuote = '>';
       } else if (!tagEnd.isEmpty() && prefix.sliced(i).startsWith(tagEnd)) {
         i += tagEnd.size() - 1;
         tagEnd = {};
@@ -1846,7 +1851,7 @@ void Editor::inputMethodEvent(QInputMethodEvent* event) {
   QTextEdit::inputMethodEvent(event);
   if (m_rendered && event->preeditString().isEmpty() && committed) {
     if (atUnicodeMarker) tryRenderUnicodeQuote();
-    tryRenderInline();
+    tryRenderInline(m_unicodeBlockMarkers);
   }
 }
 
@@ -2568,7 +2573,7 @@ void Editor::keyPressEvent(QKeyEvent* event) {
     if (closes.contains(typed) && next == typed && !cursor.hasSelection()) {
       cursor.movePosition(QTextCursor::NextCharacter);
       setTextCursor(cursor);
-      if (m_rendered) tryRenderInline();
+      if (m_rendered) tryRenderInline(m_unicodeBlockMarkers);
       return;
     }
     const bool quoteInWord = !cursor.hasSelection() &&
@@ -2608,7 +2613,7 @@ void Editor::keyPressEvent(QKeyEvent* event) {
                typed == QStringLiteral("~") || typed == QStringLiteral("`") ||
                typed == QStringLiteral(")") || typed == QStringLiteral("$") ||
                typed == QStringLiteral("]") || event->key() == Qt::Key_Space) {
-      tryRenderInline();
+      tryRenderInline(m_unicodeBlockMarkers);
     }
   }
 }
@@ -2663,10 +2668,17 @@ bool Editor::tryRenderUnicodeQuote() {
   return true;
 }
 
-bool Editor::tryRenderInline() {
+bool Editor::tryRenderInline(bool unicodeLinkTitles) {
+  if (isReadOnly()) return false;
   QTextCursor cursor = textCursor();
+  if (unicodeLinkTitles && cursor.positionInBlock() <= 4096) {
+    const QString text = cursor.block().text();
+    const auto prefix = QStringView(text).left(cursor.positionInBlock());
+    if (prefix.contains(QLatin1String("](")) && literalMarkdownPunctuationContext(prefix))
+      return false;
+  }
   cursor.beginEditBlock();
-  if (!editor::renderInlineMarkdown(cursor)) {
+  if (!editor::renderInlineMarkdown(cursor, unicodeLinkTitles)) {
     cursor.endEditBlock();
     return false;
   }

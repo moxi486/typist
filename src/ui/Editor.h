@@ -401,7 +401,7 @@ class Editor : public QTextEdit {
   QPoint m_linkPressPosition;
   QString m_pressedLink;
   void centerWritingLine();
-  bool tryRenderInline();
+  bool tryRenderInline(bool unicodeLinkTitles = false);
   bool tryRenderUnicodeQuote();
   QMetaObject::Connection m_documentConnection;
   QList<ExtraSelection> m_searchHighlights;
