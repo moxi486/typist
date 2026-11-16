@@ -289,6 +289,7 @@ QString blocks(const std::vector<Block>& nodes, Context& context, bool root) {
       case BlockType::Footnote:
       case BlockType::PageBreak:
         break;
+      case BlockType::HtmlComment:
       case BlockType::Unsupported:
         context.error = text("Unsupported Markdown block: %1").arg(value);
         break;
@@ -396,7 +397,7 @@ bool exportEpub(const QString& path, const QString& markdown, const EpubOptions&
     return fail(text("Choose a table of contents depth from 1 to 6"));
   if (markdown.toUtf8().size() > 16 * 1024 * 1024)
     return fail(text("EPUB source exceeds the 16 MiB limit"));
-  const auto parsed = core::parseMarkdown(markdown.toStdString());
+  const auto parsed = core::parseMarkdown(markdown.toStdString(), {}, core::HtmlComments::Omit);
   if (!parsed.ok) return fail(string(parsed.error));
   Context context;
   context.options = options;
@@ -446,7 +447,9 @@ bool exportEpub(const QString& path, const QString& markdown, const EpubOptions&
             QString(context.chinese() ? QStringLiteral("注释") : QStringLiteral("Notes")) + "</h2>";
     for (const auto& label : context.noteOrder) {
       const auto noteSource = context.notes[label].body;
-      const auto content = blocks(core::parseMarkdown(noteSource.toStdString()).blocks, context);
+      const auto parsedNote =
+          core::parseMarkdown(noteSource.toStdString(), {}, core::HtmlComments::Omit);
+      const auto content = blocks(parsedNote.blocks, context);
       const auto& note = context.notes[label];
       body += "<aside epub:type=\"footnote\" id=\"" + note.id + "\"><p>" + xml(label) + "</p>" +
               content;

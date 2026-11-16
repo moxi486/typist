@@ -700,7 +700,7 @@ QString documentRelsXml(const QVector<QString>& hyperlinkTargets,
 
 bool exportDocx(const QString& path, const QString& markdown, QString* error,
                 const QString& baseDirectory) {
-  const typist::core::ParseResult parsed = typist::core::parseMarkdown(markdown.toStdString());
+  const auto parsed = core::parseMarkdown(markdown.toStdString(), {}, core::HtmlComments::Omit);
   if (!parsed.ok) {
     if (error) *error = QStringLiteral("Cannot parse markdown for DOCX export");
     return false;
@@ -752,7 +752,7 @@ bool exportDocx(const QString& path, const QString& markdown, QString* error,
       "w:type=\"continuationSeparator\" "
       "w:id=\"0\"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>");
   for (auto it = context.footnoteBodies.cbegin(); it != context.footnoteBodies.cend(); ++it) {
-    const auto body = core::parseMarkdown(it.value().toStdString());
+    const auto body = core::parseMarkdown(it.value().toStdString(), {}, core::HtmlComments::Omit);
     QString contents = blocksXml(body.blocks, context);
     int p = contents.indexOf(QStringLiteral("<w:p>"));
     if (p < 0) contents.prepend(QStringLiteral("<w:p></w:p>"));

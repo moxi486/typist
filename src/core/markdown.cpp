@@ -264,7 +264,7 @@ std::string renderRun(const InlineRun& run) {
     }
     body = std::move(escaped);
   }
-  if (!run.code) {
+  if (!run.code && !run.html) {
     std::size_t position = 0;
     while ((position = body.find('\n', position)) != std::string::npos) {
       body.insert(position, "  ");
@@ -372,6 +372,59 @@ std::string_view trimAscii(std::string_view text) {
   return start == std::string_view::npos
              ? std::string_view()
              : text.substr(start, text.find_last_not_of(space) - start + 1);
+}
+
+std::vector<cmark_node*> rawHtmlNodes(cmark_node* root) {
+  std::vector<cmark_node*> nodes;
+  auto* iterator = cmark_iter_new(root);
+  while (cmark_iter_next(iterator) != CMARK_EVENT_DONE) {
+    if (cmark_iter_get_event_type(iterator) != CMARK_EVENT_ENTER) continue;
+    auto* node = cmark_iter_get_node(iterator);
+    const auto type = cmark_node_get_type(node);
+    if (type == CMARK_NODE_HTML_INLINE || type == CMARK_NODE_HTML_BLOCK) nodes.push_back(node);
+  }
+  cmark_iter_free(iterator);
+  return nodes;
+}
+
+std::string_view afterHtmlComments(std::string_view source) {
+  for (;;) {
+    const auto candidate = trimAscii(source);
+    if (candidate.substr(0, 4) != "<!--") return source;
+    const auto end = candidate.find("-->", 4);
+    if (end == std::string_view::npos) return source;
+    source.remove_prefix(static_cast<std::size_t>(candidate.data() - source.data()) + end + 3);
+  }
+}
+
+void omitHtmlComments(cmark_node* root, std::string_view source, bool preserveRawTail) {
+  if (source.find("<!--") == std::string_view::npos) return;
+  for (auto* node : rawHtmlNodes(root)) {
+    const char* literal = cmark_node_get_literal(node);
+    if (!literal) continue;
+    const std::string_view original(literal);
+    const auto tail = afterHtmlComments(original);
+    if (tail.size() == original.size()) continue;
+    if (trimAscii(tail).empty()) {
+      cmark_node_free(node);
+    } else if (preserveRawTail || cmark_node_get_type(node) == CMARK_NODE_HTML_INLINE) {
+      cmark_node_set_literal(node, std::string(tail).c_str());
+    } else {
+      // CommonMark HTML blocks can include visible text on the comment's closing line.
+      std::unique_ptr<cmark_node, decltype(&cmark_node_free)> paragraph(
+          cmark_node_new(CMARK_NODE_PARAGRAPH), &cmark_node_free);
+      std::unique_ptr<cmark_node, decltype(&cmark_node_free)> text(cmark_node_new(CMARK_NODE_TEXT),
+                                                                   &cmark_node_free);
+      if (cmark_node_set_literal(text.get(), std::string(trimAscii(tail)).c_str()) &&
+          cmark_node_append_child(paragraph.get(), text.get())) {
+        text.release();
+        if (cmark_node_replace(node, paragraph.get())) {
+          paragraph.release();
+          cmark_node_free(node);
+        }
+      }
+    }
+  }
 }
 
 bool isPageBreakDiv(std::string_view html) {
@@ -529,6 +582,15 @@ Block buildBlock(cmark_node* node, const std::vector<std::string>& lines) {
   } else if (const auto pageBreak = pageBreakSource(node); !pageBreak.empty()) {
     block.type = BlockType::PageBreak;
     block.text = pageBreak;
+  } else if (type == "html_block" && cmark_node_get_literal(node)) {
+    const auto markup = trimAscii(cmark_node_get_literal(node));
+    if (afterHtmlComments(markup).size() != markup.size()) {
+      block.type = BlockType::HtmlComment;
+      block.text = markup;
+    } else {
+      block.type = BlockType::Unsupported;
+      block.text = type;
+    }
   } else {
     block.type = BlockType::Unsupported;
     block.text = type;
@@ -675,6 +737,10 @@ std::string serializeBlock(const Block& block, int indent) {
     }
     case BlockType::ListItem:
       // Items are emitted by their parent List, which owns the marker and numbering.
+      break;
+    case BlockType::HtmlComment:
+      for (const auto& line : sourceLines(block.text)) out += prefix + line + "\n";
+      out += "\n";
       break;
     case BlockType::Unsupported:
       break;
@@ -823,7 +889,13 @@ std::vector<ImageSource> imageSources(std::string_view source) {
   return images;
 }
 
-ParseResult parseMarkdown(std::string_view source, const ParseOptions& options) {
+bool isHtmlComment(std::string_view source) {
+  const auto tail = afterHtmlComments(source);
+  return source.size() != tail.size() && trimAscii(tail).empty();
+}
+
+ParseResult parseMarkdown(std::string_view source, const ParseOptions& options,
+                          HtmlComments comments) {
   const std::string prepared = prepareAdvancedMarkdown(source);
   source = prepared;
   ParseResult result;
@@ -857,6 +929,7 @@ ParseResult parseMarkdown(std::string_view source, const ParseOptions& options) 
     return result;
   }
 
+  if (comments == HtmlComments::Omit) omitHtmlComments(root.get(), source, false);
   recognizeUnderlines(root.get(), source);
   for (cmark_node* child = cmark_node_first_child(root.get()); child != nullptr;
        child = cmark_node_next(child)) {
@@ -876,16 +949,7 @@ std::string serializeMarkdown(const std::vector<Block>& blocks) {
 namespace {
 void makeHtmlLiteral(cmark_node* root) {
   // Collect first so replacing a node never invalidates the active iterator.
-  std::vector<cmark_node*> rawNodes;
-  auto* iterator = cmark_iter_new(root);
-  while (cmark_iter_next(iterator) != CMARK_EVENT_DONE) {
-    if (cmark_iter_get_event_type(iterator) != CMARK_EVENT_ENTER) continue;
-    auto* node = cmark_iter_get_node(iterator);
-    const auto type = cmark_node_get_type(node);
-    if (type == CMARK_NODE_HTML_INLINE || type == CMARK_NODE_HTML_BLOCK) rawNodes.push_back(node);
-  }
-  cmark_iter_free(iterator);
-  for (auto* node : rawNodes) {
+  for (auto* node : rawHtmlNodes(root)) {
     const char* literal = cmark_node_get_literal(node);
     if (!literal) {
       cmark_node_free(node);
@@ -951,6 +1015,7 @@ std::string renderHtml(std::string_view source, const ParseOptions& options, boo
     return "";
   }
 
+  omitHtmlComments(root.get(), source, true);
   if (!preserveRawHtml) {
     recognizeUnderlines(root.get(), source);
     makeHtmlLiteral(root.get());

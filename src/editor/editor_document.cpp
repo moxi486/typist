@@ -109,8 +109,12 @@ void insertInline(const std::vector<typist::core::InlineRun>& runs, const QStrin
       format.setProperty(kRawHtmlProperty, text);
       static const QRegularExpression lineBreak(QStringLiteral("^<br\\s*/?>$"),
                                                 QRegularExpression::CaseInsensitiveOption);
-      cursor.insertText(lineBreak.match(text).hasMatch() ? QString(QChar::LineSeparator) : text,
-                        format);
+      auto visible = text;
+      if (lineBreak.match(text).hasMatch())
+        visible = QString(QChar::LineSeparator);
+      else if (text.startsWith(QLatin1String("<!--")))
+        visible.replace(QLatin1Char('\n'), QChar::LineSeparator);
+      cursor.insertText(visible, format);
       cursor.setCharFormat(base);
       continue;
     }
@@ -425,6 +429,13 @@ void insertBlock(const typist::core::Block& block, QTextCursor& cursor, int dept
       insertTaggedBlock(cursor, QString(QChar(render::kPageBreakMarker)),
                         render::kPageBreakProperty, QString::fromStdString(block.text), plain);
       break;
+    case typist::core::BlockType::HtmlComment: {
+      core::InlineRun comment;
+      comment.text = block.text;
+      comment.html = true;
+      insertTaggedInline(cursor, {comment}, {}, 0, QVariant());
+      break;
+    }
     case typist::core::BlockType::BlockQuote:
       ++ctx.groupCounter;
       for (const typist::core::Block& child : block.children) {
@@ -641,8 +652,13 @@ QString inlineFromBlock(const QTextBlock& block) {
     run.underline = fmt.boolProperty(kUnderlineProperty);
     run.literal = fmt.boolProperty(kLiteralTextProperty);
     run.html = fmt.hasProperty(kRawHtmlProperty);
-    if (run.html && run.text.contains(QChar::LineSeparator))
-      run.text = fmt.property(kRawHtmlProperty).toString();
+    if (run.html && run.text.contains(QChar::LineSeparator)) {
+      const auto markup = fmt.property(kRawHtmlProperty).toString();
+      if (markup.startsWith(QLatin1String("<!--")))
+        run.text.replace(QChar::LineSeparator, QLatin1Char('\n'));
+      else
+        run.text = markup;
+    }
     run.code = isInlineCodeFormat(fmt);
     if (fmt.hasProperty(kSpecialSourceProperty)) {
       run.specialType = fmt.property(kSpecialTypeProperty).toString();
@@ -1082,8 +1098,9 @@ void refreshSpecialContent(QTextDocument* document, bool dark) {
   document->markContentsDirty(0, document->characterCount());
 }
 
-bool loadMarkdown(const QString& source, QTextDocument* document, QString* error) {
-  const auto parsed = typist::core::parseMarkdown(source.toStdString());
+bool loadMarkdown(const QString& source, QTextDocument* document, QString* error,
+                  core::HtmlComments comments) {
+  const auto parsed = typist::core::parseMarkdown(source.toStdString(), {}, comments);
   if (!parsed.ok) {
     if (error != nullptr) *error = QString::fromStdString(parsed.error);
     return false;
