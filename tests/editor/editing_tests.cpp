@@ -32,6 +32,95 @@ class EditingTests : public QObject {
     QTest::qWait(5);
   }
  private slots:
+  void smartQuotesConvertTypingAndRespectUndo() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    editor.setSmartQuotes(true);
+    editor.setAutoPair(false);
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "\"It's a 'word'.\"");
+    const auto curly = QStringLiteral("\u201cIt\u2019s a \u2018word\u2019.\u201d");
+    QCOMPARE(editor.toPlainText(), curly);
+    QVERIFY(markdown(editor).startsWith(curly));
+    editor.undo();
+    QCOMPARE(editor.toPlainText(), curly.chopped(1) + '"');
+    editor.redo();
+    QCOMPARE(editor.toPlainText(), curly);
+
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "'It's spaced '");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("\u2018It\u2019s spaced \u2019"));
+
+    prepare(editor, view);
+    editor.insertPlainText(QStringLiteral("他说"));
+    QTest::keyClicks(&editor, "\"");
+    QInputMethodEvent input;
+    input.setCommitString(QStringLiteral("你好"));
+    QApplication::sendEvent(&editor, &input);
+    QTest::keyClicks(&editor, "\"");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("他说\u201c你好\u201d"));
+
+    editor.setAutoPair(true);
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "\"");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("\u201c\u201d"));
+    QCOMPARE(editor.textCursor().positionInBlock(), 1);
+    QTest::keyClick(&editor, Qt::Key_Backspace);
+    QVERIFY(editor.toPlainText().isEmpty());
+    QTest::keyClicks(&editor, "\"It's a 'word'.\"");
+    QCOMPARE(editor.toPlainText(), curly);
+    QCOMPARE(editor.textCursor().positionInBlock(), curly.size());
+
+    prepare(editor, view, QStringLiteral("Start **word** end"));
+    const auto word = editor.document()->find(QStringLiteral("word"));
+    auto reverse = word;
+    reverse.setPosition(word.selectionEnd());
+    reverse.setPosition(word.selectionStart(), QTextCursor::KeepAnchor);
+    editor.setTextCursor(reverse);
+    QTest::keyClicks(&editor, "\"");
+    QCOMPARE(editor.textCursor().selectedText(), QStringLiteral("word"));
+    QVERIFY(editor.textCursor().position() < editor.textCursor().anchor());
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("Start \u201c**word**\u201d end")));
+    editor.undo();
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("Start **word** end")));
+
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "Literal \\\"");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Literal \""));
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("Literal \"")));
+  }
+
+  void smartQuotesKeepMarkdownSyntaxAndCodeLiteral() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    editor.setSmartQuotes(true);
+    editor.setAutoPair(false);
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "Code `value\"");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Code `value\""));
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "Math $x\"");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Math $x\""));
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "[label](note \"title ) rest\"");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("[label](note \"title ) rest\""));
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "[ref]: note \"title\"");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("[ref]: note \"title\""));
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "<span title=\"a > b\"> \"hey\"");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("<span title=\"a > b\"> \u201chey\u201d"));
+    prepare(editor, view, QStringLiteral("```text\ncode\n```\n"));
+    editor.moveCursor(QTextCursor::End);
+    QTest::keyClicks(&editor, " \"literal\"");
+    QVERIFY(markdown(editor).contains(QStringLiteral("code \"literal\"")));
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    editor.clear();
+    QTest::keyClicks(&editor, "Source \"literal\"");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Source \"literal\""));
+  }
+
   void markdownAutoPairTypesAndClosesInlineDelimiters() {
     typist::ui::ViewSwitch view;
     typist::ui::Editor editor;

@@ -58,6 +58,85 @@ QString editorText(const char* text) { return QCoreApplication::translate("Edito
 
 const auto kTypistMarkdownMime = QStringLiteral("application/x-typist-markdown");
 
+bool literalMarkdownQuoteContext(QStringView prefix) {
+  const auto content = prefix.trimmed();
+  if (content.startsWith('[') && !content.startsWith(QLatin1String("[^"))) {
+    const auto bracket = content.indexOf(']');
+    if (bracket > 1 && bracket + 1 < content.size() && content.at(bracket + 1) == ':') return true;
+  }
+  QChar delimiter;
+  qsizetype delimiterLength = 0;
+  int linkDepth = 0;
+  QStringView tagEnd;
+  QChar markupQuote;
+  for (qsizetype i = 0; i < prefix.size(); ++i) {
+    const auto ch = prefix.at(i);
+    if (!tagEnd.isEmpty() || linkDepth > 0) {
+      if (linkDepth > 0 && ch == '\\') {
+        ++i;
+        continue;
+      }
+      if (!markupQuote.isNull()) {
+        if (markupQuote == ch) markupQuote = QChar();
+        continue;
+      }
+      const bool quotedField = tagEnd.size() == 1 || (linkDepth > 0 && prefix.at(i - 1).isSpace());
+      if (quotedField && (ch == '\'' || ch == '"')) {
+        markupQuote = ch;
+      } else if (!tagEnd.isEmpty() && prefix.sliced(i).startsWith(tagEnd)) {
+        i += tagEnd.size() - 1;
+        tagEnd = {};
+      } else if (linkDepth > 0) {
+        if (ch == '(') ++linkDepth;
+        if (ch == ')') --linkDepth;
+      }
+    } else if (ch == '\\' && delimiter != '`') {
+      ++i;
+    } else if ((ch == '`' || ch == '$') && (delimiter.isNull() || delimiter == ch)) {
+      const auto start = i;
+      while (i + 1 < prefix.size() && prefix.at(i + 1) == ch) ++i;
+      const auto length = i - start + 1;
+      if (delimiter.isNull()) {
+        if (ch == '$' && length == 1 && i + 1 < prefix.size() && prefix.at(i + 1).isSpace())
+          continue;
+        delimiter = ch;
+        delimiterLength = length;
+      } else if (delimiterLength == length &&
+                 (ch != '$' || (start > 0 && !prefix.at(start - 1).isSpace()))) {
+        delimiter = QChar();
+      }
+    } else if (delimiter.isNull()) {
+      if (ch == '(' && i > 0 && prefix.at(i - 1) == ']') linkDepth = 1;
+      if (ch == '<' && i + 1 < prefix.size()) {
+        const auto next = prefix.at(i + 1);
+        if (prefix.sliced(i).startsWith(QLatin1String("<!--"))) {
+          tagEnd = u"-->";
+          i += 3;
+        } else if (next.isLetter() || next == '/' || next == '!' || next == '?') {
+          tagEnd = u">";
+        }
+      }
+    }
+  }
+  return !delimiter.isNull() || linkDepth > 0 || !tagEnd.isEmpty();
+}
+
+bool hasOpenSmartQuote(QStringView prefix, QChar left, QChar right) {
+  int depth = 0;
+  for (qsizetype i = 0; i < prefix.size(); ++i) {
+    const auto ch = prefix.at(i);
+    if (ch == left) {
+      ++depth;
+    } else if (ch == right && depth > 0) {
+      const bool apostrophe = right == QChar(0x2019) && i > 0 && i + 1 < prefix.size() &&
+                              prefix.at(i - 1).isLetterOrNumber() &&
+                              prefix.at(i + 1).isLetterOrNumber();
+      if (!apostrophe) --depth;
+    }
+  }
+  return depth > 0;
+}
+
 bool hasGeneratedMarkdownCloser(const QTextCursor& cursor, int offset = 0) {
   const auto block = cursor.block();
   const int position = cursor.position() + offset;
@@ -1992,6 +2071,81 @@ bool Editor::handleMarkdownPair(QKeyEvent* event, QTextCursor cursor) {
   return true;
 }
 
+bool Editor::handleSmartQuote(QChar typed, QTextCursor cursor) {
+  if (typed != '\'' && typed != '"') return false;
+  const auto block = document()->findBlock(cursor.selectionStart());
+  if (block != document()->findBlock(cursor.selectionEnd()) ||
+      editor::isInlineCodeFormat(cursor.charFormat()) ||
+      cursor.charFormat().hasProperty(editor::kRawHtmlProperty) ||
+      block.blockFormat().hasProperty(editor::kRawBlockSourceProperty))
+    return false;
+  const QString text = block.text();
+  const auto prefix = QStringView(text).left(cursor.selectionStart() - block.position());
+  if (literalMarkdownQuoteContext(prefix)) return false;
+
+  const QChar left = typed == '\'' ? QChar(0x2018) : QChar(0x201c);
+  const QChar right = typed == '\'' ? QChar(0x2019) : QChar(0x201d);
+  const QChar before = prefix.isEmpty() ? QChar() : prefix.back();
+  if (!cursor.hasSelection()) {
+    qsizetype trailing = prefix.size();
+    while (trailing > 0 && prefix.at(trailing - 1) == '\\') --trailing;
+    if ((prefix.size() - trailing) % 2 != 0) {
+      cursor.beginEditBlock();
+      cursor.deletePreviousChar();
+      cursor.insertText(QString(typed));
+      cursor.endEditBlock();
+      setTextCursor(cursor);
+      return true;
+    }
+    if (m_autoPair && document()->characterAt(cursor.position()) == right) {
+      cursor.movePosition(QTextCursor::NextCharacter);
+      setTextCursor(cursor);
+      return true;
+    }
+  }
+
+  const char32_t codePoint =
+      before.isLowSurrogate() && prefix.size() > 1 && prefix.at(prefix.size() - 2).isHighSurrogate()
+          ? QChar::surrogateToUcs4(prefix.at(prefix.size() - 2), before)
+          : before.unicode();
+  const auto script = QChar::script(codePoint);
+  const bool eastAsian = script == QChar::Script_Han || script == QChar::Script_Hiragana ||
+                         script == QChar::Script_Katakana || script == QChar::Script_Hangul;
+  const bool boundary = before.isNull() || before.isSpace() ||
+                        QStringLiteral("([{\u2013\u2014\u2018\u201c").contains(before);
+  const bool alreadyOpen = (boundary || eastAsian) && hasOpenSmartQuote(prefix, left, right);
+  const auto next = document()->characterAt(cursor.selectionEnd());
+  const bool opens =
+      (boundary && (!alreadyOpen || next.isLetterOrNumber())) || (eastAsian && !alreadyOpen);
+  if (m_autoPair && (cursor.hasSelection() || opens)) {
+    const int start = cursor.selectionStart();
+    const int end = cursor.selectionEnd();
+    const bool reversed = cursor.position() < cursor.anchor();
+    cursor.beginEditBlock();
+    if (cursor.hasSelection()) {
+      const auto format = cursor.blockCharFormat();
+      cursor.setPosition(end);
+      cursor.insertText(QString(right), format);
+      cursor.setPosition(start);
+      cursor.insertText(QString(left), format);
+    } else {
+      cursor.insertText(QString(left) + right);
+    }
+    cursor.setPosition(reversed ? end + 1 : start + 1);
+    cursor.setPosition(reversed ? start + 1 : end + 1, QTextCursor::KeepAnchor);
+    cursor.endEditBlock();
+  } else {
+    // Keep normalization separate so one undo recovers the straight quote.
+    cursor.insertText(QString(typed));
+    cursor.beginEditBlock();
+    cursor.setPosition(cursor.position() - 1, QTextCursor::KeepAnchor);
+    cursor.insertText(QString(opens ? left : right));
+    cursor.endEditBlock();
+  }
+  setTextCursor(cursor);
+  return true;
+}
+
 void Editor::keyPressEvent(QKeyEvent* event) {
   if (event->matches(QKeySequence::SelectAll)) {
     selectAll();
@@ -2061,6 +2215,9 @@ void Editor::keyPressEvent(QKeyEvent* event) {
       !event->modifiers().testFlag(Qt::AltModifier) && changeTaskStatus(editor::TaskStatus::Toggle))
     return;
   const bool code = m_rendered && cursor.blockFormat().hasProperty(editor::kCodeBlockProperty);
+  if (m_smartQuotes && m_rendered && plain && !isReadOnly() && !code && !special &&
+      event->text().size() == 1 && handleSmartQuote(event->text().front(), cursor))
+    return;
   if (m_markdownAutoPair && m_rendered && plain && !isReadOnly() && !code && !special &&
       handleMarkdownPair(event, cursor))
     return;
@@ -2130,10 +2287,12 @@ void Editor::keyPressEvent(QKeyEvent* event) {
     setTextCursor(cursor);
     if (returnKey) return;
   }
-  if (m_autoPair && plain && event->key() == Qt::Key_Backspace && !cursor.hasSelection() &&
-      cursor.positionInBlock() > 0) {
-    const QString opens = QStringLiteral("([{\"'");
-    const QString closes = QStringLiteral(")]}\"'");
+  if (m_autoPair && plain && !isReadOnly() && event->key() == Qt::Key_Backspace &&
+      !cursor.hasSelection() && cursor.positionInBlock() > 0) {
+    const bool smart = m_smartQuotes && m_rendered && !code && !special &&
+                       !editor::isInlineCodeFormat(cursor.charFormat());
+    const QString opens = smart ? QStringLiteral("([{\"'\u201c\u2018") : QStringLiteral("([{\"'");
+    const QString closes = smart ? QStringLiteral(")]}\"'\u201d\u2019") : QStringLiteral(")]}\"'");
     const int opening = opens.indexOf(document()->characterAt(cursor.position() - 1));
     if (opening >= 0 && document()->characterAt(cursor.position()) == closes.at(opening)) {
       cursor.beginEditBlock();
@@ -2303,7 +2462,7 @@ void Editor::keyPressEvent(QKeyEvent* event) {
       }
     }
   }
-  if (m_autoPair && plain && event->text().size() == 1) {
+  if (m_autoPair && plain && !isReadOnly() && event->text().size() == 1) {
     const QString opens = QStringLiteral("([{\"'");
     const QString closes = QStringLiteral(")]}\"'");
     const QChar typed = event->text().at(0);
