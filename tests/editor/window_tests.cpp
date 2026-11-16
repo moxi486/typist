@@ -1532,6 +1532,40 @@ class WindowTests : public QObject {
     QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
   }
 
+  void smartDashesPreferenceAppliesAndPersists() {
+    const auto key = QStringLiteral("editor/smartDashes");
+    QSettings settings;
+    const auto previous = settings.value(key);
+    const auto restore = qScopeGuard([&] {
+      if (previous.isValid())
+        settings.setValue(key, previous);
+      else
+        settings.remove(key);
+    });
+    settings.remove(key);
+    typist::MainWindow window(nullptr, true);
+    auto* action = window.findChild<QAction*>(QStringLiteral("smartDashes"));
+    auto* quotes = window.findChild<QAction*>(QStringLiteral("smartQuotes"));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(action && quotes && editor);
+    const bool quotesEnabled = quotes->isChecked();
+    QVERIFY(!action->isChecked());
+    QTest::keyClicks(editor, "Text --- ...");
+    QCOMPARE(editor->toPlainText(), QStringLiteral("Text --- ..."));
+    action->trigger();
+    QVERIFY(settings.value(key).toBool());
+    QCOMPARE(quotes->isChecked(), quotesEnabled);
+    editor->clear();
+    QTest::keyClicks(editor, "Text --- ...");
+    QCOMPARE(editor->toPlainText(), QStringLiteral("Text \u2014 \u2026"));
+
+    typist::MainWindow second(nullptr, true);
+    auto* secondAction = second.findChild<QAction*>(QStringLiteral("smartDashes"));
+    QVERIFY(secondAction && secondAction->isChecked());
+    secondAction->trigger();
+    QVERIFY(!settings.value(key).toBool());
+  }
+
   void smartQuotesPreferenceAppliesAndPersists() {
     const auto key = QStringLiteral("editor/smartQuotes");
     QSettings settings;

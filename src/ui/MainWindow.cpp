@@ -1148,6 +1148,8 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
                                    tr("Auto Pair Markdown Syntax"), QString(), [] {});
   auto* smartQuotes =
       command(settings, QStringLiteral("smartQuotes"), tr("Smart Quotes"), QString(), [] {});
+  auto* smartDashes =
+      command(settings, QStringLiteral("smartDashes"), tr("Smart Dashes"), QString(), [] {});
   QAction* syntax = command(settings, QStringLiteral("syntaxHighlight"), tr("Syntax Highlighting"),
                             QString(), [] {});
   syntax->setCheckable(true);
@@ -1228,6 +1230,14 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   connect(smartQuotes, &QAction::toggled, this, [editor, smartQuotesKey](bool enabled) {
     editor->setSmartQuotes(enabled);
     QSettings().setValue(smartQuotesKey, enabled);
+  });
+  const auto smartDashesKey = QStringLiteral("editor/smartDashes");
+  smartDashes->setCheckable(true);
+  smartDashes->setChecked(QSettings().value(smartDashesKey, false).toBool());
+  editor->setSmartDashes(smartDashes->isChecked());
+  connect(smartDashes, &QAction::toggled, this, [editor, smartDashesKey](bool enabled) {
+    editor->setSmartDashes(enabled);
+    QSettings().setValue(smartDashesKey, enabled);
   });
   auto* copyCutWholeLine = command(settings, QStringLiteral("copyCutWholeLine"),
                                    tr("Copy and Cut Whole Line"), QString(), [] {});

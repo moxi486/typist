@@ -28,6 +28,12 @@
 
 代码、公式源码、链接目标、HTML 标记以及源码视图和段落源码框按原文输入引号。 [Typora 智能标点说明](https://support.typora.io/SmartyPants/#smart-quotes)
 
+## 智能破折号
+
+「设置 → 智能破折号」默认关闭，与智能引号独立。开启后，在渲染视图正文键入 `--`、`---` 或 `...` 时，分别转换为 `–`、`—` 或 `…`，转换结果写入 Markdown。每次转换可用一次撤销恢复 ASCII 字符。
+
+源码视图、代码、公式源码、链接目标和 HTML 标记保留原始标点。行首连字符仍可用于 Markdown 分隔线，反斜杠转义也可保留连字符。 [Typora 智能破折号说明](https://support.typora.io/SmartyPants/#smart-dashes)
+
 代码块按围栏中的语言标识着色。在「段落 → 代码语言」修改当前整个代码块的语言；修改可一次撤销。留空或使用未知语言时显示普通代码。「设置 → 语法高亮」可开关编辑器中的着色。
 
 常用标识包括 cpp / c++、c、python / py、javascript / js、typescript / ts、json、bash / sh、powershell / ps1、java、cs / csharp、go、rust、swift、kotlin、sql、html / xml、css、yaml / yml、toml、markdown / md、latex / tex。此高亮器使用轻量词法规则，不等同于 IDE 的语义分析。支持常见多行注释、Python 三引号字符串和 C++ 原始字符串；超过 32768 字符的单行跳过高亮，保留全部原文。

@@ -58,7 +58,7 @@ QString editorText(const char* text) { return QCoreApplication::translate("Edito
 
 const auto kTypistMarkdownMime = QStringLiteral("application/x-typist-markdown");
 
-bool literalMarkdownQuoteContext(QStringView prefix) {
+bool literalMarkdownPunctuationContext(QStringView prefix) {
   const auto content = prefix.trimmed();
   if (content.startsWith('[') && !content.startsWith(QLatin1String("[^"))) {
     const auto bracket = content.indexOf(']');
@@ -137,15 +137,25 @@ bool hasOpenSmartQuote(QStringView prefix, QChar left, QChar right) {
   return depth > 0;
 }
 
-bool hasGeneratedMarkdownCloser(const QTextCursor& cursor, int offset = 0) {
+bool endsWithUnpairedBackslash(QStringView prefix) {
+  qsizetype start = prefix.size();
+  while (start > 0 && prefix.at(start - 1) == '\\') --start;
+  return (prefix.size() - start) % 2 != 0;
+}
+
+QTextCharFormat characterFormatAt(const QTextCursor& cursor, int offset) {
   const auto block = cursor.block();
   const int position = cursor.position() + offset;
-  if (position < block.position() || position >= block.position() + block.length() - 1)
-    return false;
-  QTextCursor closer(cursor);
-  closer.setPosition(position);
-  closer.setPosition(position + 1, QTextCursor::KeepAnchor);
-  return closer.charFormat().boolProperty(typist::editor::kAutoPairedMarkdownProperty);
+  if (position < block.position() || position >= block.position() + block.length() - 1) return {};
+  QTextCursor character(cursor);
+  character.setPosition(position);
+  character.setPosition(position + 1, QTextCursor::KeepAnchor);
+  return character.charFormat();
+}
+
+bool hasGeneratedMarkdownCloser(const QTextCursor& cursor, int offset = 0) {
+  return characterFormatAt(cursor, offset)
+      .boolProperty(typist::editor::kAutoPairedMarkdownProperty);
 }
 
 bool formatMarkdownSelection(QTextCursor& cursor, QChar typed) {
@@ -2081,15 +2091,13 @@ bool Editor::handleSmartQuote(QChar typed, QTextCursor cursor) {
     return false;
   const QString text = block.text();
   const auto prefix = QStringView(text).left(cursor.selectionStart() - block.position());
-  if (literalMarkdownQuoteContext(prefix)) return false;
+  if (literalMarkdownPunctuationContext(prefix)) return false;
 
   const QChar left = typed == '\'' ? QChar(0x2018) : QChar(0x201c);
   const QChar right = typed == '\'' ? QChar(0x2019) : QChar(0x201d);
   const QChar before = prefix.isEmpty() ? QChar() : prefix.back();
   if (!cursor.hasSelection()) {
-    qsizetype trailing = prefix.size();
-    while (trailing > 0 && prefix.at(trailing - 1) == '\\') --trailing;
-    if ((prefix.size() - trailing) % 2 != 0) {
+    if (endsWithUnpairedBackslash(prefix)) {
       cursor.beginEditBlock();
       cursor.deletePreviousChar();
       cursor.insertText(QString(typed));
@@ -2143,6 +2151,59 @@ bool Editor::handleSmartQuote(QChar typed, QTextCursor cursor) {
     cursor.endEditBlock();
   }
   setTextCursor(cursor);
+  return true;
+}
+
+bool Editor::handleSmartDash(QChar typed, QTextCursor cursor) {
+  if ((typed != '-' && typed != '.') || cursor.hasSelection() || cursor.atBlockStart() ||
+      cursor.charFormat().isAnchor() || editor::isInlineCodeFormat(cursor.charFormat()) ||
+      cursor.charFormat().hasProperty(editor::kRawHtmlProperty) ||
+      cursor.blockFormat().hasProperty(editor::kRawBlockSourceProperty) ||
+      document()->characterAt(cursor.position()) == typed)
+    return false;
+
+  const auto block = cursor.block();
+  const QString text = block.text();
+  const int end = cursor.positionInBlock();
+  int start = end;
+  while (start > 0 && text.at(start - 1) == typed) --start;
+  const bool promote = typed == '-' && start == end && text.at(end - 1) == QChar(0x2013) &&
+                       characterFormatAt(cursor, -1).boolProperty(editor::kSmartEnDashProperty);
+  if (promote) --start;
+  const int count = promote ? 3 : end - start + 1;
+  if (count > 3 || count < (typed == '-' ? 2 : 3)) return false;
+
+  const auto prefix = QStringView(text).left(start);
+  const int contentStart = editor::listContentStart(block) - block.position();
+  if ((typed == '-' &&
+       (start <= contentStart || prefix.sliced(contentStart).trimmed().isEmpty())) ||
+      endsWithUnpairedBackslash(prefix) || literalMarkdownPunctuationContext(prefix))
+    return false;
+
+  // A bare URL is still plain text while it's being typed.
+  qsizetype tokenStart = prefix.size();
+  while (tokenStart > 0 && !prefix.at(tokenStart - 1).isSpace()) --tokenStart;
+  const auto token = prefix.sliced(tokenStart);
+  if (token.contains(QLatin1String("://")) ||
+      token.startsWith(QLatin1String("www."), Qt::CaseInsensitive) ||
+      token.startsWith(QLatin1String("mailto:"), Qt::CaseInsensitive))
+    return false;
+
+  const int position = block.position() + start;
+  const auto typing = currentCharFormat();
+  if (promote) cursor.setPosition(position, QTextCursor::KeepAnchor);
+  cursor.insertText(promote ? QStringLiteral("---") : QString(typed), typing);
+
+  // Separate the conversion from the literal input so Undo restores the ASCII run.
+  const QChar replacement(typed == '.' ? 0x2026 : count == 2 ? 0x2013 : 0x2014);
+  auto format = typing;
+  if (replacement == QChar(0x2013)) format.setProperty(editor::kSmartEnDashProperty, true);
+  cursor.beginEditBlock();
+  cursor.setPosition(position, QTextCursor::KeepAnchor);
+  cursor.insertText(QString(replacement), format);
+  cursor.endEditBlock();
+  setTextCursor(cursor);
+  setCurrentCharFormat(typing);
   return true;
 }
 
@@ -2215,9 +2276,13 @@ void Editor::keyPressEvent(QKeyEvent* event) {
       !event->modifiers().testFlag(Qt::AltModifier) && changeTaskStatus(editor::TaskStatus::Toggle))
     return;
   const bool code = m_rendered && cursor.blockFormat().hasProperty(editor::kCodeBlockProperty);
-  if (m_smartQuotes && m_rendered && plain && !isReadOnly() && !code && !special &&
-      event->text().size() == 1 && handleSmartQuote(event->text().front(), cursor))
-    return;
+  if ((m_smartQuotes || m_smartDashes) && m_rendered && plain && !isReadOnly() && !code &&
+      !special && event->text().size() == 1) {
+    const auto typed = event->text().front();
+    if ((m_smartQuotes && handleSmartQuote(typed, cursor)) ||
+        (m_smartDashes && handleSmartDash(typed, cursor)))
+      return;
+  }
   if (m_markdownAutoPair && m_rendered && plain && !isReadOnly() && !code && !special &&
       handleMarkdownPair(event, cursor))
     return;
@@ -2518,8 +2583,10 @@ void Editor::clearTransientTypingFormat() {
       !current.hasProperty(editor::kSpecialSourceProperty) &&
       !current.hasProperty(editor::kMathSourceProperty) &&
       !current.hasProperty(editor::kRawHtmlProperty)) {
-    if (current.hasProperty(editor::kAutoPairedMarkdownProperty)) {
+    if (current.hasProperty(editor::kAutoPairedMarkdownProperty) ||
+        current.hasProperty(editor::kSmartEnDashProperty)) {
       current.clearProperty(editor::kAutoPairedMarkdownProperty);
+      current.clearProperty(editor::kSmartEnDashProperty);
       setCurrentCharFormat(current);
     }
     return;
