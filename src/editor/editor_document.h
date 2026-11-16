@@ -32,6 +32,7 @@ constexpr uint kLiteralTextProperty = 0x100013;  // Spreadsheet paste stays lite
 constexpr uint kRawHtmlProperty = 0x100014;
 constexpr uint kRawBlockSourceProperty = 0x100015;
 constexpr uint kUnderlineProperty = 0x100016;  // explicit Markdown underline, independent of links
+constexpr uint kAutoPairedMarkdownProperty = 0x100018;  // generated closing delimiter in the editor
 constexpr uint kMathSourceProperty = 0x10000b;
 constexpr uint kSpecialBlockProperty = 0x10000c;  // math, mermaid or toc
 constexpr uint kSpecialSourceProperty = 0x10000d;

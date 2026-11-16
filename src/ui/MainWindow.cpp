@@ -1144,6 +1144,8 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
 
   QAction* autoPair = command(settings, QStringLiteral("autoPair"),
                               tr("Auto Pair Brackets and Quotes"), QString(), [] {});
+  auto* markdownAutoPair = command(settings, QStringLiteral("markdownAutoPair"),
+                                   tr("Auto Pair Markdown Syntax"), QString(), [] {});
   QAction* syntax = command(settings, QStringLiteral("syntaxHighlight"), tr("Syntax Highlighting"),
                             QString(), [] {});
   syntax->setCheckable(true);
@@ -1208,6 +1210,14 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   connect(autoPair, &QAction::toggled, this, [editor](bool enabled) {
     editor->setAutoPair(enabled);
     QSettings().setValue(QStringLiteral("editor/autoPair"), enabled);
+  });
+  const auto markdownAutoPairKey = QStringLiteral("editor/markdownAutoPair");
+  markdownAutoPair->setCheckable(true);
+  markdownAutoPair->setChecked(QSettings().value(markdownAutoPairKey, false).toBool());
+  editor->setMarkdownAutoPair(markdownAutoPair->isChecked());
+  connect(markdownAutoPair, &QAction::toggled, this, [editor, markdownAutoPairKey](bool enabled) {
+    editor->setMarkdownAutoPair(enabled);
+    QSettings().setValue(markdownAutoPairKey, enabled);
   });
   auto* copyCutWholeLine = command(settings, QStringLiteral("copyCutWholeLine"),
                                    tr("Copy and Cut Whole Line"), QString(), [] {});

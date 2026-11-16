@@ -58,6 +58,47 @@ QString editorText(const char* text) { return QCoreApplication::translate("Edito
 
 const auto kTypistMarkdownMime = QStringLiteral("application/x-typist-markdown");
 
+bool hasGeneratedMarkdownCloser(const QTextCursor& cursor, int offset = 0) {
+  const auto block = cursor.block();
+  const int position = cursor.position() + offset;
+  if (position < block.position() || position >= block.position() + block.length() - 1)
+    return false;
+  QTextCursor closer(cursor);
+  closer.setPosition(position);
+  closer.setPosition(position + 1, QTextCursor::KeepAnchor);
+  return closer.charFormat().boolProperty(typist::editor::kAutoPairedMarkdownProperty);
+}
+
+bool formatMarkdownSelection(QTextCursor& cursor, QChar typed) {
+  using namespace typist;
+  if (cursor.hasComplexSelection() || cursor.document()->findBlock(cursor.selectionStart()) !=
+                                          cursor.document()->findBlock(cursor.selectionEnd()))
+    return false;
+  const auto text = cursor.selectedText();
+  if (text.contains(QChar::ObjectReplacementCharacter)) return false;
+  if (typed == '$') {
+    const auto markdown = '$' + text + '$';
+    const auto parsed = core::parseMarkdown(markdown.toStdString());
+    if (!parsed.ok || parsed.blocks.size() != 1 ||
+        parsed.blocks.front().type != core::BlockType::Paragraph ||
+        parsed.blocks.front().runs.size() != 1 || !parsed.blocks.front().runs.front().math)
+      return false;
+    return editor::insertMarkdownAtCursor(markdown, cursor, nullptr);
+  }
+
+  QTextCharFormat format;
+  if (typed == '*' || typed == '_')
+    format.setFontItalic(true);
+  else if (typed == '~')
+    format.setFontStrikeOut(true);
+  else
+    format.setFontFamilies({QStringLiteral("Consolas"), QStringLiteral("monospace")});
+  cursor.beginEditBlock();
+  cursor.mergeCharFormat(format);
+  cursor.endEditBlock();
+  return true;
+}
+
 QTextCursor imageCharacter(QTextDocument* document, int position) {
   if (position < 0 || document->characterAt(position) != QChar::ObjectReplacementCharacter)
     return {};
@@ -805,7 +846,7 @@ void Editor::insertPlainText(const QString& text) {
   if (m_paragraphSourceActive)
     m_paragraphPanel->input()->insertPlainText(text);
   else {
-    clearImageTypingFormat();
+    clearTransientTypingFormat();
     QTextCursor cursor = textCursor();
     if (m_rendered && editor::insertCodeText(cursor, text))
       setTextCursor(cursor);
@@ -1687,7 +1728,7 @@ void Editor::centerWritingLine() {
 }
 
 void Editor::inputMethodEvent(QInputMethodEvent* event) {
-  if (!event->commitString().isEmpty()) clearImageTypingFormat();
+  if (!event->commitString().isEmpty()) clearTransientTypingFormat();
   QTextEdit::inputMethodEvent(event);
   if (m_rendered && event->preeditString().isEmpty() && !event->commitString().isEmpty()) {
     tryRenderInline();
@@ -1719,7 +1760,7 @@ void Editor::insertFromMimeData(const QMimeData* source) {
   }
   const auto text = source->hasText() ? source->text() : QString();
   if (!text.isEmpty() && pasteTableText(text)) return;
-  clearImageTypingFormat();
+  clearTransientTypingFormat();
   if (m_imagePasteHandler && m_imagePasteHandler(source)) return;
   auto cursor = textCursor();
   if (!m_rendered || m_paragraphSourceActive || editor::isCodeSelection(cursor)) {
@@ -1880,6 +1921,69 @@ void Editor::dropEvent(QDropEvent* event) {
   QTextEdit::dropEvent(event);
 }
 
+bool Editor::handleMarkdownPair(QKeyEvent* event, QTextCursor cursor) {
+  const bool backspace = event->key() == Qt::Key_Backspace;
+  const auto input = event->text();
+  const auto typed = input.size() == 1 ? input.front() : QChar();
+  if (!backspace && !QLatin1String("*_`$~").contains(typed)) return false;
+  const int position = cursor.position();
+  const auto before = document()->characterAt(position - 1);
+  const auto after = document()->characterAt(position);
+  if (backspace) {
+    if (cursor.hasSelection() || cursor.atBlockStart() || before != after ||
+        !hasGeneratedMarkdownCloser(cursor) || hasGeneratedMarkdownCloser(cursor, -1))
+      return false;
+    cursor.beginEditBlock();
+    cursor.deleteChar();
+    cursor.deletePreviousChar();
+    cursor.endEditBlock();
+    setTextCursor(cursor);
+    return true;
+  }
+  if (cursor.hasSelection()) {
+    if (!formatMarkdownSelection(cursor, typed)) return false;
+    setTextCursor(cursor);
+    return true;
+  }
+  if (typed == '~' || editor::isInlineCodeFormat(cursor.charFormat())) return false;
+  if (after == typed && hasGeneratedMarkdownCloser(cursor)) {
+    if (before != typed || typed == '$' || hasGeneratedMarkdownCloser(cursor, -1)) {
+      cursor.setPosition(position + 1);
+      setTextCursor(cursor);
+      clearTransientTypingFormat();
+      if (document()->characterAt(cursor.position()) != typed ||
+          !hasGeneratedMarkdownCloser(cursor))
+        tryRenderInline();
+      return true;
+    }
+    // Repeating an opener inside an empty pair builds a longer delimiter.
+  } else {
+    const auto block = cursor.block();
+    const int contentStart = editor::listContentStart(block);
+    if (position <= contentStart) return false;
+    const auto text = block.text();
+    const auto prefix =
+        QStringView(text).mid(contentStart - block.position(), position - contentStart);
+    if (prefix.trimmed().isEmpty() ||
+        (!before.isSpace() && !QStringLiteral("([{:\u2014").contains(before)) ||
+        (!cursor.atBlockEnd() && !after.isSpace() && !QLatin1String(")]},.;:!?").contains(after)))
+      return false;
+  }
+
+  auto typing = currentCharFormat();
+  typing.clearProperty(editor::kAutoPairedMarkdownProperty);
+  auto closer = typing;
+  closer.setProperty(editor::kAutoPairedMarkdownProperty, true);
+  cursor.beginEditBlock();
+  cursor.insertText(QString(typed), typing);
+  cursor.insertText(QString(typed), closer);
+  cursor.setPosition(position + 1);
+  cursor.endEditBlock();
+  setTextCursor(cursor);
+  setCurrentCharFormat(typing);
+  return true;
+}
+
 void Editor::keyPressEvent(QKeyEvent* event) {
   if (event->matches(QKeySequence::SelectAll)) {
     selectAll();
@@ -1897,7 +2001,7 @@ void Editor::keyPressEvent(QKeyEvent* event) {
     paste();
     return;
   }
-  if (!event->text().isEmpty()) clearImageTypingFormat();
+  if (!event->text().isEmpty()) clearTransientTypingFormat();
   QTextCursor cursor = textCursor();
   const bool control = event->modifiers().testFlag(Qt::ControlModifier) ||
                        event->modifiers().testFlag(Qt::MetaModifier);
@@ -1949,6 +2053,9 @@ void Editor::keyPressEvent(QKeyEvent* event) {
       !event->modifiers().testFlag(Qt::AltModifier) && changeTaskStatus(editor::TaskStatus::Toggle))
     return;
   const bool code = m_rendered && cursor.blockFormat().hasProperty(editor::kCodeBlockProperty);
+  if (m_markdownAutoPair && m_rendered && plain && !isReadOnly() && !code && !special &&
+      handleMarkdownPair(event, cursor))
+    return;
   if (m_rendered && cursor.currentTable() && control && returnKey &&
       !event->modifiers().testFlag(Qt::AltModifier)) {
     exitTable();
@@ -2237,14 +2344,19 @@ void Editor::keyPressEvent(QKeyEvent* event) {
   }
 }
 
-void Editor::clearImageTypingFormat() {
+void Editor::clearTransientTypingFormat() {
   if (!m_rendered || textCursor().hasSelection()) return;
-  const auto current = currentCharFormat();
+  auto current = currentCharFormat();
   if (!current.isImageFormat() && !current.hasProperty(editor::kImageProperty) &&
       !current.hasProperty(editor::kSpecialSourceProperty) &&
       !current.hasProperty(editor::kMathSourceProperty) &&
-      !current.hasProperty(editor::kRawHtmlProperty))
+      !current.hasProperty(editor::kRawHtmlProperty)) {
+    if (current.hasProperty(editor::kAutoPairedMarkdownProperty)) {
+      current.clearProperty(editor::kAutoPairedMarkdownProperty);
+      setCurrentCharFormat(current);
+    }
     return;
+  }
   QTextCharFormat typing;
   const int heading = textCursor().blockFormat().headingLevel();
   if (heading > 0) {
