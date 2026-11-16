@@ -1087,7 +1087,7 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
               [this] { switchDocumentWindow(-1); });
 #ifdef Q_OS_MACOS
   nextDocument->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_QuoteLeft));
-  previousDocument->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_QuoteLeft));
+  previousDocument->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_Left));
 #else
   nextDocument->setShortcut(QKeySequence(QStringLiteral("Ctrl+Tab")));
   previousDocument->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+Tab")));

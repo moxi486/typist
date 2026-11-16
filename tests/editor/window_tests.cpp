@@ -247,7 +247,11 @@ class WindowTests : public QObject {
     QTest::keyClick(thirdEditor, cycleKey, Qt::ControlModifier);
     QTRY_COMPARE(active(), &first);
     QVERIFY(firstEditor->paragraphSourceActive());
+#ifdef Q_OS_MACOS
+    QTest::keyClick(input, Qt::Key_Left, Qt::ControlModifier | Qt::AltModifier);
+#else
     QTest::keyClick(input, cycleKey, Qt::ControlModifier | Qt::ShiftModifier);
+#endif
     QTRY_COMPARE(active(), third.data());
 
     second->showMinimized();
