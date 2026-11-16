@@ -58,6 +58,17 @@ QString editorText(const char* text) { return QCoreApplication::translate("Edito
 
 const auto kTypistMarkdownMime = QStringLiteral("application/x-typist-markdown");
 
+bool isUnicodeMarkerParagraph(const QTextCursor& cursor) {
+  using namespace typist::editor;
+  const auto format = cursor.blockFormat();
+  return !cursor.hasSelection() && !cursor.currentTable() && !cursor.block().textList() &&
+         format.headingLevel() == 0 && !format.hasProperty(kQuoteProperty) &&
+         !format.hasProperty(kCodeBlockProperty) && !format.hasProperty(kSpecialBlockProperty) &&
+         !format.hasProperty(kFootnoteDefinitionProperty) &&
+         !format.hasProperty(kRawBlockSourceProperty) && !format.hasProperty(kRuleProperty) &&
+         !typist::render::isPageBreak(cursor.block());
+}
+
 bool literalMarkdownPunctuationContext(QStringView prefix) {
   const auto content = prefix.trimmed();
   if (content.startsWith('[') && !content.startsWith(QLatin1String("[^"))) {
@@ -1825,9 +1836,16 @@ void Editor::centerWritingLine() {
 }
 
 void Editor::inputMethodEvent(QInputMethodEvent* event) {
-  if (!event->commitString().isEmpty()) clearTransientTypingFormat();
+  const bool committed = !event->commitString().isEmpty();
+  const auto before = textCursor();
+  const int inputOffset =
+      before.selectionStart() - before.block().position() + event->replacementStart();
+  const bool atUnicodeMarker =
+      m_unicodeBlockMarkers && !before.hasSelection() && inputOffset >= 0 && inputOffset <= 1;
+  if (committed) clearTransientTypingFormat();
   QTextEdit::inputMethodEvent(event);
-  if (m_rendered && event->preeditString().isEmpty() && !event->commitString().isEmpty()) {
+  if (m_rendered && event->preeditString().isEmpty() && committed) {
+    if (atUnicodeMarker) tryRenderUnicodeQuote();
     tryRenderInline();
   }
 }
@@ -2362,8 +2380,14 @@ void Editor::keyPressEvent(QKeyEvent* event) {
                        !editor::isInlineCodeFormat(cursor.charFormat());
     const QString opens = smart ? QStringLiteral("([{\"'\u201c\u2018") : QStringLiteral("([{\"'");
     const QString closes = smart ? QStringLiteral(")]}\"'\u201d\u2019") : QStringLiteral(")]}\"'");
-    const int opening = opens.indexOf(document()->characterAt(cursor.position() - 1));
-    if (opening >= 0 && document()->characterAt(cursor.position()) == closes.at(opening)) {
+    const auto left = document()->characterAt(cursor.position() - 1);
+    const auto right = document()->characterAt(cursor.position());
+    const int opening = opens.indexOf(left);
+    const auto matches = [left, right](QuotePair pair) {
+      return left == pair.opening && right == pair.closing;
+    };
+    if ((opening >= 0 && right == closes.at(opening)) ||
+        (smart && (matches(m_singleQuotePair) || matches(m_doubleQuotePair)))) {
       cursor.beginEditBlock();
       cursor.deleteChar();
       cursor.deletePreviousChar();
@@ -2495,9 +2519,13 @@ void Editor::keyPressEvent(QKeyEvent* event) {
         setTextCursor(cursor);
         return;
       }
-      if (!shift &&
-          (text.trimmed() == QStringLiteral("---") || text.trimmed() == QStringLiteral("***") ||
-           text.trimmed() == QStringLiteral("___"))) {
+      const auto marker = text.trimmed();
+      const bool unicodeRule = m_unicodeBlockMarkers && !isReadOnly() && cursor.atBlockEnd() &&
+                               marker == QStringLiteral("\u2014") &&
+                               isUnicodeMarkerParagraph(cursor) &&
+                               editor::inlineMarkdown(cursor.block()).trimmed() == marker;
+      if (!shift && (marker == QStringLiteral("---") || marker == QStringLiteral("***") ||
+                     marker == QStringLiteral("___") || unicodeRule)) {
         cursor.beginEditBlock();
         editor::setParagraphStyle(cursor, editor::ParagraphStyle::Rule);
         cursor.movePosition(QTextCursor::EndOfBlock);
@@ -2560,9 +2588,14 @@ void Editor::keyPressEvent(QKeyEvent* event) {
       return;
     }
   }
+  const bool atUnicodeMarker =
+      m_unicodeBlockMarkers && !cursor.hasSelection() && cursor.positionInBlock() <= 1;
   QTextEdit::keyPressEvent(event);
   if (m_rendered && plain && !code) {
     const auto typed = event->text();
+    if (atUnicodeMarker && (event->key() == Qt::Key_Space || typed == QStringLiteral("\u3000")) &&
+        tryRenderUnicodeQuote())
+      return;
     if (typed == QStringLiteral(">")) {
       const auto caret = textCursor();
       const int offset = caret.positionInBlock();
@@ -2604,6 +2637,30 @@ void Editor::clearTransientTypingFormat() {
     typing.setProperty(editor::kPresentationBoldProperty, true);
   }
   setCurrentCharFormat(typing);
+}
+
+bool Editor::tryRenderUnicodeQuote() {
+  if (!m_unicodeBlockMarkers || isReadOnly()) return false;
+  auto cursor = textCursor();
+  if (cursor.positionInBlock() < 2 || !isUnicodeMarkerParagraph(cursor)) return false;
+  const auto text = cursor.block().text();
+  if ((text.at(0) != u'\u300b' && text.at(0) != u'\uff1e') ||
+      (text.at(1) != ' ' && text.at(1) != u'\u3000'))
+    return false;
+  const auto format = characterFormatAt(cursor, -cursor.positionInBlock());
+  if (editor::isInlineCodeFormat(format) || format.isAnchor() ||
+      format.hasProperty(editor::kRawHtmlProperty) ||
+      format.hasProperty(editor::kMathSourceProperty))
+    return false;
+
+  QTextCursor prefix(cursor.block());
+  prefix.beginEditBlock();
+  prefix.setPosition(prefix.position() + 2, QTextCursor::KeepAnchor);
+  prefix.removeSelectedText();
+  editor::setParagraphStyle(prefix, editor::ParagraphStyle::Quote);
+  prefix.endEditBlock();
+  setTextCursor(cursor);
+  return true;
 }
 
 bool Editor::tryRenderInline() {

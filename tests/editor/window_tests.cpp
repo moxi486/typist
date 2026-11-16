@@ -1532,6 +1532,46 @@ class WindowTests : public QObject {
     QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
   }
 
+  void unicodeBlockMarkersPreferenceAppliesAndPersists() {
+    const auto key = QStringLiteral("editor/unicodeBlockMarkers");
+    QSettings settings;
+    const auto previous = settings.value(key);
+    const auto restore = qScopeGuard([&] {
+      if (previous.isValid())
+        settings.setValue(key, previous);
+      else
+        settings.remove(key);
+    });
+    settings.remove(key);
+    typist::MainWindow window(nullptr, true);
+    auto* action = window.findChild<QAction*>(QStringLiteral("unicodeBlockMarkers"));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(action && editor);
+    QVERIFY(!action->isChecked());
+    editor->insertPlainText(QStringLiteral("\u300b"));
+    QTest::keyClick(editor, Qt::Key_Space);
+    QCOMPARE(editor->toPlainText(), QStringLiteral("\u300b "));
+    QVERIFY(!editor->document()->begin().blockFormat().hasProperty(typist::editor::kQuoteProperty));
+
+    action->trigger();
+    QVERIFY(settings.value(key).toBool());
+    editor->clear();
+    editor->insertPlainText(QStringLiteral("\u300b"));
+    QTest::keyClick(editor, Qt::Key_Space);
+    QVERIFY(editor->document()->begin().blockFormat().hasProperty(typist::editor::kQuoteProperty));
+
+    typist::MainWindow second(nullptr, true);
+    auto* saved = second.findChild<QAction*>(QStringLiteral("unicodeBlockMarkers"));
+    auto* secondEditor = second.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(saved && secondEditor && saved->isChecked());
+    secondEditor->insertPlainText(QStringLiteral("\u2014"));
+    QTest::keyClick(secondEditor, Qt::Key_Return);
+    QVERIFY(
+        secondEditor->document()->begin().blockFormat().hasProperty(typist::editor::kRuleProperty));
+    saved->trigger();
+    QVERIFY(!settings.value(key).toBool());
+  }
+
   void smartDashesPreferenceAppliesAndPersists() {
     const auto key = QStringLiteral("editor/smartDashes");
     QSettings settings;

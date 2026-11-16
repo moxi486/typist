@@ -412,6 +412,10 @@
         <translation>智能破折号</translation>
     </message>
     <message>
+        <source>Unicode Markdown Block Markers</source>
+        <translation>Unicode Markdown 块标记</translation>
+    </message>
+    <message>
         <source>Copy and Cut Whole Line</source>
         <translation>复制和剪切整行</translation>
     </message>

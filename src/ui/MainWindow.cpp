@@ -1152,6 +1152,8 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   createSmartQuoteStyleMenu(settings);
   auto* smartDashes =
       command(settings, QStringLiteral("smartDashes"), tr("Smart Dashes"), QString(), [] {});
+  auto* unicodeMarkers = command(settings, QStringLiteral("unicodeBlockMarkers"),
+                                 tr("Unicode Markdown Block Markers"), QString(), [] {});
   QAction* syntax = command(settings, QStringLiteral("syntaxHighlight"), tr("Syntax Highlighting"),
                             QString(), [] {});
   syntax->setCheckable(true);
@@ -1240,6 +1242,14 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   connect(smartDashes, &QAction::toggled, this, [editor, smartDashesKey](bool enabled) {
     editor->setSmartDashes(enabled);
     QSettings().setValue(smartDashesKey, enabled);
+  });
+  const auto unicodeMarkersKey = QStringLiteral("editor/unicodeBlockMarkers");
+  unicodeMarkers->setCheckable(true);
+  unicodeMarkers->setChecked(QSettings().value(unicodeMarkersKey, false).toBool());
+  editor->setUnicodeBlockMarkers(unicodeMarkers->isChecked());
+  connect(unicodeMarkers, &QAction::toggled, this, [editor, unicodeMarkersKey](bool enabled) {
+    editor->setUnicodeBlockMarkers(enabled);
+    QSettings().setValue(unicodeMarkersKey, enabled);
   });
   auto* copyCutWholeLine = command(settings, QStringLiteral("copyCutWholeLine"),
                                    tr("Copy and Cut Whole Line"), QString(), [] {});
