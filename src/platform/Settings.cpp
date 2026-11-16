@@ -15,6 +15,7 @@ QSettings openSettings(QSettings::Format format = QSettings::NativeFormat) {
                    QStringLiteral("Typist"));
 }
 const auto writingAreaKey = QStringLiteral("editor/writingAreaWidths");
+const auto wheelZoomKey = QStringLiteral("editor/wheelZoom");
 const auto lineEndingKey = QStringLiteral("editor/defaultLineEnding");
 const auto markdownSuffixKey = QStringLiteral("files/defaultMarkdownSuffix");
 const auto launchOptionsKey = QStringLiteral("startup/options");
@@ -219,6 +220,14 @@ void setDefaultLineEnding(LineEnding ending) {
   openSettings(QSettings::defaultFormat())
       .setValue(lineEndingKey,
                 ending == LineEnding::Crlf ? QStringLiteral("crlf") : QStringLiteral("lf"));
+}
+
+bool wheelZoomEnabled() {
+  return openSettings(QSettings::defaultFormat()).value(wheelZoomKey, false).toBool();
+}
+
+void setWheelZoomEnabled(bool enabled) {
+  openSettings(QSettings::defaultFormat()).setValue(wheelZoomKey, enabled);
 }
 
 WritingAreaWidths writingAreaWidths() {

@@ -85,6 +85,7 @@
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
 #include <QScopeGuard>
+#include <QScopedValueRollback>
 #include <QScreen>
 #include <QSettings>
 #include <QSpinBox>
@@ -617,6 +618,7 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   // drives the undo/redo actions.
   for (QTextDocument* doc : {m_view->rendered(), m_view->source()}) {
     connect(doc, &QTextDocument::contentsChanged, this, [this, doc] {
+      if (m_applyingZoom) return;
       // A plain flag keeps typing cheap; the exact comparison against the saved
       // snapshot happens at save, undo, redo and view switch instead.
       typist::editor::boundUndoHistory(doc);
@@ -1078,11 +1080,22 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   typewriter->setChecked(
       QSettings().value(QStringLiteral("editor/typewriterMode"), false).toBool());
   command(view, QStringLiteral("zoomIn"), tr("Zoom In"), QStringLiteral("Ctrl+Shift+="),
-          [editor] { editor->zoomDocument(1); });
+          [this] { setZoomPercent(m_view->zoomPercent() + ui::kZoomStep); });
   command(view, QStringLiteral("zoomOut"), tr("Zoom Out"), QStringLiteral("Ctrl+Shift+-"),
-          [editor] { editor->zoomDocument(-1); });
+          [this] { setZoomPercent(m_view->zoomPercent() - ui::kZoomStep); });
   command(view, QStringLiteral("zoomReset"), tr("Actual Size"), QStringLiteral("Ctrl+Shift+0"),
-          [editor] { editor->resetZoom(); });
+          [this] { setZoomPercent(ui::kActualZoom); });
+  auto* wheelZoom =
+      command(view, QStringLiteral("wheelZoom"), tr("Zoom with Mouse Wheel"), QString(), [] {});
+  wheelZoom->setCheckable(true);
+  wheelZoom->setChecked(platform::wheelZoomEnabled());
+  connect(wheelZoom, &QAction::triggered, this, &platform::setWheelZoomEnabled);
+  connect(view, &QMenu::aboutToShow, wheelZoom,
+          [wheelZoom] { wheelZoom->setChecked(platform::wheelZoomEnabled()); });
+  connect(editor, &ui::Editor::zoomStepsRequested, this,
+          [this](int steps) { setZoomPercent(m_view->zoomPercent() + steps * ui::kZoomStep); });
+  connect(editor, &ui::Editor::zoomResetRequested, this,
+          [this] { setZoomPercent(ui::kActualZoom); });
   editor->setWritingAreaWidths(platform::writingAreaWidths());
   command(view, QStringLiteral("writingAreaWidth"), tr("Writing Area Width"), QString(),
           [this] { configureWritingArea(); });
@@ -2486,6 +2499,20 @@ void MainWindow::redo() {
   m_document->redo();
   m_dirty = currentMarkdown() != m_savedMarkdown;
   updateTitleAndStatus();
+}
+
+void MainWindow::setZoomPercent(int percent) {
+  percent = qBound(ui::kMinZoom, percent, ui::kMaxZoom);
+  if (percent == m_view->zoomPercent()) return;
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  const auto top = editor->cursorForPosition(QPoint(0, 0));
+  const int topY = editor->cursorRect(top).top();
+  // Qt emits contentsChanged when a highlighter updates layout formats.
+  const QScopedValueRollback<bool> updating(m_applyingZoom, true);
+  m_view->setZoomPercent(percent);
+  editor->showDocumentZoom(percent);
+  auto* scroll = editor->verticalScrollBar();
+  scroll->setValue(scroll->value() + editor->cursorRect(top).top() - topY);
 }
 
 void MainWindow::toggleSourceView() {

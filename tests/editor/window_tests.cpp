@@ -62,12 +62,14 @@
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextEdit>
+#include <QTextLayout>
 #include <QTextList>
 #include <QTextTable>
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
 #include <QTreeWidget>
+#include <QWheelEvent>
 #include <QWindow>
 #include <QXmlStreamReader>
 #include <QtTest>
@@ -1528,6 +1530,139 @@ class WindowTests : public QObject {
     QVERIFY(!toolbar->isVisible());
     QVERIFY(!settings.value(key).toBool());
     QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
+  }
+
+  void mouseWheelZoomSharesMenuAndControlsAcrossViews() {
+    const auto key = QStringLiteral("editor/wheelZoom");
+    QSettings settings;
+    const auto previous = settings.value(key);
+    const auto restore = qScopeGuard([&] {
+      if (previous.isValid())
+        settings.setValue(key, previous);
+      else
+        settings.remove(key);
+    });
+    settings.remove(key);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto original = directory.filePath(QStringLiteral("zoom.md"));
+    const QByteArray markdown =
+        QByteArray("# Heading\n\nBody paragraph\n\n```cpp\nreturn 42;\n```\n\n") +
+        QByteArray("More text\n\n").repeated(80);
+    QFile file(original);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write(markdown), qint64(markdown.size()));
+    file.close();
+    typist::MainWindow window(nullptr, true);
+    QVERIFY(window.openFile(original));
+    window.resize(880, 560);
+    window.show();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* wheelZoom = window.findChild<QAction*>(QStringLiteral("wheelZoom"));
+    auto* menuIn = window.findChild<QAction*>(QStringLiteral("zoomIn"));
+    auto* menuReset = window.findChild<QAction*>(QStringLiteral("zoomReset"));
+    auto* sourceToggle = window.findChild<QToolButton*>(QStringLiteral("sourceToggle"));
+    QVERIFY(editor && wheelZoom && menuIn && menuReset && sourceToggle);
+    QApplication::processEvents();
+    const auto sendWheel = [editor](QPoint angle, Qt::KeyboardModifiers modifiers,
+                                    QPoint pixels = {}, Qt::ScrollPhase phase = Qt::NoScrollPhase) {
+      auto* viewport = editor->viewport();
+      const auto position = viewport->rect().center();
+      QWheelEvent wheel(position, viewport->mapToGlobal(position), pixels, angle, Qt::NoButton,
+                        modifiers, phase, false);
+      QApplication::sendEvent(viewport, &wheel);
+      QApplication::processEvents();
+    };
+
+    const auto defaultSize = editor->document()->defaultFont().pointSizeF();
+    auto* scroll = editor->verticalScrollBar();
+    scroll->setValue(0);
+    QVERIFY(!wheelZoom->isChecked());
+    sendWheel(QPoint(0, -120), Qt::NoModifier);
+    QVERIFY(scroll->value() > 0);
+    sendWheel(QPoint(0, 120), Qt::ControlModifier);
+    QCOMPARE(editor->document()->defaultFont().pointSizeF(), defaultSize);
+    QVERIFY(!editor->findChild<QWidget*>(QStringLiteral("zoomControls")));
+
+    wheelZoom->trigger();
+    QVERIFY(settings.value(key).toBool());
+    {
+      typist::MainWindow second(nullptr, true);
+      const auto* choice = second.findChild<QAction*>(QStringLiteral("wheelZoom"));
+      QVERIFY(choice && choice->isChecked());
+      QVERIFY(!second.findChild<QWidget*>(QStringLiteral("zoomControls")));
+    }
+    scroll->setValue(0);
+    const QTextCursor heading = editor->document()->find(QStringLiteral("Heading"));
+    const auto headingSize = heading.charFormat().fontPointSize();
+    const auto headingHeight = editor->cursorRect(heading).height();
+    const QTextCursor code = editor->document()->find(QStringLiteral("return"));
+    editor->setTextCursor(editor->document()->find(QStringLiteral("Body paragraph")));
+    const auto selection = editor->textCursor().selectedText();
+    const auto savedMarkdown = typist::editor::serializeDocument(editor->document());
+    QVERIFY(!window.windowTitle().contains('*'));
+    sendWheel(QPoint(0, 60), Qt::ControlModifier);
+    QCOMPARE(editor->document()->defaultFont().pointSizeF(), defaultSize);
+    sendWheel(QPoint(0, 60), Qt::ControlModifier);
+    QCOMPARE(editor->document()->defaultFont().pointSizeF(), defaultSize * 1.1);
+    auto* controls = editor->findChild<QWidget*>(QStringLiteral("zoomControls"));
+    auto* increase = editor->findChild<QToolButton*>(QStringLiteral("zoomControlIn"));
+    auto* decrease = editor->findChild<QToolButton*>(QStringLiteral("zoomControlOut"));
+    auto* actual = editor->findChild<QToolButton*>(QStringLiteral("zoomControlReset"));
+    QVERIFY(controls && increase && decrease && actual);
+    QVERIFY(controls->isVisible());
+    QVERIFY(controls->geometry().right() < editor->width());
+    QCOMPARE(actual->text(), QStringLiteral("110%"));
+    QCOMPARE(heading.charFormat().fontPointSize(), headingSize);
+    QVERIFY(editor->cursorRect(heading).height() > headingHeight);
+    const auto codeFormats = code.block().layout()->formats();
+    QVERIFY(std::any_of(codeFormats.begin(), codeFormats.end(), [](const auto& range) {
+      return range.format.hasProperty(QTextFormat::FontPointSize) &&
+             range.format.hasProperty(QTextFormat::ForegroundBrush);
+    }));
+    QCOMPARE(typist::editor::serializeDocument(editor->document()), savedMarkdown);
+    QCOMPARE(editor->textCursor().selectedText(), selection);
+    QVERIFY(!editor->document()->isUndoAvailable());
+    QVERIFY(!window.windowTitle().contains('*'));
+
+    sendWheel(QPoint(120, 0), Qt::ControlModifier);
+    QCOMPARE(actual->text(), QStringLiteral("110%"));
+    sendWheel({}, Qt::ControlModifier, QPoint(0, 20), Qt::ScrollBegin);
+    sendWheel({}, Qt::ControlModifier, QPoint(0, 20), Qt::ScrollUpdate);
+    QCOMPARE(actual->text(), QStringLiteral("120%"));
+    increase->click();
+    QCOMPARE(actual->text(), QStringLiteral("130%"));
+    decrease->click();
+    QCOMPARE(actual->text(), QStringLiteral("120%"));
+    sourceToggle->click();
+    QCOMPARE(actual->text(), QStringLiteral("120%"));
+    const auto sourceSize = editor->document()->defaultFont().pointSizeF();
+    QVERIFY(sourceSize > 11.0);
+    editor->moveCursor(QTextCursor::End);
+    editor->insertPlainText(QStringLiteral("\nNew source paragraph\n"));
+    QVERIFY(editor->document()->isUndoAvailable());
+    menuIn->trigger();
+    QCOMPARE(actual->text(), QStringLiteral("130%"));
+    QVERIFY(editor->document()->defaultFont().pointSizeF() > sourceSize);
+    QVERIFY(editor->document()->isUndoAvailable());
+    sourceToggle->click();
+    QCOMPARE(editor->document()->defaultFont().pointSizeF(), defaultSize * 1.3);
+    QVERIFY(editor->toPlainText().contains(QStringLiteral("New source paragraph")));
+    QVERIFY(window.openFile(original));
+    QCOMPARE(editor->document()->defaultFont().pointSizeF(), defaultSize * 1.3);
+    sendWheel(QPoint(0, 12000), Qt::ControlModifier);
+    QCOMPARE(actual->text(), QStringLiteral("200%"));
+    QVERIFY(!increase->isEnabled());
+    actual->click();
+    QVERIFY(controls->isHidden());
+    QCOMPARE(editor->document()->defaultFont().pointSizeF(), defaultSize);
+    sourceToggle->click();
+    QCOMPARE(editor->document()->defaultFont().pointSizeF(), 11.0);
+    sendWheel(QPoint(0, -12000), Qt::ControlModifier);
+    QCOMPARE(actual->text(), QStringLiteral("50%"));
+    QVERIFY(!decrease->isEnabled());
+    menuReset->trigger();
+    QVERIFY(controls->isHidden());
   }
 
   void writingAreaWidthsApplyIndependentlyAndPersist() {

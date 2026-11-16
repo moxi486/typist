@@ -563,8 +563,10 @@ class EditingTests : public QObject {
     editor.setTypewriterMode(true);
     editor.moveCursor(QTextCursor::End);
     editor.setDarkTheme(true);
-    editor.zoomDocument(2);
-    editor.resetZoom();
+    view.setZoomPercent(120);
+    editor.showDocumentZoom(view.zoomPercent());
+    view.setZoomPercent(typist::ui::kActualZoom);
+    editor.showDocumentZoom(view.zoomPercent());
     QCOMPARE(markdown(editor), source);
     QVERIFY(!editor.document()->isUndoAvailable());
     editor.setTypewriterMode(false);

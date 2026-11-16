@@ -908,6 +908,10 @@
         <translation>缩小</translation>
     </message>
     <message>
+        <source>Zoom with Mouse Wheel</source>
+        <translation>使用鼠标滚轮缩放</translation>
+    </message>
+    <message>
         <source>Footnote</source>
         <translation>脚注</translation>
     </message>
@@ -1452,6 +1456,18 @@
 </context>
 <context>
     <name>Editor</name>
+    <message>
+        <source>Zoom In</source>
+        <translation>放大</translation>
+    </message>
+    <message>
+        <source>Zoom Out</source>
+        <translation>缩小</translation>
+    </message>
+    <message>
+        <source>Actual Size</source>
+        <translation>实际大小</translation>
+    </message>
     <message>
         <source>Page Break</source>
         <translation>分页符</translation>
