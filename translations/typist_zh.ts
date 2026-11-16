@@ -396,6 +396,10 @@
         <translation>智能引号</translation>
     </message>
     <message>
+        <source>Smart Dashes</source>
+        <translation>智能破折号</translation>
+    </message>
+    <message>
         <source>Copy and Cut Whole Line</source>
         <translation>复制和剪切整行</translation>
     </message>

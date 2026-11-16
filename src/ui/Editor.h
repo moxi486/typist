@@ -125,6 +125,7 @@ class Editor : public QTextEdit {
   void setAutoPair(bool enabled) { m_autoPair = enabled; }
   void setMarkdownAutoPair(bool enabled) { m_markdownAutoPair = enabled; }
   void setSmartQuotes(bool enabled) { m_smartQuotes = enabled; }
+  void setSmartDashes(bool enabled) { m_smartDashes = enabled; }
   void setCopyCutWholeLine(bool enabled) { m_copyCutWholeLine = enabled; }
   void setCopyMarkdownAsPlainText(bool enabled) { m_copyMarkdownAsPlainText = enabled; }
   bool focusMode() const { return m_focusMode; }
@@ -270,6 +271,7 @@ class Editor : public QTextEdit {
   void clearTransientTypingFormat();
   bool handleMarkdownPair(QKeyEvent* event, QTextCursor cursor);
   bool handleSmartQuote(QChar typed, QTextCursor cursor);
+  bool handleSmartDash(QChar typed, QTextCursor cursor);
   void updateCodeBlockBar(bool reset = false);
   void updateCodeBlockTheme();
   void updateCodeTabStops();
@@ -368,6 +370,7 @@ class Editor : public QTextEdit {
   bool m_autoPair = true;
   bool m_markdownAutoPair = false;
   bool m_smartQuotes = false;
+  bool m_smartDashes = false;
   bool m_copyCutWholeLine = false;
   bool m_copyMarkdownAsPlainText = false;
   bool m_droppingText = false;

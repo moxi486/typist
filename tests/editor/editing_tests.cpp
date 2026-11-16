@@ -32,6 +32,78 @@ class EditingTests : public QObject {
     QTest::qWait(5);
   }
  private slots:
+  void smartDashesConvertProseAndUndoToAscii() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    editor.setSmartDashes(true);
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "10--");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("10\u2013"));
+    editor.undo();
+    QCOMPARE(editor.toPlainText(), QStringLiteral("10--"));
+    editor.redo();
+    QCOMPARE(editor.toPlainText(), QStringLiteral("10\u2013"));
+
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "Wait---");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Wait\u2014"));
+    editor.undo();
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Wait---"));
+    editor.redo();
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Wait\u2014"));
+    QTest::keyClicks(&editor, " what...");
+    const auto expected = QStringLiteral("Wait\u2014 what\u2026");
+    QCOMPARE(editor.toPlainText(), expected);
+    QVERIFY(markdown(editor).startsWith(expected));
+    editor.undo();
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Wait\u2014 what..."));
+
+    prepare(editor, view, QStringLiteral("\u2026"));
+    editor.moveCursor(QTextCursor::End);
+    QTest::keyClicks(&editor, ".");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("\u2026."));
+    prepare(editor, view, QStringLiteral("Existing \u2013"));
+    editor.moveCursor(QTextCursor::End);
+    QTest::keyClicks(&editor, "-");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Existing \u2013-"));
+
+    prepare(editor, view, QStringLiteral("Before tail"));
+    auto cursor = editor.textCursor();
+    cursor.setPosition(6);
+    editor.setTextCursor(cursor);
+    QTest::keyClicks(&editor, "---");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Before\u2014 tail"));
+  }
+
+  void smartDashesPreserveMarkdownSyntaxAndLiteralInput() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    editor.setSmartDashes(true);
+    editor.setAutoPair(false);
+    prepare(editor, view);
+    for (const auto* text :
+         {"Text \\--- and \\...", "Formula $x--1...", "Link [label](foo--bar...",
+          "URL https://example.org/a--b...", "Code `run--...", "Text <!-- a--b... -->"}) {
+      QTest::keyClicks(&editor, text);
+      QCOMPARE(editor.toPlainText(), QString::fromLatin1(text));
+      prepare(editor, view);
+    }
+    QTest::keyClicks(&editor, "---");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("---"));
+    QTest::keyClick(&editor, Qt::Key_Return);
+    QVERIFY(editor.document()->begin().blockFormat().hasProperty(typist::editor::kRuleProperty));
+
+    prepare(editor, view, QStringLiteral("```text\ncode\n```\n"));
+    editor.moveCursor(QTextCursor::End);
+    QTest::keyClicks(&editor, " --...");
+    QVERIFY(markdown(editor).contains(QStringLiteral("code --...")));
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    editor.clear();
+    QTest::keyClicks(&editor, "Source --- ...");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Source --- ..."));
+  }
+
   void smartQuotesConvertTypingAndRespectUndo() {
     typist::ui::ViewSwitch view;
     typist::ui::Editor editor;
