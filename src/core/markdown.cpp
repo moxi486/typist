@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cctype>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -16,6 +17,11 @@
 
 namespace typist::core {
 namespace {
+
+void registerExtensions() {
+  static std::once_flag registration;
+  std::call_once(registration, cmark_gfm_core_extensions_ensure_registered);
+}
 
 bool replaceWithUnderlineTag(cmark_node* node, const char* tag) {
   // The safe HTML renderer can emit this fixed tag without enabling raw HTML.
@@ -695,7 +701,7 @@ std::vector<ImageSource> imageSources(std::string_view source) {
   std::vector<std::size_t> lines{0};
   for (std::size_t i = 0; i < source.size(); ++i)
     if (source[i] == '\n') lines.push_back(i + 1);
-  cmark_gfm_core_extensions_ensure_registered();
+  registerExtensions();
   std::unique_ptr<cmark_parser, decltype(&cmark_parser_free)> parser(
       cmark_parser_new(CMARK_OPT_DEFAULT), &cmark_parser_free);
   if (!parser) return {};
@@ -780,7 +786,7 @@ ParseResult parseMarkdown(std::string_view source, const ParseOptions& options) 
   const std::string prepared = prepareAdvancedMarkdown(source);
   source = prepared;
   ParseResult result;
-  cmark_gfm_core_extensions_ensure_registered();
+  registerExtensions();
 
   std::unique_ptr<cmark_parser, decltype(&cmark_parser_free)> parser(
       cmark_parser_new(CMARK_OPT_DEFAULT), &cmark_parser_free);
@@ -881,7 +887,7 @@ std::string restoreHtmlBreaks(std::string html) {
 
 std::string renderHtml(std::string_view source, const ParseOptions& options, bool preserveRawHtml) {
   const int flags = preserveRawHtml ? CMARK_OPT_UNSAFE : CMARK_OPT_DEFAULT;
-  cmark_gfm_core_extensions_ensure_registered();
+  registerExtensions();
   cmark_mem* mem = cmark_get_default_mem_allocator();
 
   std::unique_ptr<cmark_parser, decltype(&cmark_parser_free)> parser(cmark_parser_new(flags),

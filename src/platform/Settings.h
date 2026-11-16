@@ -76,6 +76,14 @@ void setCopyImagesToAssets(bool enabled);
 bool wheelZoomEnabled();
 void setWheelZoomEnabled(bool enabled);
 
+enum class StatisticsUnit { Words, Characters, NonSpaceCharacters, Lines };
+StatisticsUnit statisticsUnit();
+void setStatisticsUnit(StatisticsUnit unit);
+inline constexpr int kMinReadingSpeed = 25;
+inline constexpr int kMaxReadingSpeed = 2000;
+int readingSpeed();
+void setReadingSpeed(int wordsPerMinute);
+
 enum class WritingWidth { Fill = 0, Compact = 640, Standard = 860, Wide = 1120 };
 struct WritingAreaWidths {
   WritingWidth rendered = WritingWidth::Standard;

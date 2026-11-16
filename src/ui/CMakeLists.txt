@@ -20,6 +20,7 @@ target_sources(typist_ui_viewswitch PRIVATE ImageExportDialog.h ImageExportDialo
 target_sources(typist_ui_viewswitch PRIVATE QuickOpenDialog.h QuickOpenDialog.cpp)
 target_sources(typist_ui_viewswitch PRIVATE WorkspaceSearchPanel.h WorkspaceSearchPanel.cpp)
 target_sources(typist_ui_viewswitch PRIVATE FolderLocationsMenu.h FolderLocationsMenu.cpp)
+target_sources(typist_ui_viewswitch PRIVATE DocumentStatistics.h DocumentStatistics.cpp)
 add_library(typist::ui_viewswitch ALIAS typist_ui_viewswitch)
 target_include_directories(typist_ui_viewswitch PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(typist_ui_viewswitch PROPERTIES AUTOMOC ON)

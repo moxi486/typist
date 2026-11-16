@@ -179,6 +179,7 @@ class Editor : public QTextEdit {
   void codeLanguageChosen(const QString& language);
   void renderedEditingAvailableChanged(bool available);
   void paragraphSourceChanged();
+  void paragraphSourceSelectionChanged();
   void paragraphSourceClosed();
   void markdownFileDropped(const QString& path);
   void folderDropped(const QString& path);

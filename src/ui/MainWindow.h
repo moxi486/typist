@@ -48,6 +48,8 @@ class AppTranslator;
 class WorkspaceSearchPanel;
 class FolderLocationsMenu;
 class OutlinePanel;
+class DocumentStatisticsButton;
+struct StatisticsInput;
 }  // namespace typist::ui
 
 namespace typist {
@@ -221,6 +223,8 @@ class MainWindow : public QMainWindow {
   void resetPreviousExport();
   void insertLinkDialog();
   void showDocumentStatistics();
+  ui::StatisticsInput statisticsInput() const;
+  void configureReadingSpeed();
   void replaceOne();
   void replaceAll();
   void closeEvent(QCloseEvent* event) override;
@@ -258,7 +262,7 @@ class MainWindow : public QMainWindow {
   QAction* m_outlineAction = nullptr;
   QAction* m_pasteMarkdownAction = nullptr;
   QAction* m_updateAction = nullptr;
-  QLabel* m_detailsLabel = nullptr;
+  ui::DocumentStatisticsButton* m_statistics = nullptr;
   ui::AppTranslator* m_translator = nullptr;
   bool m_autoSaveEnabled = true;
 #ifdef TYPIST_HAS_NETWORK

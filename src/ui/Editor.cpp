@@ -453,6 +453,8 @@ bool Editor::startParagraphSourceEdit() {
     });
     connect(m_paragraphPanel, &ParagraphSourcePanel::applyRequested, this,
             [this] { finishParagraphSourceEdit(); });
+    connect(m_paragraphPanel->input(), &QPlainTextEdit::selectionChanged, this,
+            &Editor::paragraphSourceSelectionChanged);
     connect(m_paragraphPanel, &ParagraphSourcePanel::cancelRequested, this,
             [this] { finishParagraphSourceEdit(false); });
     connect(m_paragraphPanel, &ParagraphSourcePanel::imagePasteRequested, this,
@@ -490,6 +492,7 @@ bool Editor::startParagraphSourceEdit() {
   auto caret = m_paragraphPanel->input()->textCursor();
   caret.movePosition(QTextCursor::End);
   m_paragraphPanel->input()->setTextCursor(caret);
+  emit paragraphSourceSelectionChanged();
   emit renderedEditingAvailableChanged(false);
   return true;
 }

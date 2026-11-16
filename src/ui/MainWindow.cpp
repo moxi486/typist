@@ -3,6 +3,7 @@
 #include "AutoSave.h"
 #include "CodeEditing.h"
 #include "Conflict.h"
+#include "DocumentStatistics.h"
 #include "DocxWriter.h"
 #include "Editor.h"
 #include "EpubDialog.h"
@@ -597,16 +598,18 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   sourceButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
   sourceButton->setIconSize(QSize(17, 17));
   statusBar()->addWidget(sourceButton);
-  m_detailsLabel = new QLabel(this);
-  m_detailsLabel->setObjectName(QStringLiteral("documentStatistics"));
-  m_detailsLabel->setCursor(Qt::PointingHandCursor);
-  m_detailsLabel->installEventFilter(this);
-  statusBar()->addPermanentWidget(m_detailsLabel);
+  m_statistics = new ui::DocumentStatisticsButton([this] { return statisticsInput(); }, this);
+  statusBar()->addPermanentWidget(m_statistics);
+  connect(m_editor, &QTextEdit::selectionChanged, m_statistics,
+          &ui::DocumentStatisticsButton::schedule);
+  connect(static_cast<ui::Editor*>(m_editor), &ui::Editor::paragraphSourceSelectionChanged,
+          m_statistics, &ui::DocumentStatisticsButton::schedule);
 
   // Keep original labels so live language changes preserve the document and undo history.
   for (QAction* action : findChildren<QAction*>())
     if (!action->property("fileBrowserSource").isValid() &&
-        !action->property("folderLocationAction").isValid() && action->parent() != m_outlinePanel)
+        !action->property("folderLocationAction").isValid() && action->parent() != m_outlinePanel &&
+        action->parent() != m_statistics->menu())
       action->setProperty("translationSource", action->text());
   m_translator = new ui::AppTranslator(this);
   setLanguage(platform::languagePreference());
@@ -1101,6 +1104,8 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
           [this] { configureWritingArea(); });
   command(view, QStringLiteral("wordCount"), tr("Document Statistics"), QString(),
           [this] { showDocumentStatistics(); });
+  command(settings, QStringLiteral("readingSpeed"), tr("Reading Speed…"), QString(),
+          [this] { configureReadingSpeed(); });
   auto* jumpMenu = view->addMenu(tr("Jump"));
   jumpMenu->setObjectName(QStringLiteral("jumpMenu"));
   command(jumpMenu, QStringLiteral("jumpSelection"), tr("Jump to Selection"),
@@ -1813,31 +1818,38 @@ void MainWindow::replaceAll() {
   statusBar()->showMessage(tr("Replaced %1 matches").arg(count), 3000);
 }
 
-void MainWindow::showDocumentStatistics() {
-  static_cast<ui::Editor*>(m_editor)->finishParagraphSourceEdit();
-  const QString text = m_editor->textCursor().hasSelection() ? m_editor->textCursor().selectedText()
-                                                             : m_document->toPlainText();
-  int words = 0, visible = 0;
-  bool inWord = false;
-  const auto characters = text.toUcs4();
-  for (const auto ch : characters) {
-    if (!QChar::isSpace(ch)) ++visible;
-    const bool cjk = (ch >= 0x3400 && ch <= 0x9fff) || (ch >= 0x20000 && ch <= 0x3134f) ||
-                     (ch >= 0x3040 && ch <= 0x30ff) || (ch >= 0xac00 && ch <= 0xd7af);
-    if (cjk) {
-      ++words;
-      inWord = false;
-    } else if (QChar::isLetterOrNumber(ch)) {
-      if (!inWord) ++words;
-      inWord = true;
-    } else if (ch != '\'' && ch != '-')
-      inWord = false;
+void MainWindow::showDocumentStatistics() { m_statistics->showMenu(); }
+
+ui::StatisticsInput MainWindow::statisticsInput() const {
+  const auto* writingEditor = static_cast<ui::Editor*>(m_editor);
+  if (writingEditor->paragraphSourceActive()) {
+    const auto selected = writingEditor->paragraphSourceSelection();
+    if (!selected.isEmpty()) return {selected, true};
+  } else if (const auto cursor = m_editor->textCursor(); cursor.hasSelection()) {
+    const auto literal =
+        cursor.selectedText().replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+    if (!m_sourceMode) {
+      const auto markdown = editor::selectedMarkdown(cursor);
+      if (!markdown.isEmpty()) return {markdown, true};
+    }
+    return {literal, true};
   }
-  const QString message = tr("Words: %1").arg(words) + QLatin1Char('\n') +
-                          tr("Characters: %1").arg(characters.size()) + QLatin1Char('\n') +
-                          tr("Characters without spaces: %1").arg(visible) + QLatin1Char('\n') +
-                          tr("Reading time: %1 min").arg((words + 199) / 200);
-  QMessageBox::information(this, tr("Document Statistics"), message);
+  return {m_dirty || m_sourceMode ? currentMarkdown() : m_savedMarkdown, false};
+}
+
+void MainWindow::configureReadingSpeed() {
+  auto* writingEditor = static_cast<ui::Editor*>(m_editor);
+  const bool focusCommit = writingEditor->setParagraphSourceFocusCommitEnabled(false);
+  const auto restore = qScopeGuard([writingEditor, focusCommit] {
+    writingEditor->setParagraphSourceFocusCommitEnabled(focusCommit);
+  });
+  bool ok = false;
+  const int speed = QInputDialog::getInt(this, tr("Reading Speed"), tr("Words per minute"),
+                                         platform::readingSpeed(), platform::kMinReadingSpeed,
+                                         platform::kMaxReadingSpeed, 1, &ok);
+  if (!ok) return;
+  platform::setReadingSpeed(speed);
+  m_statistics->refreshPreferences();
 }
 
 void MainWindow::openDialog() {
@@ -2975,7 +2987,7 @@ void MainWindow::retranslateUi() {
   m_tree->setAccessibleName(tr("Files"));
   m_editor->setAccessibleName(tr("Markdown editor"));
   m_editor->setPlaceholderText(tr("Start writing, or open a Markdown file..."));
-  if (m_detailsLabel) m_detailsLabel->setToolTip(tr("Document Statistics"));
+  m_statistics->refreshPreferences();
   m_findBar->retranslateUi();
   m_sourceAction->setText(m_sourceMode ? tr("Rendered View") : tr("Source View"));
   rebuildRecentMenu();
@@ -3032,8 +3044,7 @@ void MainWindow::updateTitleAndStatus() {
   const QString base =
       m_currentPath.isEmpty() ? tr("Untitled") : QFileInfo(m_currentPath).fileName();
   setWindowTitle(base + (m_dirty ? QStringLiteral(" *") : QString()) + QStringLiteral(" — Typist"));
-  if (m_detailsLabel)
-    m_detailsLabel->setText(tr("%1 characters").arg(qMax(0, m_document->characterCount() - 1)));
+  if (m_statistics) m_statistics->schedule();
   m_sourceAction->setChecked(m_sourceMode);
   statusBar()->clearMessage();
 }
@@ -3256,10 +3267,6 @@ bool MainWindow::insertImageMarkdown(const QStringList& images) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
-  if (watched == m_detailsLabel && event->type() == QEvent::MouseButtonRelease) {
-    showDocumentStatistics();
-    return true;
-  }
   if (m_editor != nullptr && watched == m_editor->viewport() &&
       event->type() == QEvent::MouseButtonRelease) {
     toggleTaskAtClick(static_cast<QMouseEvent*>(event));
