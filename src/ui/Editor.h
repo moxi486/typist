@@ -133,6 +133,7 @@ class Editor : public QTextEdit {
     (straightQuote == '\'' ? m_singleQuotePair : m_doubleQuotePair) = pair;
   }
   void setSmartDashes(bool enabled) { m_smartDashes = enabled; }
+  void setUnicodeBlockMarkers(bool enabled) { m_unicodeBlockMarkers = enabled; }
   void setCopyCutWholeLine(bool enabled) { m_copyCutWholeLine = enabled; }
   void setCopyMarkdownAsPlainText(bool enabled) { m_copyMarkdownAsPlainText = enabled; }
   bool focusMode() const { return m_focusMode; }
@@ -380,6 +381,7 @@ class Editor : public QTextEdit {
   QuotePair m_singleQuotePair{u'\u2018', u'\u2019'};
   QuotePair m_doubleQuotePair{u'\u201c', u'\u201d'};
   bool m_smartDashes = false;
+  bool m_unicodeBlockMarkers = false;
   bool m_copyCutWholeLine = false;
   bool m_copyMarkdownAsPlainText = false;
   bool m_droppingText = false;
@@ -400,6 +402,7 @@ class Editor : public QTextEdit {
   QString m_pressedLink;
   void centerWritingLine();
   bool tryRenderInline();
+  bool tryRenderUnicodeQuote();
   QMetaObject::Connection m_documentConnection;
   QList<ExtraSelection> m_searchHighlights;
 };

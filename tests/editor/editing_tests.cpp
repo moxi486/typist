@@ -32,6 +32,84 @@ class EditingTests : public QObject {
     QTest::qWait(5);
   }
  private slots:
+  void unicodeBlockMarkersConvertKeyboardAndInputMethodText() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    editor.setUnicodeBlockMarkers(true);
+    prepare(editor, view);
+    QInputMethodEvent prefix;
+    prefix.setCommitString(QStringLiteral("\u300b"));
+    QApplication::sendEvent(&editor, &prefix);
+    QTest::keyClick(&editor, Qt::Key_Space);
+    QVERIFY(editor.document()->begin().blockFormat().hasProperty(typist::editor::kQuoteProperty));
+    QVERIFY(editor.toPlainText().isEmpty());
+    editor.undo();
+    QCOMPARE(editor.toPlainText(), QStringLiteral("\u300b "));
+    editor.redo();
+    editor.moveCursor(QTextCursor::End);
+    QTest::keyClicks(&editor, "A quotation");
+    QCOMPARE(markdown(editor).trimmed(), QStringLiteral("> A quotation"));
+
+    prepare(editor, view, QStringLiteral("tail"));
+    editor.moveCursor(QTextCursor::Start);
+    QInputMethodEvent withText;
+    const auto quoted = QStringLiteral("\u5f15\u7528 ");
+    withText.setCommitString(QStringLiteral("\uff1e\u3000") + quoted);
+    QApplication::sendEvent(&editor, &withText);
+    QCOMPARE(editor.toPlainText(), quoted + QStringLiteral("tail"));
+    QCOMPARE(editor.textCursor().position(), quoted.size());
+    QCOMPARE(markdown(editor).trimmed(), QStringLiteral("> ") + quoted + QStringLiteral("tail"));
+    editor.undo();
+    QCOMPARE(editor.toPlainText(),
+             QStringLiteral("\uff1e\u3000") + quoted + QStringLiteral("tail"));
+
+    prepare(editor, view);
+    const auto input = QStringLiteral(" \u2014 ");
+    editor.insertPlainText(input);
+    QTest::keyClick(&editor, Qt::Key_Return);
+    QVERIFY(editor.document()->begin().blockFormat().hasProperty(typist::editor::kRuleProperty));
+    QCOMPARE(markdown(editor).trimmed(), QStringLiteral("---"));
+    editor.undo();
+    QCOMPARE(editor.toPlainText(), input);
+  }
+
+  void unicodeBlockMarkersKeepLiteralTextAndStructuredBlocks() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    editor.setUnicodeBlockMarkers(true);
+    prepare(editor, view);
+    const auto ordinary = QStringLiteral("Text \u300b quotation and a dash \u2014");
+    editor.insertPlainText(ordinary);
+    QTest::keyClick(&editor, Qt::Key_Return);
+    QCOMPARE(markdown(editor).trimmed(), ordinary);
+
+    for (const auto& literal : {QStringLiteral("`\u2014`"), QStringLiteral("**\u2014**"),
+                                QStringLiteral("[\u2014](note)"), QStringLiteral("# \u2014"),
+                                QStringLiteral("- \u2014"), QStringLiteral("> \u2014")}) {
+      prepare(editor, view, literal);
+      editor.moveCursor(QTextCursor::End);
+      QTest::keyClick(&editor, Qt::Key_Return);
+      QVERIFY(!editor.document()->begin().blockFormat().hasProperty(typist::editor::kRuleProperty));
+      QVERIFY(markdown(editor).startsWith(literal));
+    }
+
+    prepare(editor, view, QStringLiteral("```text\n\u300b\n\u2014\n```\n"));
+    editor.moveCursor(QTextCursor::Start);
+    editor.moveCursor(QTextCursor::EndOfBlock);
+    QTest::keyClick(&editor, Qt::Key_Space);
+    QVERIFY(editor.document()->begin().text().startsWith(QStringLiteral("\u300b ")));
+    editor.moveCursor(QTextCursor::End);
+    QTest::keyClick(&editor, Qt::Key_Return);
+    QVERIFY(markdown(editor).contains(QStringLiteral("\n\u2014\n")));
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    editor.clear();
+    QInputMethodEvent source;
+    source.setCommitString(QStringLiteral("\uff1e\u3000title"));
+    QApplication::sendEvent(&editor, &source);
+    QCOMPARE(editor.toPlainText(), QStringLiteral("\uff1e\u3000title"));
+  }
+
   void smartDashesConvertProseAndUndoToAscii() {
     typist::ui::ViewSwitch view;
     typist::ui::Editor editor;
@@ -197,6 +275,14 @@ class EditingTests : public QObject {
     QCOMPARE(editor.textCursor().position(), 1);
     QTest::keyClicks(&editor, "Word\".");
     QCOMPARE(editor.toPlainText(), QStringLiteral("\u300cWord\u300d."));
+
+    prepare(editor, view);
+    for (const auto* quote : {"\"", "'"}) {
+      QTest::keyClicks(&editor, quote);
+      QCOMPARE(editor.toPlainText().size(), 2);
+      QTest::keyClick(&editor, Qt::Key_Backspace);
+      QVERIFY(editor.toPlainText().isEmpty());
+    }
 
     prepare(editor, view, QStringLiteral("Wrap"));
     auto cursor = editor.textCursor();
