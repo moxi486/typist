@@ -392,6 +392,10 @@
         <translation>自动配对 Markdown 符号</translation>
     </message>
     <message>
+        <source>Smart Quotes</source>
+        <translation>智能引号</translation>
+    </message>
+    <message>
         <source>Copy and Cut Whole Line</source>
         <translation>复制和剪切整行</translation>
     </message>

@@ -22,6 +22,12 @@
 
 选中同一段的文字后，星号和下划线应用斜体，反引号应用行内代码，波浪线应用删除线，美元符号可将有效的公式源码转为行内公式。格式从选区的首个非空白字符应用到最后一个非空白字符。行首列表、分隔线和代码围栏沿用 Markdown 的普通输入方式。源码视图、段落源码框和代码块按原文输入这些符号。 [Typora 自动配对说明](https://support.typora.io/Auto-Pair/)
 
+## 智能引号
+
+在「设置 → 智能引号」开启后，在渲染视图的正文键入直引号会转换为弯引号，英文缩写的撇号使用右单引号。弯引号会写入 Markdown。启用「自动配对括号与引号」时，也可成对输入弯引号或给选区加引号。单个引号的转换可用撤销恢复为直引号。在直引号前输入反斜杠可输入字面引号。
+
+代码、公式源码、链接目标、HTML 标记以及源码视图和段落源码框按原文输入引号。 [Typora 智能标点说明](https://support.typora.io/SmartyPants/#smart-quotes)
+
 代码块按围栏中的语言标识着色。在「段落 → 代码语言」修改当前整个代码块的语言；修改可一次撤销。留空或使用未知语言时显示普通代码。「设置 → 语法高亮」可开关编辑器中的着色。
 
 常用标识包括 cpp / c++、c、python / py、javascript / js、typescript / ts、json、bash / sh、powershell / ps1、java、cs / csharp、go、rust、swift、kotlin、sql、html / xml、css、yaml / yml、toml、markdown / md、latex / tex。此高亮器使用轻量词法规则，不等同于 IDE 的语义分析。支持常见多行注释、Python 三引号字符串和 C++ 原始字符串；超过 32768 字符的单行跳过高亮，保留全部原文。

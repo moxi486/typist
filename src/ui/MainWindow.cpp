@@ -1146,6 +1146,8 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
                               tr("Auto Pair Brackets and Quotes"), QString(), [] {});
   auto* markdownAutoPair = command(settings, QStringLiteral("markdownAutoPair"),
                                    tr("Auto Pair Markdown Syntax"), QString(), [] {});
+  auto* smartQuotes =
+      command(settings, QStringLiteral("smartQuotes"), tr("Smart Quotes"), QString(), [] {});
   QAction* syntax = command(settings, QStringLiteral("syntaxHighlight"), tr("Syntax Highlighting"),
                             QString(), [] {});
   syntax->setCheckable(true);
@@ -1218,6 +1220,14 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   connect(markdownAutoPair, &QAction::toggled, this, [editor, markdownAutoPairKey](bool enabled) {
     editor->setMarkdownAutoPair(enabled);
     QSettings().setValue(markdownAutoPairKey, enabled);
+  });
+  const auto smartQuotesKey = QStringLiteral("editor/smartQuotes");
+  smartQuotes->setCheckable(true);
+  smartQuotes->setChecked(QSettings().value(smartQuotesKey, false).toBool());
+  editor->setSmartQuotes(smartQuotes->isChecked());
+  connect(smartQuotes, &QAction::toggled, this, [editor, smartQuotesKey](bool enabled) {
+    editor->setSmartQuotes(enabled);
+    QSettings().setValue(smartQuotesKey, enabled);
   });
   auto* copyCutWholeLine = command(settings, QStringLiteral("copyCutWholeLine"),
                                    tr("Copy and Cut Whole Line"), QString(), [] {});

@@ -1532,6 +1532,37 @@ class WindowTests : public QObject {
     QCOMPARE(typist::editor::serializeDocument(editor->document()), original);
   }
 
+  void smartQuotesPreferenceAppliesAndPersists() {
+    const auto key = QStringLiteral("editor/smartQuotes");
+    QSettings settings;
+    const auto previous = settings.value(key);
+    const auto restore = qScopeGuard([&] {
+      if (previous.isValid())
+        settings.setValue(key, previous);
+      else
+        settings.remove(key);
+    });
+    settings.remove(key);
+    typist::MainWindow window(nullptr, true);
+    auto* action = window.findChild<QAction*>(QStringLiteral("smartQuotes"));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(action && editor);
+    QVERIFY(!action->isChecked());
+    QTest::keyClicks(editor, "It's");
+    QCOMPARE(editor->toPlainText(), QStringLiteral("It's"));
+    action->trigger();
+    QVERIFY(settings.value(key).toBool());
+    editor->clear();
+    QTest::keyClicks(editor, "It's");
+    QCOMPARE(editor->toPlainText(), QStringLiteral("It\u2019s"));
+
+    typist::MainWindow second(nullptr, true);
+    auto* secondAction = second.findChild<QAction*>(QStringLiteral("smartQuotes"));
+    QVERIFY(secondAction && secondAction->isChecked());
+    secondAction->trigger();
+    QVERIFY(!settings.value(key).toBool());
+  }
+
   void markdownAutoPairPreferenceIsIndependentAndPersists() {
     const auto markdownKey = QStringLiteral("editor/markdownAutoPair");
     const auto bracketsKey = QStringLiteral("editor/autoPair");
