@@ -28,6 +28,7 @@
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QFontMetricsF>
+#include <QHBoxLayout>
 #include <QHelpEvent>
 #include <QInputDialog>
 #include <QInputMethodEvent>
@@ -46,8 +47,10 @@
 #include <QTextDocumentFragment>
 #include <QTextList>
 #include <QTextTable>
+#include <QToolButton>
 #include <QToolTip>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 #include <QtMath>
 
 namespace {
@@ -207,7 +210,9 @@ void Editor::setCodeIndentSize(int columns) {
 }
 
 void Editor::updateCodeTabStops() {
-  const auto font = m_rendered ? editor::codeBlockFont() : document()->defaultFont();
+  auto font = m_rendered ? editor::codeBlockFont() : document()->defaultFont();
+  if (m_rendered && m_displayZoomPercent != kActualZoom)
+    font.setPointSizeF(font.pointSizeF() * m_displayZoomPercent / kActualZoom);
   const auto column = QFontMetricsF(font, viewport()).horizontalAdvance(QLatin1Char(' '));
   const qreal distance = m_codeIndentSize * qMax<qreal>(1, column);
   if (!qFuzzyCompare(tabStopDistance(), distance)) setTabStopDistance(distance);
@@ -250,6 +255,95 @@ void Editor::changeEvent(QEvent* event) {
   QTextEdit::changeEvent(event);
   if (event->type() == QEvent::ReadOnlyChange && m_editorToolbar && m_toolbarEnabled)
     updateWritingArea();
+  if (event->type() == QEvent::LanguageChange) updateZoomControls();
+}
+
+void Editor::wheelEvent(QWheelEvent* event) {
+  const bool modified = event->modifiers() == Qt::ControlModifier;
+  if (!modified || event->phase() == Qt::ScrollBegin || event->phase() == Qt::ScrollEnd)
+    m_wheelZoomSteps = 0;
+  if (modified && platform::wheelZoomEnabled()) {
+    const int angle = event->angleDelta().y();
+    const int pixels = event->pixelDelta().y();
+    if (angle || pixels) {
+      m_wheelZoomSteps += angle ? angle / 120.0 : pixels / 40.0;
+      const int steps = int(m_wheelZoomSteps);
+      m_wheelZoomSteps -= steps;
+      if (steps) emit zoomStepsRequested(steps);
+      event->accept();
+      return;
+    }
+  } else {
+    m_wheelZoomSteps = 0;
+  }
+  // QTextEdit applies its own Ctrl+wheel zoom to read-only documents.
+  QAbstractScrollArea::wheelEvent(event);
+}
+
+void Editor::showDocumentZoom(int percent) {
+  m_displayZoomPercent = percent;
+  if (m_rendered)
+    render::installSyntaxHighlighter(document(), false, m_dark, m_syntaxHighlight)
+        ->setZoomPercent(percent);
+  updateCodeTabStops();
+  updateZoomControls();
+  updateWritingArea();
+  updateDecorations();
+  updateParagraphSourceGeometry();
+  updateCodeBlockBar();
+  updateTableBar();
+}
+
+void Editor::createZoomControls() {
+  m_zoomControls = new QFrame(this);
+  m_zoomControls->setObjectName(QStringLiteral("zoomControls"));
+  auto* layout = new QHBoxLayout(m_zoomControls);
+  layout->setContentsMargins(3, 2, 3, 2);
+  layout->setSpacing(2);
+  const auto button = [this, layout](const QString& name, const QString& label) {
+    auto* tool = new QToolButton(m_zoomControls);
+    tool->setObjectName(name);
+    tool->setText(label);
+    // A click on the controls should keep the current writing focus.
+    tool->setFocusPolicy(Qt::TabFocus);
+    layout->addWidget(tool);
+    return tool;
+  };
+  m_zoomOut = button(QStringLiteral("zoomControlOut"), QStringLiteral("−"));
+  m_zoomReset = button(QStringLiteral("zoomControlReset"), {});
+  m_zoomIn = button(QStringLiteral("zoomControlIn"), QStringLiteral("+"));
+  connect(m_zoomOut, &QToolButton::clicked, this, [this] { emit zoomStepsRequested(-1); });
+  connect(m_zoomReset, &QToolButton::clicked, this, &Editor::zoomResetRequested);
+  connect(m_zoomIn, &QToolButton::clicked, this, [this] { emit zoomStepsRequested(1); });
+}
+
+void Editor::updateZoomControls() {
+  if (m_displayZoomPercent == kActualZoom) {
+    if (m_zoomControls) m_zoomControls->hide();
+    return;
+  }
+  if (!m_zoomControls) createZoomControls();
+  m_zoomReset->setText(QStringLiteral("%1%").arg(m_displayZoomPercent));
+  m_zoomOut->setEnabled(m_displayZoomPercent > kMinZoom);
+  m_zoomIn->setEnabled(m_displayZoomPercent < kMaxZoom);
+  for (auto item : {std::make_pair(m_zoomOut, QT_TRANSLATE_NOOP("Editor", "Zoom Out")),
+                    std::make_pair(m_zoomReset, QT_TRANSLATE_NOOP("Editor", "Actual Size")),
+                    std::make_pair(m_zoomIn, QT_TRANSLATE_NOOP("Editor", "Zoom In"))}) {
+    const auto label = editorText(item.second);
+    item.first->setToolTip(label);
+    item.first->setAccessibleName(
+        item.first == m_zoomReset ? m_zoomReset->text() + QStringLiteral(" · ") + label : label);
+  }
+  positionZoomControls();
+  m_zoomControls->show();
+  m_zoomControls->raise();
+}
+
+void Editor::positionZoomControls() {
+  if (!m_zoomControls || m_displayZoomPercent == kActualZoom) return;
+  const auto size = m_zoomControls->sizeHint();
+  constexpr int inset = 6;
+  m_zoomControls->setGeometry(width() - size.width() - inset, inset, size.width(), size.height());
 }
 
 void Editor::updateWritingArea() {

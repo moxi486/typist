@@ -24,6 +24,7 @@ class SyntaxHighlighter : public QSyntaxHighlighter {
   explicit SyntaxHighlighter(QTextDocument* document, bool markdownSource = false);
   void setDark(bool dark);
   void setEnabled(bool enabled);
+  void setZoomPercent(int percent);
   bool enabled() const { return m_enabled; }
 
  protected:
@@ -33,6 +34,7 @@ class SyntaxHighlighter : public QSyntaxHighlighter {
   bool m_markdownSource = false;
   bool m_dark = false;
   bool m_enabled = true;
+  int m_zoomPercent = 100;
 };
 SyntaxHighlighter* installSyntaxHighlighter(QTextDocument* document, bool markdownSource,
                                             bool dark = false, bool enabled = true);

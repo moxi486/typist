@@ -48,6 +48,8 @@
 | 退出表格，继续正文 | Ctrl+Enter |
 | 矩形表格选区复制 / 剪切 / 清空 | Ctrl+C / Ctrl+X / Delete（或 Backspace） |
 | 专注模式 / 打字机模式 / 全屏 | F8 / F9 / F11 |
+| 放大 / 缩小 / 实际大小 | Ctrl+Shift+= / Ctrl+Shift+- / Ctrl+Shift+0 |
+| 滚轮缩放 | 在「视图」开启「使用鼠标滚轮缩放」后，Ctrl+滚轮（macOS 为 Cmd+滚轮） |
 | 渲染和源码视图的栏宽 | 视图 → 写作区宽度 |
 | 放大 / 缩小 / 实际大小 | Ctrl+Shift+= / Ctrl+Shift+- / Ctrl+Shift+0 |
 | 主题循环（light/dark/system） | Ctrl+Shift+D |

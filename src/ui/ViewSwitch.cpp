@@ -9,6 +9,13 @@
 #include <QTextEdit>
 
 namespace typist::ui {
+namespace {
+void applyFontZoom(QTextDocument* document, qreal pointSize, int percent) {
+  auto font = document->defaultFont();
+  font.setPointSizeF(pointSize * percent / kActualZoom);
+  document->setDefaultFont(font);
+}
+}  // namespace
 
 ViewSwitch::ViewSwitch(QObject* parent) : QObject(parent) {
   m_rendered = new QTextDocument(this);
@@ -21,6 +28,8 @@ ViewSwitch::ViewSwitch(QObject* parent) : QObject(parent) {
   m_source->setDocumentMargin(0);
   m_source->setUndoRedoEnabled(true);
   m_active = m_rendered;
+  m_renderedPointSize = m_rendered->defaultFont().pointSizeF();
+  m_sourcePointSize = m_source->defaultFont().pointSizeF();
 }
 
 QTextDocument* ViewSwitch::rendered() const { return m_rendered; }
@@ -34,6 +43,14 @@ bool ViewSwitch::isSourceMode() const { return m_sourceMode; }
 void ViewSwitch::setBaseUrl(const QUrl& base) {
   m_rendered->setBaseUrl(base);
   m_source->setBaseUrl(base);
+}
+
+void ViewSwitch::setZoomPercent(int percent) {
+  percent = qBound(kMinZoom, percent, kMaxZoom);
+  if (m_zoomPercent == percent) return;
+  m_zoomPercent = percent;
+  applyFontZoom(m_rendered, m_renderedPointSize, percent);
+  applyFontZoom(m_source, m_sourcePointSize, percent);
 }
 
 QString ViewSwitch::currentMarkdown() const {
@@ -62,6 +79,7 @@ void ViewSwitch::injectPlainWithoutUndo(const QString& markdown) {
 
 bool ViewSwitch::loadMarkdownIntoBoth(const QString& markdown, QString* error) {
   if (!typist::editor::loadMarkdown(markdown, m_rendered, error)) return false;
+  if (m_zoomPercent != kActualZoom) applyFontZoom(m_rendered, m_renderedPointSize, m_zoomPercent);
   injectPlainWithoutUndo(markdown);
   m_source->clearUndoRedoStacks(QTextDocument::UndoAndRedoStacks);
   m_sourceMode = false;
@@ -76,6 +94,8 @@ bool ViewSwitch::switchView(QString* error) {
     // A failed parse must not discard what the author typed in source mode.
     if (!sameSemantics(typist::editor::serializeDocument(m_rendered), markdown)) {
       if (!typist::editor::loadMarkdown(markdown, m_rendered, error)) return false;
+      if (m_zoomPercent != kActualZoom)
+        applyFontZoom(m_rendered, m_renderedPointSize, m_zoomPercent);
     }
     m_sourceMode = false;
     adopt(m_rendered);

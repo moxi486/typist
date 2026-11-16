@@ -73,6 +73,8 @@ void rememberExportDirectory(const QString& outputPath);
 
 bool copyImagesToAssets();
 void setCopyImagesToAssets(bool enabled);
+bool wheelZoomEnabled();
+void setWheelZoomEnabled(bool enabled);
 
 enum class WritingWidth { Fill = 0, Compact = 640, Standard = 860, Wide = 1120 };
 struct WritingAreaWidths {

@@ -46,6 +46,9 @@ QString editorStyleSheet(Theme theme) {
     QFrame#editorToolbar QToolButton::menu-indicator { subcontrol-position: right center; right: 4px; }
     QFrame#editorToolbar QToolButton:focus { border-color: %7; }
     QFrame#editorToolbar QFrame#editorToolbarDivider { background: %5; }
+    QFrame#zoomControls { background: %2; border: 1px solid %5; border-radius: 7px; }
+    QFrame#zoomControls QToolButton { padding: 2px 6px; min-height: 18px; min-width: 16px; }
+    QFrame#zoomControls QToolButton:focus { border-color: %7; }
     QDockWidget { color: %4; border: none; }
     QDockWidget::title { background: %2; padding: 10px; }
     QWidget#sidebarSurface { background: %2; border-right: 1px solid %5; }

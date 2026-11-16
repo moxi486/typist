@@ -6,6 +6,7 @@
 #include "Settings.h"
 #include "SpecialContent.h"
 #include "SyntaxHighlighter.h"
+#include "ViewSwitch.h"
 #include "editor_document.h"
 
 #include <QPainter>
@@ -18,6 +19,10 @@
 #include <QTextFragment>
 #include <QTimer>
 #include <functional>
+
+class QFrame;
+class QToolButton;
+class QWheelEvent;
 
 namespace typist::ui {
 class ParagraphSourcePanel;
@@ -72,7 +77,8 @@ class Editor : public QTextEdit {
     updateCodeBlockBar(true);
     updateTableBar();
     if (m_rendered) editor::refreshSpecialContent(document(), m_dark);
-    render::installSyntaxHighlighter(document(), !m_rendered, m_dark, m_syntaxHighlight);
+    render::installSyntaxHighlighter(document(), !m_rendered, m_dark, m_syntaxHighlight)
+        ->setZoomPercent(m_rendered ? m_displayZoomPercent : kActualZoom);
     if (m_rendered && textCursor().block().text().isEmpty() &&
         textCursor().blockFormat().hasProperty(editor::kCodeBlockProperty))
       setCurrentCharFormat(textCursor().block().charFormat());
@@ -121,16 +127,7 @@ class Editor : public QTextEdit {
   void setCopyMarkdownAsPlainText(bool enabled) { m_copyMarkdownAsPlainText = enabled; }
   bool focusMode() const { return m_focusMode; }
   bool typewriterMode() const { return m_typewriterMode; }
-  void zoomDocument(int steps) {
-    zoomIn(steps);
-    m_zoomSteps += steps;
-    updateCodeTabStops();
-  }
-  void resetZoom() {
-    zoomOut(m_zoomSteps);
-    m_zoomSteps = 0;
-    updateCodeTabStops();
-  }
+  void showDocumentZoom(int percent);
   void insertAdvancedContent(const QString& type);
   bool insertPageBreak();
   void setSyntaxHighlight(bool enabled) {
@@ -189,12 +186,15 @@ class Editor : public QTextEdit {
   void linkActivated(const QString& target);
   void editLinkRequested();
   void imageFileStatus(const QString& message);
+  void zoomStepsRequested(int steps);
+  void zoomResetRequested();
 
  protected:
   void keyPressEvent(QKeyEvent* event) override;
   void mouseDoubleClickEvent(QMouseEvent* event) override;
   void mouseReleaseEvent(QMouseEvent* event) override;
   void mousePressEvent(QMouseEvent* event) override;
+  void wheelEvent(QWheelEvent* event) override;
   void contextMenuEvent(QContextMenuEvent* event) override;
   bool viewportEvent(QEvent* event) override;
   void inputMethodEvent(QInputMethodEvent* event) override;
@@ -213,6 +213,7 @@ class Editor : public QTextEdit {
     QScopedValueRollback<bool> guard(m_updatingMargins, true);
     updateWritingArea();
     QTextEdit::resizeEvent(event);
+    positionZoomControls();
     updateDecorations();
     updateParagraphSourceGeometry();
     updateCodeBlockBar();
@@ -223,6 +224,9 @@ class Editor : public QTextEdit {
   void paintEvent(QPaintEvent* event) override;
 
  private:
+  void createZoomControls();
+  void updateZoomControls();
+  void positionZoomControls();
   void insertFileLink(const QString& path);
   void addImageFileActions(QMenu* menu, const QContextMenuEvent& event);
   void saveImageResource(QTextCursor image, bool relink);
@@ -367,7 +371,12 @@ class Editor : public QTextEdit {
   int m_codeIndentSize = editor::kDefaultCodeIndentSize;
   QString m_lastInlineText;
   int m_lastInlineBlock = -1;
-  int m_zoomSteps = 0;
+  int m_displayZoomPercent = kActualZoom;
+  qreal m_wheelZoomSteps = 0;
+  QFrame* m_zoomControls = nullptr;
+  QToolButton* m_zoomOut = nullptr;
+  QToolButton* m_zoomReset = nullptr;
+  QToolButton* m_zoomIn = nullptr;
   QPoint m_linkPressPosition;
   QString m_pressedLink;
   void centerWritingLine();

@@ -6,6 +6,7 @@
 #include <QSet>
 #include <QTextBlock>
 #include <QTextDocument>
+#include <QTextFragment>
 #include <algorithm>
 
 namespace typist::render {
@@ -292,6 +293,12 @@ void SyntaxHighlighter::setEnabled(bool enabled) {
   m_enabled = enabled;
   rehighlight();
 }
+void SyntaxHighlighter::setZoomPercent(int percent) {
+  if (m_zoomPercent == percent) return;
+  m_zoomPercent = percent;
+  rehighlight();
+}
+
 void SyntaxHighlighter::highlightBlock(const QString& text) {
   auto* data = new Data;
   const auto* previous = dynamic_cast<Data*>(currentBlock().previous().userData());
@@ -335,6 +342,31 @@ void SyntaxHighlighter::highlightBlock(const QString& text) {
   }
   for (const auto& span : spans)
     setFormat(span.start, span.length, syntaxColor(span.token, m_dark));
+  // Explicit font sizes need display overrides alongside syntax colors.
+  if (!m_markdownSource && m_zoomPercent != 100) {
+    const auto block = currentBlock();
+    auto span = spans.cbegin();
+    for (auto it = block.begin(); !it.atEnd(); ++it) {
+      const auto fragment = it.fragment();
+      const qreal size = fragment.charFormat().fontPointSize();
+      if (size <= 0) continue;
+      const int start = fragment.position() - block.position();
+      const int end = start + fragment.length();
+      QTextCharFormat scaled;
+      scaled.setFontPointSize(size * m_zoomPercent / 100);
+      setFormat(start, fragment.length(), scaled);
+      while (span != spans.cend() && span->start + span->length <= start) ++span;
+      while (span != spans.cend() && span->start < end) {
+        const int first = qMax(start, span->start);
+        const int last = qMin(end, span->start + span->length);
+        auto colored = scaled;
+        colored.setForeground(syntaxColor(span->token, m_dark));
+        setFormat(first, last - first, colored);
+        if (span->start + span->length > end) break;
+        ++span;
+      }
+    }
+  }
   const QString state = data->language + QChar(0x1f) + data->fence + QChar(0x1f) +
                         data->lexical.delimiter + QString::number(data->lexical.comment) +
                         QString::number(data->group);

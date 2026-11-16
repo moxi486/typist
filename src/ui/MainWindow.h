@@ -153,6 +153,7 @@ class MainWindow : public QMainWindow {
   void dropEvent(QDropEvent* event) override;
 
  private:
+  void setZoomPercent(int percent);
   void updateTitleAndStatus();
   void markClean();
   QString currentMarkdown() const;
@@ -270,6 +271,7 @@ class MainWindow : public QMainWindow {
   std::optional<platform::LineEnding> m_lineEnding;
   QString m_themePreference;
   bool m_dirty = false;
+  bool m_applyingZoom = false;
   bool m_sourceMode = false;
 };
 
