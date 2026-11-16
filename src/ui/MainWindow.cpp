@@ -2402,7 +2402,7 @@ void MainWindow::exportImageDocument(const platform::ImageExportOptions* previou
   document.setBaseUrl(m_view->rendered()->baseUrl());
   document.setProperty("typistDark", dark);
   QString error;
-  if (!typist::editor::loadMarkdown(currentMarkdown(), &document, &error)) {
+  if (!editor::loadMarkdown(currentMarkdown(), &document, &error, core::HtmlComments::Omit)) {
     statusBar()->showMessage(error);
     return;
   }
@@ -2448,7 +2448,7 @@ void MainWindow::exportPdfDocument(const platform::PdfPageOptions* previous,
   QTextDocument rendered;
   rendered.setBaseUrl(m_view->rendered()->baseUrl());
   QString error;
-  if (!typist::editor::loadMarkdown(currentMarkdown(), &rendered, &error)) {
+  if (!editor::loadMarkdown(currentMarkdown(), &rendered, &error, core::HtmlComments::Omit)) {
     statusBar()->showMessage(error);
     return;
   }
@@ -2704,7 +2704,7 @@ qint64 MainWindow::exportPdfForBench(const QString& path,
   QTextDocument document;
   document.setBaseUrl(m_view->rendered()->baseUrl());
   QString error;
-  if (!editor::loadMarkdown(currentMarkdown(), &document, &error) ||
+  if (!editor::loadMarkdown(currentMarkdown(), &document, &error, core::HtmlComments::Omit) ||
       !platform::exportPdf(path, &document, options, &error))
     return -1;
   return QFileInfo(path).size();

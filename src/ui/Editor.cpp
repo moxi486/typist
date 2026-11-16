@@ -102,6 +102,10 @@ bool literalMarkdownPunctuationContext(QStringView prefix) {
       } else if (!tagEnd.isEmpty() && prefix.sliced(i).startsWith(tagEnd)) {
         i += tagEnd.size() - 1;
         tagEnd = {};
+      } else if (tagEnd == u"-->" && (ch == u'\u2013' || ch == u'\u2014') &&
+                 i + 1 < prefix.size() && prefix.at(i + 1) == '>') {
+        ++i;
+        tagEnd = {};
       } else if (linkDepth > 0) {
         if (ch == '(') ++linkDepth;
         if (ch == ')') --linkDepth;
@@ -128,6 +132,10 @@ bool literalMarkdownPunctuationContext(QStringView prefix) {
         if (prefix.sliced(i).startsWith(QLatin1String("<!--"))) {
           tagEnd = u"-->";
           i += 3;
+        } else if (prefix.sliced(i).startsWith(u"<!\u2013") ||
+                   prefix.sliced(i).startsWith(u"<!\u2014")) {
+          tagEnd = u"-->";
+          i += 2;
         } else if (next.isLetter() || next == '/' || next == '!' || next == '?') {
           tagEnd = u">";
         }
@@ -167,6 +175,52 @@ QTextCharFormat characterFormatAt(const QTextCursor& cursor, int offset) {
   character.setPosition(position);
   character.setPosition(position + 1, QTextCursor::KeepAnchor);
   return character.charFormat();
+}
+
+bool isInsideHtmlComment(const QTextCursor& cursor) {
+  const auto left = cursor.charFormat().stringProperty(typist::editor::kRawHtmlProperty);
+  return !cursor.atBlockStart() && left.startsWith(QLatin1String("<!--")) &&
+         characterFormatAt(cursor, 0).stringProperty(typist::editor::kRawHtmlProperty) == left;
+}
+
+bool renderHtmlComment(QTextCursor& cursor, bool unicodeMarkers) {
+  if (cursor.hasSelection() || cursor.atBlockStart() ||
+      cursor.document()->characterAt(cursor.position() - 1) != '>' ||
+      cursor.blockFormat().hasProperty(typist::editor::kCodeBlockProperty) ||
+      cursor.blockFormat().hasProperty(typist::editor::kSpecialBlockProperty) ||
+      cursor.blockFormat().hasProperty(typist::editor::kRawBlockSourceProperty))
+    return false;
+  const int end = cursor.positionInBlock();
+  const auto blockText = cursor.block().text();
+  const auto prefix = QStringView(blockText).left(end);
+  const int closingSize =
+      prefix.endsWith(u"-->")                                                          ? 3
+      : unicodeMarkers && (prefix.endsWith(u"\u2013>") || prefix.endsWith(u"\u2014>")) ? 2
+                                                                                       : 0;
+  if (!closingSize) return false;
+  const auto beforeClose = prefix.chopped(closingSize);
+  auto start = beforeClose.lastIndexOf(u"<!--");
+  if (unicodeMarkers)
+    start = qMax(start,
+                 qMax(beforeClose.lastIndexOf(u"<!\u2013"), beforeClose.lastIndexOf(u"<!\u2014")));
+  if (start < 0 || endsWithUnpairedBackslash(prefix.left(start)) ||
+      literalMarkdownPunctuationContext(prefix.left(start)))
+    return false;
+
+  auto format = characterFormatAt(cursor, start - end);
+  if (format.hasProperty(typist::editor::kRawHtmlProperty) ||
+      format.boolProperty(typist::editor::kLiteralTextProperty) || format.isAnchor() ||
+      typist::editor::isInlineCodeFormat(format) ||
+      format.hasProperty(typist::editor::kMathSourceProperty))
+    return false;
+  const int openingSize = prefix.sliced(start).startsWith(u"<!--") ? 4 : 3;
+  const auto body = beforeClose.sliced(start + openingSize);
+  const QString comment = QStringLiteral("<!--") + body.toString() + QStringLiteral("-->");
+  if (!typist::core::isHtmlComment(comment.toStdString())) return false;
+  format.setProperty(typist::editor::kRawHtmlProperty, comment);
+  cursor.setPosition(cursor.block().position() + start, QTextCursor::KeepAnchor);
+  cursor.insertText(comment, format);
+  return true;
 }
 
 bool hasGeneratedMarkdownCloser(const QTextCursor& cursor, int offset = 0) {
@@ -2603,12 +2657,11 @@ void Editor::keyPressEvent(QKeyEvent* event) {
       return;
     if (typed == QStringLiteral(">")) {
       const auto caret = textCursor();
-      const int offset = caret.positionInBlock();
-      if (offset >= 4 && caret.block()
-                                 .text()
-                                 .mid(offset - 4, 4)
-                                 .compare(QStringLiteral("</u>"), Qt::CaseInsensitive) == 0)
-        tryRenderInline();
+      const auto text = caret.block().text();
+      const auto prefix = QStringView(text).left(caret.positionInBlock());
+      if (prefix.endsWith(u"</u>", Qt::CaseInsensitive) || prefix.endsWith(u"-->") ||
+          (m_unicodeBlockMarkers && (prefix.endsWith(u"\u2013>") || prefix.endsWith(u"\u2014>"))))
+        tryRenderInline(m_unicodeBlockMarkers);
     } else if (typed == QStringLiteral("*") || typed == QStringLiteral("_") ||
                typed == QStringLiteral("~") || typed == QStringLiteral("`") ||
                typed == QStringLiteral(")") || typed == QStringLiteral("$") ||
@@ -2621,6 +2674,7 @@ void Editor::keyPressEvent(QKeyEvent* event) {
 void Editor::clearTransientTypingFormat() {
   if (!m_rendered || textCursor().hasSelection()) return;
   auto current = currentCharFormat();
+  if (current.hasProperty(editor::kRawHtmlProperty) && isInsideHtmlComment(textCursor())) return;
   if (!current.isImageFormat() && !current.hasProperty(editor::kImageProperty) &&
       !current.hasProperty(editor::kSpecialSourceProperty) &&
       !current.hasProperty(editor::kMathSourceProperty) &&
@@ -2668,17 +2722,19 @@ bool Editor::tryRenderUnicodeQuote() {
   return true;
 }
 
-bool Editor::tryRenderInline(bool unicodeLinkTitles) {
+bool Editor::tryRenderInline(bool unicodeMarkers) {
   if (isReadOnly()) return false;
   QTextCursor cursor = textCursor();
-  if (unicodeLinkTitles && cursor.positionInBlock() <= 4096) {
+  if (isInsideHtmlComment(cursor)) return false;
+  if (unicodeMarkers && cursor.positionInBlock() <= 4096) {
     const QString text = cursor.block().text();
     const auto prefix = QStringView(text).left(cursor.positionInBlock());
     if (prefix.contains(QLatin1String("](")) && literalMarkdownPunctuationContext(prefix))
       return false;
   }
   cursor.beginEditBlock();
-  if (!editor::renderInlineMarkdown(cursor, unicodeLinkTitles)) {
+  if (!renderHtmlComment(cursor, unicodeMarkers) &&
+      !editor::renderInlineMarkdown(cursor, unicodeMarkers)) {
     cursor.endEditBlock();
     return false;
   }

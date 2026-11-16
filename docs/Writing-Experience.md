@@ -42,7 +42,13 @@
 
 渲染视图中的链接和图片标题也可用 `“…”` 或 `«…»` 包裹，例如 `[文字](note.md “说明”)`。地址与标题可用半角或全角空格分隔。关闭括号后按标准 Markdown 渲染和保存，撤销可恢复输入的 Unicode 定界符。
 
+同一段落内输入的 `<!— 备注 —>` 也会转换成 `<!-- 备注 -->`。定界符可使用长破折号、短破折号或 `--`，注释内容可继续编辑。一次撤销可恢复输入的 Unicode 定界符。
+
 此选项默认关闭。打开文件、粘贴、源码视图及代码中的 Unicode 字符按原文处理。 [Typora Unicode 标点说明](https://support.typora.io/SmartyPants/#remap-unicode-punctuation-on-parse)
+
+## HTML 注释
+
+标准的 `<!-- 备注 -->` 可放在段落内，也可单独跨多行。注释在编辑器中可见并随 Markdown 保存，HTML、PDF、DOCX、EPUB 和 PNG 导出会省略注释。代码中的字面注释示例正常显示。 [Typora HTML 注释说明](https://support.typora.io/HTML/#comments)
 
 代码块按围栏中的语言标识着色。在「段落 → 代码语言」修改当前整个代码块的语言；修改可一次撤销。留空或使用未知语言时显示普通代码。「设置 → 语法高亮」可开关编辑器中的着色。
 

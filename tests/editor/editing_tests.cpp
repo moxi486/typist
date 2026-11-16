@@ -32,6 +32,76 @@ class EditingTests : public QObject {
     QTest::qWait(5);
   }
  private slots:
+  void htmlCommentsKeepTheirSourceAndConvertUnicodeOnInput() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    editor.setAutoPair(false);
+    QInputMethodEvent note;
+    const auto unicode = QStringLiteral("<!\u2014 draft \u2014>");
+    note.setCommitString(unicode);
+    prepare(editor, view);
+    QApplication::sendEvent(&editor, &note);
+    QCOMPARE(editor.toPlainText(), unicode);
+
+    editor.setUnicodeBlockMarkers(true);
+    prepare(editor, view, QStringLiteral("tail"));
+    editor.moveCursor(QTextCursor::Start);
+    QApplication::sendEvent(&editor, &note);
+    const auto ascii = QStringLiteral("<!-- draft -->");
+    QCOMPARE(editor.toPlainText(), ascii + QStringLiteral("tail"));
+    editor.undo();
+    QCOMPARE(editor.toPlainText(), unicode + QStringLiteral("tail"));
+    editor.redo();
+    QCOMPARE(editor.toPlainText(), ascii + QStringLiteral("tail"));
+
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "**Bold** ");
+    QInputMethodEvent start;
+    start.setCommitString(QStringLiteral("<!\u2013 typed "));
+    QApplication::sendEvent(&editor, &start);
+    editor.setSmartDashes(true);
+    QTest::keyClicks(&editor, "--> visible");
+    QCOMPARE(markdown(editor).trimmed(), QStringLiteral("**Bold** <!-- typed --> visible"));
+
+    prepare(editor, view, QStringLiteral("<!-- first\nsecond note\n\nlast -->\n\nVisible."));
+    auto edit = editor.document()->find(QStringLiteral("second note"));
+    QVERIFY(!edit.isNull());
+    edit.setPosition(edit.selectionStart() + 7);
+    editor.setTextCursor(edit);
+    QTest::keyClicks(&editor, "*draft* ");
+    QVERIFY(
+        markdown(editor).contains(QStringLiteral("<!-- first\nsecond *draft* note\n\nlast -->")));
+  }
+
+  void unicodeCommentDelimitersStayLiteralInCodeAndSource() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    editor.setAutoPair(false);
+    editor.setUnicodeBlockMarkers(true);
+    const auto unicode = QStringLiteral("<!\u2014 draft \u2014>");
+    QInputMethodEvent note;
+    note.setCommitString(unicode);
+    prepare(editor, view, unicode);
+    QCOMPARE(editor.toPlainText(), unicode);
+
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "\x60");
+    QApplication::sendEvent(&editor, &note);
+    QTest::keyClicks(&editor, "\x60");
+    QCOMPARE(editor.toPlainText(), unicode);
+    QVERIFY(markdown(editor).startsWith(QStringLiteral("\x60") + unicode + QStringLiteral("\x60")));
+
+    prepare(editor, view, QStringLiteral("\x60\x60\x60text\nplaceholder\n\x60\x60\x60\n"));
+    editor.moveCursor(QTextCursor::End);
+    QApplication::sendEvent(&editor, &note);
+    QVERIFY(markdown(editor).contains(QStringLiteral("placeholder") + unicode));
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&editor);
+    editor.clear();
+    QApplication::sendEvent(&editor, &note);
+    QCOMPARE(editor.toPlainText(), unicode);
+  }
+
   void unicodeLinkTitleQuotesRenderOnKeyboardAndInputMethodCommit() {
     typist::ui::ViewSwitch view;
     typist::ui::Editor editor;

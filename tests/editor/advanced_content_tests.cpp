@@ -1,5 +1,6 @@
 #include "DocxWriter.h"
 #include "Editor.h"
+#include "EpubWriter.h"
 #include "PdfWriter.h"
 #include "SpecialContent.h"
 #include "ViewSwitch.h"
@@ -56,6 +57,58 @@ QMap<QByteArray, QByteArray> unzip(const QByteArray& bytes) {
 class AdvancedContentTests : public QObject {
   Q_OBJECT
  private slots:
+  void htmlCommentsAreOmittedFromExports() {
+    const auto source = QStringLiteral(
+        "<!-- Draft block\nsecond line -->\n\n"
+        "<!-- Draft on the last line --> Visible after the comment\n\n"
+        "Visible <!-- Draft inline --> text and \x60<!-- literal -->\x60.");
+    const auto parsed = core::parseMarkdown(source.toStdString());
+    QVERIFY(parsed.ok);
+    QCOMPARE(parsed.blocks.front().type, core::BlockType::HtmlComment);
+    QTextDocument saved;
+    QVERIFY(editor::loadMarkdown(source, &saved, nullptr));
+    QVERIFY(same(source, editor::serializeDocument(&saved)));
+    QVERIFY(saved.toPlainText().contains(QStringLiteral("Draft block")));
+
+    QTextDocument printable;
+    QVERIFY(editor::loadMarkdown(source, &printable, nullptr, core::HtmlComments::Omit));
+    const auto visible = printable.toPlainText();
+    QVERIFY(!visible.contains(QStringLiteral("Draft")));
+    QVERIFY(visible.contains(QStringLiteral("Visible after the comment")));
+    QVERIFY(visible.contains(QStringLiteral("<!-- literal -->")));
+    for (const auto& html :
+         {core::toHtml(source.toStdString()), core::toSemanticHtml(source.toStdString())}) {
+      QVERIFY(html.find("Draft") == std::string::npos);
+      QVERIFY(html.find("Visible after the comment") != std::string::npos);
+      QVERIFY(html.find("&lt;!-- literal --&gt;") != std::string::npos);
+    }
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto docxPath = directory.filePath(QStringLiteral("notes.docx"));
+    QString error;
+    QVERIFY2(platform::exportDocx(docxPath, source, &error), qPrintable(error));
+    QFile docx(docxPath);
+    QVERIFY(docx.open(QIODevice::ReadOnly));
+    const auto document = unzip(docx.readAll()).value("word/document.xml");
+    QVERIFY(!document.contains("Draft") && document.contains("literal"));
+
+    const auto epubPath = directory.filePath(QStringLiteral("notes.epub"));
+    platform::EpubOptions options;
+    options.title = QStringLiteral("Notes");
+    QVERIFY2(platform::exportEpub(epubPath, source, options, &error), qPrintable(error));
+    QFile epub(epubPath);
+    QVERIFY(epub.open(QIODevice::ReadOnly));
+    const auto entries = unzip(epub.readAll());
+    bool hasLiteral = false;
+    for (auto it = entries.cbegin(); it != entries.cend(); ++it) {
+      if (!it.key().endsWith(".xhtml")) continue;
+      QVERIFY(!it.value().contains("Draft"));
+      hasLiteral |= it.value().contains("literal");
+    }
+    QVERIFY(hasLiteral);
+  }
+
   void syntaxAndDocumentRoundTrip() {
     const QString source = specimen();
     const auto parsed = core::parseMarkdown(source.toStdString());

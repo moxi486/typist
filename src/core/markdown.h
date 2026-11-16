@@ -22,6 +22,7 @@ enum class BlockType {
   Footnote,
   TableOfContents,
   PageBreak,
+  HtmlComment,
   Unsupported,
 };
 
@@ -71,7 +72,10 @@ struct ParseResult {
   bool ok = false;
 };
 
-ParseResult parseMarkdown(std::string_view source, const ParseOptions& options = {});
+enum class HtmlComments { Preserve, Omit };
+bool isHtmlComment(std::string_view source);
+ParseResult parseMarkdown(std::string_view source, const ParseOptions& options = {},
+                          HtmlComments comments = HtmlComments::Preserve);
 // Whether a CommonMark list item starts on this one-based source line.
 bool startsSourceListItem(std::string_view source, int line);
 

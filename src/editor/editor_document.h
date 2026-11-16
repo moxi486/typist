@@ -80,7 +80,8 @@ bool toggleTaskCheckbox(QTextDocument* document, int blockNumber);
 // Parses Markdown and rebuilds the document in place, clearing undo history so a
 // switch or load never becomes an undo step. Returns false on a parse error and
 // leaves the document untouched.
-bool loadMarkdown(const QString& source, QTextDocument* document, QString* error);
+bool loadMarkdown(const QString& source, QTextDocument* document, QString* error,
+                  core::HtmlComments comments = core::HtmlComments::Preserve);
 
 void boundUndoHistory(QTextDocument* document);
 
