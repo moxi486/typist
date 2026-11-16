@@ -125,6 +125,13 @@ class Editor : public QTextEdit {
   void setAutoPair(bool enabled) { m_autoPair = enabled; }
   void setMarkdownAutoPair(bool enabled) { m_markdownAutoPair = enabled; }
   void setSmartQuotes(bool enabled) { m_smartQuotes = enabled; }
+  struct QuotePair {
+    QChar opening;
+    QChar closing;
+  };
+  void setSmartQuotePair(QChar straightQuote, QuotePair pair) {
+    (straightQuote == '\'' ? m_singleQuotePair : m_doubleQuotePair) = pair;
+  }
   void setSmartDashes(bool enabled) { m_smartDashes = enabled; }
   void setCopyCutWholeLine(bool enabled) { m_copyCutWholeLine = enabled; }
   void setCopyMarkdownAsPlainText(bool enabled) { m_copyMarkdownAsPlainText = enabled; }
@@ -370,6 +377,8 @@ class Editor : public QTextEdit {
   bool m_autoPair = true;
   bool m_markdownAutoPair = false;
   bool m_smartQuotes = false;
+  QuotePair m_singleQuotePair{u'\u2018', u'\u2019'};
+  QuotePair m_doubleQuotePair{u'\u201c', u'\u201d'};
   bool m_smartDashes = false;
   bool m_copyCutWholeLine = false;
   bool m_copyMarkdownAsPlainText = false;
