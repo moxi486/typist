@@ -166,6 +166,7 @@ class MainWindow : public QMainWindow {
   void retranslateUi();
   void updateSearchFocusGuard();
   void createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMenu* settings);
+  void createSmartQuoteStyleMenu(QMenu* settings);
   void createEditorToolbar(QMenu* view, QMenu* appearance);
   void updateEditorToolbar();
   void createLaunchMenu(QMenu* settings);

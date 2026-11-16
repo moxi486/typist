@@ -162,11 +162,61 @@ class EditingTests : public QObject {
     QVERIFY(markdown(editor).startsWith(QStringLiteral("Literal \"")));
   }
 
+  void smartQuoteStylesApplyToTypingPairsAndSelections() {
+    typist::ui::ViewSwitch view;
+    typist::ui::Editor editor;
+    editor.setSmartQuotes(true);
+    editor.setAutoPair(false);
+    editor.setSmartQuotePair('"', {u'\u00ab', u'\u00bb'});
+    editor.setSmartQuotePair('\'', {u'\u201a', u'\u2018'});
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "\"'Word' isn't literal.\"");
+    const auto styled = QStringLiteral("\u00ab\u201aWord\u2018 isn\u2019t literal.\u00bb");
+    QCOMPARE(editor.toPlainText(), styled);
+    QVERIFY(markdown(editor).startsWith(styled));
+    editor.undo();
+    QCOMPARE(editor.toPlainText(), styled.chopped(1) + '"');
+    editor.redo();
+    QCOMPARE(editor.toPlainText(), styled);
+
+    editor.setSmartQuotePair('"', {u'\u300c', u'\u300d'});
+    editor.setSmartQuotePair('\'', {u'\u300e', u'\u300f'});
+    prepare(editor, view);
+    editor.insertPlainText(QStringLiteral("\u5979\u8bf4"));
+    QTest::keyClicks(&editor, "\"");
+    QInputMethodEvent input;
+    input.setCommitString(QStringLiteral("\u4f60\u597d"));
+    QApplication::sendEvent(&editor, &input);
+    QTest::keyClicks(&editor, "\"");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("\u5979\u8bf4\u300c\u4f60\u597d\u300d"));
+
+    editor.setAutoPair(true);
+    prepare(editor, view);
+    QTest::keyClicks(&editor, "\"");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("\u300c\u300d"));
+    QCOMPARE(editor.textCursor().position(), 1);
+    QTest::keyClicks(&editor, "Word\".");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("\u300cWord\u300d."));
+
+    prepare(editor, view, QStringLiteral("Wrap"));
+    auto cursor = editor.textCursor();
+    cursor.setPosition(4);
+    cursor.setPosition(0, QTextCursor::KeepAnchor);
+    editor.setTextCursor(cursor);
+    QTest::keyClicks(&editor, "'");
+    QCOMPARE(editor.toPlainText(), QStringLiteral("\u300eWrap\u300f"));
+    QCOMPARE(editor.textCursor().selectedText(), QStringLiteral("Wrap"));
+    QVERIFY(editor.textCursor().position() < editor.textCursor().anchor());
+    editor.undo();
+    QCOMPARE(editor.toPlainText(), QStringLiteral("Wrap"));
+  }
+
   void smartQuotesKeepMarkdownSyntaxAndCodeLiteral() {
     typist::ui::ViewSwitch view;
     typist::ui::Editor editor;
     editor.setSmartQuotes(true);
     editor.setAutoPair(false);
+    editor.setSmartQuotePair('"', {u'\u201e', u'\u201c'});
     prepare(editor, view);
     QTest::keyClicks(&editor, "Code `value\"");
     QCOMPARE(editor.toPlainText(), QStringLiteral("Code `value\""));
@@ -181,7 +231,7 @@ class EditingTests : public QObject {
     QCOMPARE(editor.toPlainText(), QStringLiteral("[ref]: note \"title\""));
     prepare(editor, view);
     QTest::keyClicks(&editor, "<span title=\"a > b\"> \"hey\"");
-    QCOMPARE(editor.toPlainText(), QStringLiteral("<span title=\"a > b\"> \u201chey\u201d"));
+    QCOMPARE(editor.toPlainText(), QStringLiteral("<span title=\"a > b\"> \u201ehey\u201c"));
     prepare(editor, view, QStringLiteral("```text\ncode\n```\n"));
     editor.moveCursor(QTextCursor::End);
     QTest::keyClicks(&editor, " \"literal\"");

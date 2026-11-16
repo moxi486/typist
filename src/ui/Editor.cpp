@@ -2093,8 +2093,7 @@ bool Editor::handleSmartQuote(QChar typed, QTextCursor cursor) {
   const auto prefix = QStringView(text).left(cursor.selectionStart() - block.position());
   if (literalMarkdownPunctuationContext(prefix)) return false;
 
-  const QChar left = typed == '\'' ? QChar(0x2018) : QChar(0x201c);
-  const QChar right = typed == '\'' ? QChar(0x2019) : QChar(0x201d);
+  const auto [left, right] = typed == '\'' ? m_singleQuotePair : m_doubleQuotePair;
   const QChar before = prefix.isEmpty() ? QChar() : prefix.back();
   if (!cursor.hasSelection()) {
     if (endsWithUnpairedBackslash(prefix)) {
@@ -2120,11 +2119,16 @@ bool Editor::handleSmartQuote(QChar typed, QTextCursor cursor) {
   const bool eastAsian = script == QChar::Script_Han || script == QChar::Script_Hiragana ||
                          script == QChar::Script_Katakana || script == QChar::Script_Hangul;
   const bool boundary = before.isNull() || before.isSpace() ||
-                        QStringLiteral("([{\u2013\u2014\u2018\u201c").contains(before);
-  const bool alreadyOpen = (boundary || eastAsian) && hasOpenSmartQuote(prefix, left, right);
+                        QStringLiteral("([{\u2013\u2014\u2018\u201c").contains(before) ||
+                        before == m_singleQuotePair.opening || before == m_doubleQuotePair.opening;
+  const bool afterWord = typed == '\'' && right != u'\u2019' && !eastAsian &&
+                         QChar::isLetterOrNumber(codePoint) && !cursor.hasSelection();
+  const bool alreadyOpen =
+      (boundary || eastAsian || afterWord) && hasOpenSmartQuote(prefix, left, right);
   const auto next = document()->characterAt(cursor.selectionEnd());
   const bool opens =
       (boundary && (!alreadyOpen || next.isLetterOrNumber())) || (eastAsian && !alreadyOpen);
+  const bool apostrophe = afterWord && (!alreadyOpen || next.isLetterOrNumber());
   if (m_autoPair && (cursor.hasSelection() || opens)) {
     const int start = cursor.selectionStart();
     const int end = cursor.selectionEnd();
@@ -2147,7 +2151,7 @@ bool Editor::handleSmartQuote(QChar typed, QTextCursor cursor) {
     cursor.insertText(QString(typed));
     cursor.beginEditBlock();
     cursor.setPosition(cursor.position() - 1, QTextCursor::KeepAnchor);
-    cursor.insertText(QString(opens ? left : right));
+    cursor.insertText(QString(opens ? left : apostrophe ? QChar(0x2019) : right));
     cursor.endEditBlock();
   }
   setTextCursor(cursor);

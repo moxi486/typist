@@ -1566,6 +1566,79 @@ class WindowTests : public QObject {
     QVERIFY(!settings.value(key).toBool());
   }
 
+  void smartQuoteStylesPersistIndependentlyAndRespectTheToggle() {
+    const auto doubleKey = QStringLiteral("editor/doubleQuoteStyle");
+    const auto singleKey = QStringLiteral("editor/singleQuoteStyle");
+    const auto enabledKey = QStringLiteral("editor/smartQuotes");
+    QSettings settings;
+    const auto doubleBefore = settings.value(doubleKey);
+    const auto singleBefore = settings.value(singleKey);
+    const auto enabledBefore = settings.value(enabledKey);
+    const auto restore = qScopeGuard([&] {
+      const auto reset = [&settings](const QString& key, const QVariant& value) {
+        if (value.isValid())
+          settings.setValue(key, value);
+        else
+          settings.remove(key);
+      };
+      reset(doubleKey, doubleBefore);
+      reset(singleKey, singleBefore);
+      reset(enabledKey, enabledBefore);
+    });
+    settings.remove(doubleKey);
+    settings.setValue(singleKey, QStringLiteral("invalid"));
+    settings.setValue(enabledKey, false);
+    const auto findStyle = [](typist::MainWindow& window, const QString& key, const char* id) {
+      auto* menu = window.findChild<QMenu*>(key);
+      if (menu)
+        for (auto* action : menu->actions())
+          if (action->data().toString() == QLatin1String(id)) return action;
+      return static_cast<QAction*>(nullptr);
+    };
+    typist::MainWindow window(nullptr, true);
+    auto* curlyDouble = findStyle(window, doubleKey, "curly");
+    auto* curlySingle = findStyle(window, singleKey, "curly");
+    auto* angleDouble = findStyle(window, doubleKey, "angle");
+    auto* cornerSingle = findStyle(window, singleKey, "corner");
+    auto* toggle = window.findChild<QAction*>(QStringLiteral("smartQuotes"));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(curlyDouble && curlySingle && angleDouble && cornerSingle && toggle && editor);
+    QVERIFY(curlyDouble->isChecked());
+    QVERIFY(curlySingle->isChecked());
+    editor->setAutoPair(false);
+    angleDouble->trigger();
+    QVERIFY(curlySingle->isChecked());
+    cornerSingle->trigger();
+    QVERIFY(angleDouble->isChecked());
+    QCOMPARE(settings.value(doubleKey).toString(), QStringLiteral("angle"));
+    QCOMPARE(settings.value(singleKey).toString(), QStringLiteral("corner"));
+    QVERIFY(!toggle->isChecked());
+    QTest::keyClicks(editor, "\"test\" 'word'");
+    QCOMPARE(editor->toPlainText(), QStringLiteral("\"test\" 'word'"));
+
+    editor->clear();
+    toggle->trigger();
+    QTest::keyClicks(editor, "\"test\" 'word'");
+    const auto styled = QStringLiteral("\u00abtest\u00bb \u300eword\u300f");
+    QCOMPARE(editor->toPlainText(), styled);
+
+    typist::MainWindow second(nullptr, true);
+    auto* persistedDouble = findStyle(second, doubleKey, "angle");
+    auto* persistedSingle = findStyle(second, singleKey, "corner");
+    auto* secondEditor = second.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(persistedDouble && persistedSingle && secondEditor);
+    QVERIFY(persistedDouble->isChecked());
+    QVERIFY(persistedSingle->isChecked());
+    secondEditor->setAutoPair(false);
+    QTest::keyClicks(secondEditor, "\"test\" 'word'");
+    QCOMPARE(secondEditor->toPlainText(), styled);
+
+    curlyDouble->trigger();
+    QCOMPARE(editor->toPlainText(), styled);
+    QTest::keyClicks(editor, " \"new\"");
+    QCOMPARE(editor->toPlainText(), styled + QStringLiteral(" \u201cnew\u201d"));
+  }
+
   void smartQuotesPreferenceAppliesAndPersists() {
     const auto key = QStringLiteral("editor/smartQuotes");
     QSettings settings;

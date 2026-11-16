@@ -107,6 +107,7 @@
 #include <QWidget>
 #include <QWindow>
 #include <functional>
+#include <initializer_list>
 
 namespace typist {
 
@@ -1148,6 +1149,7 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
                                    tr("Auto Pair Markdown Syntax"), QString(), [] {});
   auto* smartQuotes =
       command(settings, QStringLiteral("smartQuotes"), tr("Smart Quotes"), QString(), [] {});
+  createSmartQuoteStyleMenu(settings);
   auto* smartDashes =
       command(settings, QStringLiteral("smartDashes"), tr("Smart Dashes"), QString(), [] {});
   QAction* syntax = command(settings, QStringLiteral("syntaxHighlight"), tr("Syntax Highlighting"),
@@ -1343,6 +1345,51 @@ void MainWindow::createLaunchMenu(QMenu* settings) {
     options.mode = mode;
     platform::setLaunchOptions(options);
   });
+}
+
+void MainWindow::createSmartQuoteStyleMenu(QMenu* settings) {
+  auto* editor = static_cast<ui::Editor*>(m_editor);
+  auto* menu = settings->addMenu(tr("Smart Quote Style"));
+  struct Preset {
+    const char* id;
+    ui::Editor::QuotePair pair;
+  };
+  const auto addChoices = [menu, editor](const QString& title, const QString& key, QChar straight,
+                                         std::initializer_list<Preset> presets) {
+    auto* choices = menu->addMenu(title);
+    choices->setObjectName(key);
+    auto* group = new QActionGroup(choices);
+    const auto saved = QSettings().value(key).toString();
+    QAction* selected = nullptr;
+    for (const auto& preset : presets) {
+      const auto value = QString::fromLatin1(preset.id);
+      const auto pair = preset.pair;
+      auto* action =
+          choices->addAction(QString(pair.opening) + QStringLiteral("abc") + pair.closing);
+      action->setCheckable(true);
+      action->setData(value);
+      group->addAction(action);
+      if (!selected || value == saved) {
+        selected = action;
+        editor->setSmartQuotePair(straight, pair);
+      }
+      connect(action, &QAction::triggered, choices, [editor, key, straight, value, pair] {
+        editor->setSmartQuotePair(straight, pair);
+        QSettings().setValue(key, value);
+      });
+    }
+    selected->setChecked(true);
+  };
+  addChoices(tr("Double Quotes"), QStringLiteral("editor/doubleQuoteStyle"), '"',
+             {{"curly", {u'\u201c', u'\u201d'}},
+              {"angle", {u'\u00ab', u'\u00bb'}},
+              {"low-high", {u'\u201e', u'\u201c'}},
+              {"corner", {u'\u300c', u'\u300d'}}});
+  addChoices(tr("Single Quotes"), QStringLiteral("editor/singleQuoteStyle"), '\'',
+             {{"curly", {u'\u2018', u'\u2019'}},
+              {"angle", {u'\u2039', u'\u203a'}},
+              {"low-high", {u'\u201a', u'\u2018'}},
+              {"corner", {u'\u300e', u'\u300f'}}});
 }
 
 void MainWindow::createMarkdownExtensionMenu(QMenu* settings) {

@@ -396,6 +396,18 @@
         <translation>智能引号</translation>
     </message>
     <message>
+        <source>Smart Quote Style</source>
+        <translation>智能引号样式</translation>
+    </message>
+    <message>
+        <source>Double Quotes</source>
+        <translation>双引号</translation>
+    </message>
+    <message>
+        <source>Single Quotes</source>
+        <translation>单引号</translation>
+    </message>
+    <message>
         <source>Smart Dashes</source>
         <translation>智能破折号</translation>
     </message>
