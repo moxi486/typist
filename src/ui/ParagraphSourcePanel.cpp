@@ -174,8 +174,9 @@ bool ParagraphSourcePanel::eventFilter(QObject* object, QEvent* event) {
     if (reason != Qt::PopupFocusReason && reason != Qt::MenuBarFocusReason) {
       QTimer::singleShot(0, this, [this] {
         auto* focus = QApplication::focusWidget();
-        if (isVisible() && focus && focus != this && !isAncestorOf(focus) &&
-            !QApplication::activePopupWidget() && !QApplication::activeModalWidget())
+        if (isVisible() && focus && focus->window() == window() && focus != this &&
+            !isAncestorOf(focus) && !QApplication::activePopupWidget() &&
+            !QApplication::activeModalWidget())
           emit focusLeft();
       });
     }

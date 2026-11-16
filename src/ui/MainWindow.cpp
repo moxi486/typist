@@ -68,6 +68,7 @@
 #include <QFormLayout>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QHash>
 #include <QImage>
 #include <QInputDialog>
 #include <QKeySequence>
@@ -81,7 +82,7 @@
 #include <QPainter>
 #include <QPalette>
 #include <QPlainTextEdit>
-#include <QProcess>
+#include <QPointer>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
@@ -103,15 +104,34 @@
 #include <QTextTable>
 #include <QToolButton>
 #include <QUrl>
+#include <QUuid>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QWindow>
+#include <algorithm>
 #include <functional>
 #include <initializer_list>
 
 namespace typist {
 
 namespace {
+
+ui::AppTranslator* applicationTranslator() {
+  static auto* translator = new ui::AppTranslator(qApp);
+  return translator;
+}
+
+quint64 nextDocumentWindowSequence() {
+  static quint64 sequence = 0;
+  return ++sequence;
+}
+
+QList<MainWindow*> documentWindows() {
+  QList<MainWindow*> windows;
+  for (auto* widget : QApplication::topLevelWidgets())
+    if (auto* window = qobject_cast<MainWindow*>(widget)) windows.append(window);
+  return windows;
+}
 
 const auto htmlOutlineSetting = QStringLiteral("export/htmlOutline");
 const auto htmlContentSetting = QStringLiteral("export/htmlContent");
@@ -253,7 +273,11 @@ QIcon toolbarIcon(const QString& symbol, const QColor& color) {
 }  // namespace
 
 MainWindow::MainWindow(QWidget* parent, bool benchmark)
-    : QMainWindow(parent), m_benchMode(benchmark) {
+    : QMainWindow(parent),
+      m_documentWindowSequence(nextDocumentWindowSequence()),
+      m_benchMode(benchmark) {
+  // Capture source strings in English even when another window is already localized.
+  qApp->removeTranslator(applicationTranslator());
   const QRect available = screen()->availableGeometry();
   setMinimumSize(qMin(760, available.width()), qMin(540, available.height()));
   resize(qMin(1180, int(available.width() * 0.9)), qMin(820, int(available.height() * 0.9)));
@@ -612,7 +636,6 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
         !action->property("folderLocationAction").isValid() && action->parent() != m_outlinePanel &&
         action->parent() != m_statistics->menu())
       action->setProperty("translationSource", action->text());
-  m_translator = new ui::AppTranslator(this);
   setLanguage(platform::languagePreference());
 
   // Applied after the actions exist: applyTheme labels the theme action.
@@ -664,7 +687,7 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
         m_autoSave->notifyChanged();
       else {
         m_autoSave->cancelPending();
-        ui::removeDraft(m_currentPath);
+        ui::removeDraft(recoveryDocumentKey());
       }
     }
     updateTitleAndStatus();
@@ -1057,6 +1080,25 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
       command(view, QStringLiteral("fullscreen"), tr("Fullscreen"), QStringLiteral("F11"), [] {});
   QAction* alwaysOnTop =
       command(view, QStringLiteral("alwaysOnTop"), tr("Always on Top"), QString(), [] {});
+  auto* nextDocument = command(view, QStringLiteral("nextDocumentWindow"), tr("Next Document"),
+                               QString(), [this] { switchDocumentWindow(1); });
+  auto* previousDocument =
+      command(view, QStringLiteral("previousDocumentWindow"), tr("Previous Document"), QString(),
+              [this] { switchDocumentWindow(-1); });
+#ifdef Q_OS_MACOS
+  nextDocument->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_QuoteLeft));
+  previousDocument->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_QuoteLeft));
+#else
+  nextDocument->setShortcut(QKeySequence(QStringLiteral("Ctrl+Tab")));
+  previousDocument->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+Tab")));
+#endif
+  nextDocument->setAutoRepeat(false);
+  previousDocument->setAutoRepeat(false);
+  auto* documents = view->addMenu(tr("Open Documents"));
+  documents->setObjectName(QStringLiteral("openDocumentWindows"));
+  documents->setToolTipsVisible(true);
+  connect(documents, &QMenu::aboutToShow, this,
+          [this, documents] { rebuildDocumentWindowsMenu(documents); });
   focus->setCheckable(true);
   typewriter->setCheckable(true);
   fullscreen->setCheckable(true);
@@ -1668,7 +1710,7 @@ bool MainWindow::maybeSaveBeforeNavigate(bool discardImmediately) {
   }
   if (discardImmediately) {
     m_autoSave->cancelPending();
-    ui::removeDraft(m_currentPath);
+    ui::removeDraft(recoveryDocumentKey());
     m_dirty = false;
   }
   return true;
@@ -1989,7 +2031,7 @@ bool MainWindow::openFileReplacingCurrent(const QString& path, bool rememberCurr
   m_sourceMode = m_view->isSourceMode();
   if (createMissing && !m_benchMode) {
     m_autoSave->cancelPending();
-    ui::removeDraft(m_currentPath);
+    ui::removeDraft(recoveryDocumentKey());
   }
   if (!m_benchMode) platform::updateClosedFiles(rememberCurrent ? m_currentPath : QString(), path);
   if (QFileInfo(m_currentPath) != QFileInfo(path)) resetPreviousExport();
@@ -2178,7 +2220,7 @@ bool MainWindow::saveDocumentAs(const QString& path) {
       m_editor->setTextCursor(cursor);
     }
   }
-  ui::removeDraft(m_currentPath);
+  ui::removeDraft(recoveryDocumentKey());
   if (!m_benchMode) platform::updateClosedFiles({}, path);
   if (!m_currentPath.isEmpty() && QFileInfo(m_currentPath) != QFileInfo(path))
     resetPreviousExport();
@@ -2792,7 +2834,7 @@ void MainWindow::treeFileRemoved(const QString& path) {
     return;
   // Keep the document and its base URL so relative images still resolve for Save As.
   m_autoSave->cancelPending();
-  if (!m_benchMode) ui::removeDraft(m_currentPath);
+  if (!m_benchMode) ui::removeDraft(recoveryDocumentKey());
   m_currentPath.clear();
   resetPreviousExport();
   m_savedMarkdown.clear();
@@ -2905,13 +2947,73 @@ void MainWindow::openTreeEntry(const QString& path) {
 }
 
 void MainWindow::openNewWindow(const QString& path) {
-  if (!path.isEmpty() && !QFileInfo::exists(path)) {
+  const QFileInfo target(path);
+  if (!path.isEmpty() && !target.exists()) {
     statusBar()->showMessage(tr("The file or folder is no longer available."), 4000);
     return;
   }
-  const QString argument = path.isEmpty() ? QStringLiteral("--new") : path;
-  if (!QProcess::startDetached(QCoreApplication::applicationFilePath(), {argument}))
+  auto* window = new MainWindow(nullptr, m_benchMode);
+  window->m_untitledRecoveryKey = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  const bool opened =
+      path.isEmpty() || (target.isDir() ? window->openFolderPath(path) : window->openFile(path));
+  if (!opened) {
+    delete window;
     statusBar()->showMessage(tr("Cannot open a new window."), 4000);
+    return;
+  }
+  window->setAttribute(Qt::WA_DeleteOnClose);
+  window->m_editor->setFocus();
+  window->show();
+  window->activateDocumentWindow();
+}
+
+QList<MainWindow*> MainWindow::openDocumentWindows() {
+  auto windows = documentWindows();
+  windows.erase(std::remove_if(windows.begin(), windows.end(),
+                               [](auto* window) { return !window->isVisible(); }),
+                windows.end());
+  std::sort(windows.begin(), windows.end(), [](auto* left, auto* right) {
+    return left->m_documentWindowSequence < right->m_documentWindowSequence;
+  });
+  return windows;
+}
+
+void MainWindow::activateDocumentWindow() {
+  if (isMinimized()) setWindowState(windowState() & ~Qt::WindowMinimized);
+  raise();
+  activateWindow();
+}
+
+void MainWindow::switchDocumentWindow(int direction) {
+  const auto windows = openDocumentWindows();
+  const auto current = windows.indexOf(this);
+  if (current < 0 || windows.size() < 2) return;
+  windows.at((current + direction + windows.size()) % windows.size())->activateDocumentWindow();
+}
+
+void MainWindow::rebuildDocumentWindowsMenu(QMenu* menu) {
+  menu->clear();
+  const auto windows = openDocumentWindows();
+  QHash<QString, int> nameCounts;
+  for (auto* window : windows) {
+    if (!window->m_currentPath.isEmpty()) ++nameCounts[QFileInfo(window->m_currentPath).fileName()];
+  }
+  for (auto* window : windows) {
+    const auto fullPath = QDir::toNativeSeparators(window->m_currentPath);
+    auto label = QFileInfo(window->m_currentPath).fileName();
+    if (label.isEmpty())
+      label = tr("Untitled %1").arg(window->m_documentWindowSequence);
+    else if (nameCounts.value(label) > 1)
+      label = fullPath;
+    if (window->m_dirty) label += QStringLiteral(" *");
+    auto* entry = menu->addAction(label.replace('&', QStringLiteral("&&")));
+    if (!fullPath.isEmpty()) entry->setToolTip(fullPath);
+    entry->setCheckable(true);
+    entry->setChecked(window == this);
+    connect(entry, &QAction::triggered, this, [target = QPointer<MainWindow>(window)] {
+      if (target && target->isVisible()) target->activateDocumentWindow();
+    });
+  }
 }
 
 qint64 MainWindow::searchFolderForBench(const QString& rootDir, const QString& pattern,
@@ -3042,14 +3144,18 @@ void MainWindow::applyTheme() {
 }
 
 void MainWindow::setLanguage(const QString& preference) {
-  qApp->removeTranslator(m_translator);
-  m_translator->setLanguage(preference);
-  qApp->installTranslator(m_translator);
+  auto* translator = applicationTranslator();
+  qApp->removeTranslator(translator);
+  translator->setLanguage(preference);
+  qApp->installTranslator(translator);
   platform::setLanguagePreference(preference);
   retranslateUi();
+  for (auto* window : documentWindows())
+    if (window != this) window->retranslateUi();
 }
 
 void MainWindow::retranslateUi() {
+  const auto preference = platform::languagePreference();
   for (QAction* action : findChildren<QAction*>()) {
     const QByteArray source = action->property("translationSource").toString().toUtf8();
     if (!source.isEmpty()) {
@@ -3060,6 +3166,8 @@ void MainWindow::retranslateUi() {
               : tr(pattern.constData()).arg(action->property("translationNumber").toInt()));
       action->setToolTip(action->text());
     }
+    if (action->objectName().startsWith(QLatin1String("language_")))
+      action->setChecked(action->data().toString() == preference);
   }
   m_sidebarDock->setWindowTitle(tr("Files"));
   m_sidebarTabs->setTabText(0, tr("Files"));
@@ -3121,9 +3229,13 @@ QString MainWindow::currentMarkdown() const {
                                 : static_cast<ui::Editor*>(m_editor)->markdownWithParagraphDraft();
 }
 
+QString MainWindow::recoveryDocumentKey() const {
+  return m_currentPath.isEmpty() ? m_untitledRecoveryKey : m_currentPath;
+}
+
 void MainWindow::markClean() {
   m_dirty = false;
-  if (!m_benchMode) typist::ui::removeDraft(m_currentPath);
+  if (!m_benchMode) typist::ui::removeDraft(recoveryDocumentKey());
   updateTitleAndStatus();
 }
 
@@ -3218,7 +3330,7 @@ void MainWindow::checkCurrentFileConflict() {
 
 void MainWindow::writeRecoveryDraft() {
   if (m_benchMode || !m_dirty) return;
-  typist::ui::writeDraft(m_currentPath, currentMarkdown());
+  typist::ui::writeDraft(recoveryDocumentKey(), currentMarkdown());
 }
 
 void MainWindow::toggleOutline() {
