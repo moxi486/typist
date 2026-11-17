@@ -7,12 +7,19 @@
 
 #include <QAction>
 #include <QClipboard>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QFile>
 #include <QImage>
 #include <QLabel>
 #include <QMimeData>
+#include <QPushButton>
+#include <QScopeGuard>
+#include <QSpinBox>
+#include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTextTable>
+#include <QTimer>
 #include <QToolButton>
 #include <QtTest>
 
@@ -64,6 +71,105 @@ class TableWorkflowTests : public QObject {
   Q_OBJECT
  private slots:
   void initTestCase() { QApplication::setStyle(QStringLiteral("Fusion")); }
+
+  void resizeRetainsRichCellsAlignmentAndDocumentNeighbors() {
+    ui::Editor edit;
+    ui::ViewSwitch view;
+    prepare(edit, view,
+            QStringLiteral("Before.\n\n| **Name** | Value | Drop |\n|:---:|---:|---|\n"
+                           "| [one](note.md \"Title\")<br>two | *italic* | extra |\n"
+                           "| third | 2 | remove |\n\nAfter.\n"));
+    auto* table = firstTable(edit.document());
+    QVERIFY(table);
+    const QString original = view.currentMarkdown();
+    auto cursor = table->cellAt(1, 1).firstCursorPosition();
+    cursor.movePosition(QTextCursor::Right, QTextCursor::KeepAnchor, 3);
+    const auto first = cursor.selectedText();
+    QVERIFY(!editor::resizeTable(cursor, 1, 1));
+    QVERIFY(!editor::resizeTable(cursor, 3, editor::kMaxTableColumns + 1));
+    QVERIFY(!editor::resizeTable(cursor, 3, 3));
+    QVERIFY(!edit.document()->isUndoAvailable());
+    QVERIFY(editor::resizeTable(cursor, 5, 2));
+    QCOMPARE(cursor.selectedText(), first);
+    QCOMPARE(table->rows(), 5);
+    QCOMPARE(table->columns(), 2);
+    QCOMPARE(table->format().headerRowCount(), 1);
+    QCOMPARE(table->cellAt(4, 0).firstCursorPosition().blockFormat().alignment(),
+             Qt::Alignment(Qt::AlignHCenter));
+    QCOMPARE(table->cellAt(4, 1).firstCursorPosition().blockFormat().alignment(),
+             Qt::Alignment(Qt::AlignRight));
+    const auto expanded = view.currentMarkdown();
+    QVERIFY2(same(expanded, QStringLiteral("Before.\n\n| **Name** | Value |\n|:---:|---:|\n"
+                                           "| [one](note.md \"Title\")<br>two | *italic* |\n"
+                                           "| third | 2 |\n| | |\n| | |\n\nAfter.\n")),
+             qPrintable(expanded));
+    edit.undo();
+    QCOMPARE(view.currentMarkdown(), original);
+    QVERIFY(!edit.document()->isUndoAvailable());
+    edit.redo();
+    QCOMPARE(view.currentMarkdown(), expanded);
+
+    cursor = table->cellAt(4, 1).firstCursorPosition();
+    QVERIFY(editor::resizeTable(cursor, 2, 1));
+    QCOMPARE(cursor.position(), table->cellAt(1, 0).firstPosition());
+    edit.undo();
+    QCOMPARE(view.currentMarkdown(), expanded);
+  }
+
+  void toolbarSizePickerSupportsGridNumbersAndCancellation() {
+    ui::Editor edit;
+    ui::ViewSwitch view;
+    prepare(edit, view, fixture);
+    auto* table = firstTable(edit.document());
+    QVERIFY(table);
+    choose(edit, table, 1, 0);
+    auto* button = edit.findChild<QPushButton*>(QStringLiteral("tableDimensions"));
+    QVERIFY(button && button->isVisible());
+    QCOMPARE(button->text(), QStringLiteral("3 × 2"));
+    const auto showPicker = [&](bool accept) {
+      QTimer::singleShot(0, &edit, [&, accept] {
+        auto* dialog = edit.findChild<QDialog*>(QStringLiteral("resizeTableDialog"));
+        QVERIFY(dialog);
+        auto reject = qScopeGuard([dialog] { dialog->reject(); });
+        auto* grid = dialog->findChild<QTableWidget*>(QStringLiteral("tableResizeGrid"));
+        auto* rows = dialog->findChild<QSpinBox*>(QStringLiteral("tableResizeRows"));
+        auto* columns = dialog->findChild<QSpinBox*>(QStringLiteral("tableResizeColumns"));
+        auto* warning = dialog->findChild<QLabel*>(QStringLiteral("tableResizeWarning"));
+        auto* buttons = dialog->findChild<QDialogButtonBox*>();
+        QVERIFY(grid && rows && columns && warning && buttons);
+        QCOMPARE(rows->value(), 3);
+        QCOMPARE(columns->value(), 2);
+        auto* apply = buttons->button(QDialogButtonBox::Ok);
+        QVERIFY(!apply->isEnabled() && !warning->isVisible());
+        QTest::mouseClick(grid->viewport(), Qt::LeftButton, {},
+                          grid->visualItemRect(grid->item(1, 0)).center());
+        QCOMPARE(rows->value(), 2);
+        QCOMPARE(columns->value(), 1);
+        QVERIFY(apply->isEnabled() && warning->isVisible());
+        if (!accept) return;
+        QTest::mouseClick(grid->viewport(), Qt::LeftButton, {},
+                          grid->visualItemRect(grid->item(4, 3)).center());
+        QCOMPARE(rows->value(), 5);
+        QCOMPARE(columns->value(), 4);
+        QVERIFY(!warning->isVisible());
+        rows->setValue(12);
+        columns->setValue(7);
+        reject.dismiss();
+        apply->click();
+      });
+      button->click();
+    };
+    const QString original = view.currentMarkdown();
+    showPicker(false);
+    QCOMPARE(view.currentMarkdown(), original);
+    QVERIFY(!edit.document()->isUndoAvailable());
+    showPicker(true);
+    QCOMPARE(table->rows(), 12);
+    QCOMPARE(table->columns(), 7);
+    QCOMPARE(button->text(), QStringLiteral("12 × 7"));
+    edit.undo();
+    QCOMPARE(view.currentMarkdown(), original);
+  }
 
   void movesSelectedRowsWithRichContentsInOneUndo() {
     QTemporaryDir resources;

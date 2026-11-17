@@ -5700,7 +5700,8 @@ class WindowTests : public QObject {
     auto* down = window.findChild<QAction*>(QStringLiteral("table_move_rows_down"));
     auto* left = window.findChild<QAction*>(QStringLiteral("table_move_columns_left"));
     auto* right = window.findChild<QAction*>(QStringLiteral("table_move_columns_right"));
-    QVERIFY(editor && up && down && left && right);
+    auto* resize = window.findChild<QAction*>(QStringLiteral("resize_table"));
+    QVERIFY(editor && up && down && left && right && resize);
     auto* menu = qobject_cast<QMenu*>(down->parent());
     QVERIFY(menu);
 
@@ -5709,6 +5710,7 @@ class WindowTests : public QObject {
     QVERIFY(table);
     editor->setTextCursor(cursor);
     menu->aboutToShow();
+    QVERIFY(resize->isEnabled());
     QVERIFY(!up->isEnabled() && !down->isEnabled());
     QVERIFY(!left->isEnabled() && right->isEnabled());
 
@@ -5723,6 +5725,7 @@ class WindowTests : public QObject {
 
     QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView"));
     menu->aboutToShow();
+    QVERIFY(!resize->isEnabled());
     QVERIFY(!up->isEnabled() && !down->isEnabled() && !left->isEnabled() && !right->isEnabled());
   }
 

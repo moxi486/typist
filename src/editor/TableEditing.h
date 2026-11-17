@@ -14,6 +14,7 @@ struct TableCells {
 };
 TableCells tableCells(const QTextCursor& cursor);
 void styleTable(QTextTable* table);
+bool resizeTable(QTextCursor& cursor, int rows, int columns);
 bool pasteTableCells(QTextCursor& cursor, const QString& text, QString* error = nullptr);
 QString tableMarkdown(const QTextCursor& cursor);
 QString tableTsv(const QTextCursor& cursor, bool selectionOnly = false);
