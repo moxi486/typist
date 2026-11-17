@@ -15,6 +15,7 @@ QImage canvas(int width, int height, bool dark);
 QString label(QString text);
 void arrow(QPainter& painter, QPointF a, QPointF b, bool dashed = false, bool head = true);
 RenderResult flowchart(QStringList lines, bool dark);
+RenderResult ganttChart(const QStringList& lines, bool dark);
 RenderResult stateDiagram(QStringList lines, bool dark);
 RenderResult xyChart(const QStringList& lines, bool dark);
 }  // namespace typist::render::mermaid_detail

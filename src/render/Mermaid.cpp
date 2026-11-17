@@ -28,7 +28,7 @@ QImage canvas(int width, int height, bool dark) {
 }
 const QString unsupported = QStringLiteral(
     "This Mermaid syntax is not supported by the native renderer. Edit the source to use "
-    "flowchart, sequenceDiagram, stateDiagram, pie, timeline or xychart.");
+    "flowchart, sequenceDiagram, stateDiagram, gantt, pie, timeline or xychart.");
 QString label(QString text) {
   text = text.trimmed();
   if (text.startsWith('"') && text.endsWith('"')) text = text.mid(1, text.size() - 2);
@@ -457,14 +457,19 @@ RenderResult sequence(QStringList lines, bool dark) {
 RenderResult mermaid(const QString& source, bool dark) {
   if (source.size() > 32768) return {{}, QStringLiteral("Diagram exceeds 32768 characters")};
   QStringList lines = source.trimmed().split('\n');
+  bool hasConfig = false;
   while (!lines.isEmpty() &&
-         (lines.first().trimmed().isEmpty() || lines.first().trimmed().startsWith("%%")))
+         (lines.first().trimmed().isEmpty() || lines.first().trimmed().startsWith("%%"))) {
+    hasConfig = hasConfig || lines.first().trimmed().startsWith("%%{");
     lines.removeFirst();
+  }
   if (lines.isEmpty()) return {{}, unsupported};
   const auto header = lines.first().trimmed();
   if (header == "sequenceDiagram") return sequence(lines, dark);
   if (header == "stateDiagram" || header == "stateDiagram-v2")
     return mermaid_detail::stateDiagram(lines, dark);
+  if (header.compare(QStringLiteral("gantt"), Qt::CaseInsensitive) == 0 && !hasConfig)
+    return mermaid_detail::ganttChart(lines, dark);
   if (header.compare(QStringLiteral("timeline"), Qt::CaseInsensitive) == 0)
     return timeline(lines, dark);
   if (header.startsWith("graph ") || header.startsWith("flowchart "))
