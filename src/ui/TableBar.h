@@ -2,15 +2,18 @@
 #include "Editing.h"
 
 #include <QFrame>
+#include <QPair>
 class QLabel;
 class QAction;
+namespace typist::editor {
+struct TableCells;
+}
 namespace typist::ui {
 class TableBar : public QFrame {
   Q_OBJECT
  public:
   explicit TableBar(QWidget* parent);
-  void setTableState(int rows, int columns, int row, int column, int selectedRows,
-                     int selectedColumns, int alignment);
+  void setTableState(const QTextCursor& cursor, const editor::TableCells& selection, int alignment);
   void setDark(bool dark);
  signals:
   void operationRequested(editor::TableCommand command);
@@ -27,5 +30,6 @@ class TableBar : public QFrame {
   QAction* m_deleteRow = nullptr;
   QAction* m_deleteColumn = nullptr;
   QList<QAction*> m_addRows, m_addColumns, m_alignments;
+  QList<QPair<QAction*, editor::TableCommand>> m_moves;
 };
 }  // namespace typist::ui

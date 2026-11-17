@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QMenu>
 #include <QPushButton>
+#include <QTextTable>
 #include <QToolButton>
 
 namespace typist::ui {
@@ -39,11 +40,19 @@ TableBar::TableBar(QWidget* parent) : QFrame(parent) {
     connect(item, &QAction::triggered, this, [this, command] { emit operationRequested(command); });
     return item;
   };
+  const auto move = [&](QMenu* menu, const char* id, const char* text,
+                        editor::TableCommand command) {
+    m_moves.append({action(menu, id, text, command), command});
+  };
   auto* rows = menuButton("tableRowsMenu", QT_TR_NOOP("Rows"));
   m_addRows.append(action(rows, "tableBarRowAbove", QT_TR_NOOP("Insert row above"),
                           editor::TableCommand::RowAbove));
   m_addRows.append(action(rows, "tableBarRowBelow", QT_TR_NOOP("Insert row below"),
                           editor::TableCommand::RowBelow));
+  rows->addSeparator();
+  move(rows, "tableBarMoveRowsUp", QT_TR_NOOP("Move rows up"), editor::TableCommand::MoveRowsUp);
+  move(rows, "tableBarMoveRowsDown", QT_TR_NOOP("Move rows down"),
+       editor::TableCommand::MoveRowsDown);
   rows->addSeparator();
   m_deleteRow = action(rows, "tableBarDeleteRow", QT_TR_NOOP("Delete selected rows"),
                        editor::TableCommand::DeleteRow);
@@ -52,6 +61,11 @@ TableBar::TableBar(QWidget* parent) : QFrame(parent) {
                              editor::TableCommand::ColumnBefore));
   m_addColumns.append(action(columns, "tableBarColumnAfter", QT_TR_NOOP("Insert column right"),
                              editor::TableCommand::ColumnAfter));
+  columns->addSeparator();
+  move(columns, "tableBarMoveColumnsLeft", QT_TR_NOOP("Move columns left"),
+       editor::TableCommand::MoveColumnsLeft);
+  move(columns, "tableBarMoveColumnsRight", QT_TR_NOOP("Move columns right"),
+       editor::TableCommand::MoveColumnsRight);
   columns->addSeparator();
   m_deleteColumn = action(columns, "tableBarDeleteColumn", QT_TR_NOOP("Delete selected columns"),
                           editor::TableCommand::DeleteColumn);
@@ -82,18 +96,23 @@ TableBar::TableBar(QWidget* parent) : QFrame(parent) {
   setDark(false);
   hide();
 }
-void TableBar::setTableState(int rows, int columns, int row, int column, int selectedRows,
-                             int selectedColumns, int alignment) {
+void TableBar::setTableState(const QTextCursor& cursor, const editor::TableCells& selection,
+                             int alignment) {
+  const auto* table = cursor.currentTable();
+  const int rows = table->rows(), columns = table->columns();
   m_dimensions->setText(QStringLiteral("%1 × %2").arg(rows).arg(columns));
   m_dimensions->setToolTip(tr("Rows × columns, including the header"));
   m_dimensions->setAccessibleName(tr("%1 rows and %2 columns").arg(rows).arg(columns));
-  m_deleteRow->setEnabled(row > 0 && rows - selectedRows >= 2);
-  m_deleteColumn->setEnabled(columns - selectedColumns >= 1);
+  m_deleteRow->setEnabled(selection.row > 0 && rows - selection.rows >= 2);
+  m_deleteColumn->setEnabled(columns - selection.columns >= 1);
   for (auto* item : m_addRows) item->setEnabled(rows < editor::kMaxTableRows);
   for (auto* item : m_addColumns) item->setEnabled(columns < editor::kMaxTableColumns);
+  for (const auto& [action, command] : m_moves)
+    action->setEnabled(editor::canMoveTable(cursor, command));
   for (int index = 0; index < m_alignments.size(); ++index)
     m_alignments[index]->setChecked(alignment == index + 1);
-  setToolTip(tr("Current cell: row %1, column %2").arg(row + 1).arg(column + 1));
+  setToolTip(
+      tr("Current cell: row %1, column %2").arg(selection.row + 1).arg(selection.column + 1));
 }
 void TableBar::setDark(bool dark) {
   setStyleSheet(

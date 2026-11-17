@@ -8,6 +8,7 @@
 #include <QAction>
 #include <QClipboard>
 #include <QFile>
+#include <QImage>
 #include <QLabel>
 #include <QMimeData>
 #include <QTemporaryDir>
@@ -63,6 +64,107 @@ class TableWorkflowTests : public QObject {
   Q_OBJECT
  private slots:
   void initTestCase() { QApplication::setStyle(QStringLiteral("Fusion")); }
+
+  void movesSelectedRowsWithRichContentsInOneUndo() {
+    QTemporaryDir resources;
+    QVERIFY(resources.isValid());
+    QImage image(12, 8, QImage::Format_RGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(resources.filePath(QStringLiteral("sample.png"))));
+    const auto head = QStringLiteral("Before.\n\n| Name | Notes | Image |\n|:---|:---:|---:|\n");
+    const auto first = QStringLiteral(
+        "| **First** | [site](note.md \"Description\")<br>Second line | ![](sample.png \"Logo\") "
+        "|\n");
+    const auto second = QStringLiteral("| Second | *italic* | |\n");
+    const auto third = QStringLiteral("| Third | plain | end |\n");
+    const auto tail = QStringLiteral("\nAfter.\n");
+    ui::Editor edit;
+    ui::ViewSwitch view;
+    view.setBaseUrl(QUrl::fromLocalFile(resources.path() + '/'));
+    prepare(edit, view, head + first + second + third + tail);
+    auto* table = firstTable(edit.document());
+    QVERIFY(table);
+    const auto original = view.currentMarkdown();
+    const auto originalImage = table->cellAt(1, 2).firstCursorPosition().block().begin().fragment();
+    QVERIFY(originalImage.charFormat().isImageFormat());
+    auto selection = table->cellAt(2, 2).lastCursorPosition();
+    selection.setPosition(table->cellAt(1, 0).firstPosition(), QTextCursor::KeepAnchor);
+    edit.setTextCursor(selection);
+    QVERIFY(edit.textCursor().hasComplexSelection());
+    auto* up = edit.findChild<QAction*>(QStringLiteral("tableBarMoveRowsUp"));
+    auto* down = edit.findChild<QAction*>(QStringLiteral("tableBarMoveRowsDown"));
+    QVERIFY(up && down && !up->isEnabled() && down->isEnabled());
+    down->trigger();
+    const auto moved = view.currentMarkdown();
+    QVERIFY2(same(moved, head + third + first + second + tail), qPrintable(moved));
+    QCOMPARE(table->format().headerRowCount(), 1);
+    const auto movedImage = table->cellAt(2, 2).firstCursorPosition().block().begin().fragment();
+    QVERIFY(movedImage.charFormat().isImageFormat());
+    QCOMPARE(movedImage.charFormat().property(editor::kLinkTitleProperty).toString(),
+             QStringLiteral("Logo"));
+    const auto cells = editor::tableCells(edit.textCursor());
+    QCOMPARE(cells.row, 2);
+    QCOMPARE(cells.rows, 2);
+    QCOMPARE(cells.columns, 3);
+    QVERIFY(edit.textCursor().position() < edit.textCursor().anchor());
+    QVERIFY(up->isEnabled() && !down->isEnabled());
+    QVERIFY(!edit.changeTable(editor::TableCommand::MoveRowsDown));
+    QCOMPARE(view.currentMarkdown(), moved);
+    edit.undo();
+    QCOMPARE(view.currentMarkdown(), original);
+    edit.redo();
+    QCOMPARE(view.currentMarkdown(), moved);
+  }
+
+  void movesColumnsWithAlignmentWidthsAndTheCaret() {
+    ui::Editor edit;
+    ui::ViewSwitch view;
+    prepare(edit, view,
+            QStringLiteral("| A | B | C |\n|:---|:---:|---:|\n| abc | [label](note.md \"Details\") "
+                           "| one<br>two |\n"
+                           "| 12 | *italic* | |\n"));
+    auto* table = firstTable(edit.document());
+    QVERIFY(table);
+    auto format = table->format();
+    const QList<QTextLength> widths{QTextLength(QTextLength::PercentageLength, 20),
+                                    QTextLength(QTextLength::PercentageLength, 30),
+                                    QTextLength(QTextLength::PercentageLength, 50)};
+    format.setColumnWidthConstraints(widths);
+    table->setFormat(format);
+    edit.document()->clearUndoRedoStacks();
+    const auto original = view.currentMarkdown();
+    select(edit, table, 0, 1, 2, 2);
+    auto* left = edit.findChild<QAction*>(QStringLiteral("tableBarMoveColumnsLeft"));
+    auto* right = edit.findChild<QAction*>(QStringLiteral("tableBarMoveColumnsRight"));
+    QVERIFY(left && right && left->isEnabled() && !right->isEnabled());
+    left->trigger();
+    const auto moved = view.currentMarkdown();
+    QVERIFY2(same(moved, QStringLiteral("| B | C | A |\n|:---:|---:|:---|\n"
+                                        "| [label](note.md \"Details\") | one<br>two | abc |\n"
+                                        "| *italic* | | 12 |\n")),
+             qPrintable(moved));
+    QCOMPARE(table->format().columnWidthConstraints(),
+             (QList<QTextLength>{widths.at(1), widths.at(2), widths.at(0)}));
+    const auto cells = editor::tableCells(edit.textCursor());
+    QCOMPARE(cells.column, 0);
+    QCOMPARE(cells.columns, 2);
+    edit.undo();
+    QCOMPARE(view.currentMarkdown(), original);
+    QCOMPARE(table->format().columnWidthConstraints(), widths);
+
+    const auto cell = table->cellAt(1, 0);
+    auto caret = cell.firstCursorPosition();
+    caret.setPosition(cell.firstPosition() + 2);
+    caret.setPosition(cell.firstPosition() + 1, QTextCursor::KeepAnchor);
+    edit.setTextCursor(caret);
+    QVERIFY(edit.changeTable(editor::TableCommand::MoveColumnsRight));
+    QCOMPARE(editor::tableCells(edit.textCursor()).column, 1);
+    QCOMPARE(edit.textCursor().selectedText(), QStringLiteral("b"));
+    QVERIFY(edit.textCursor().position() < edit.textCursor().anchor());
+    edit.undo();
+    QCOMPARE(view.currentMarkdown(), original);
+  }
+
   void spreadsheetPasteCreatesTableAndPreservesLiteralCells() {
     ui::Editor editor;
     ui::ViewSwitch view;

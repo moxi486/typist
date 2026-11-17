@@ -590,6 +590,15 @@ QTextTable* insertTable(QTextCursor& cursor, int rows, int columns) {
 }
 
 bool editTable(QTextCursor& cursor, TableCommand command) {
+  switch (command) {
+    case TableCommand::MoveRowsUp:
+    case TableCommand::MoveRowsDown:
+    case TableCommand::MoveColumnsLeft:
+    case TableCommand::MoveColumnsRight:
+      return moveTable(cursor, command);
+    default:
+      break;
+  }
   QTextTable* table = cursor.currentTable();
   if (!table) return false;
   const auto cells = tableCells(cursor);

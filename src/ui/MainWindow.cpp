@@ -31,6 +31,7 @@
 #include "Settings.h"
 #include "SpecialContent.h"
 #include "SystemTheme.h"
+#include "TableEditing.h"
 #include "Theme.h"
 #include "ViewSwitch.h"
 #include "WorkspaceSearchPanel.h"
@@ -1062,6 +1063,24 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
               editor::TableCommand::ColumnAfter);
   tableAction(QStringLiteral("table_delete_column"), tr("Delete Column"),
               editor::TableCommand::DeleteColumn);
+  table->addSeparator();
+  const auto moveAction = [&](const QString& id, const QString& text,
+                              editor::TableCommand operation) {
+    auto* action = command(table, id, text, QString(),
+                           [editor, operation] { editor->changeTable(operation); });
+    connect(table, &QMenu::aboutToShow, action, [editor, action, operation] {
+      action->setEnabled(editor->renderedEditingAvailable() && !editor->isReadOnly() &&
+                         editor::canMoveTable(editor->textCursor(), operation));
+    });
+  };
+  moveAction(QStringLiteral("table_move_rows_up"), tr("Move Rows Up"),
+             editor::TableCommand::MoveRowsUp);
+  moveAction(QStringLiteral("table_move_rows_down"), tr("Move Rows Down"),
+             editor::TableCommand::MoveRowsDown);
+  moveAction(QStringLiteral("table_move_columns_left"), tr("Move Columns Left"),
+             editor::TableCommand::MoveColumnsLeft);
+  moveAction(QStringLiteral("table_move_columns_right"), tr("Move Columns Right"),
+             editor::TableCommand::MoveColumnsRight);
   table->addSeparator();
   tableAction(QStringLiteral("table_align_left"), tr("Align Left"),
               editor::TableCommand::AlignLeft);

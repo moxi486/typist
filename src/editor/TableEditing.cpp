@@ -5,8 +5,10 @@
 
 #include <QCoreApplication>
 #include <QTextDocument>
+#include <QTextDocumentFragment>
 #include <QTextFragment>
 #include <QTextTable>
+#include <optional>
 
 namespace typist::editor {
 namespace {
@@ -109,6 +111,39 @@ void replaceCell(const QTextTableCell& cell, const QString& text) {
   value.replace('\n', QChar::LineSeparator);
   cursor.insertText(value, format);
 }
+
+struct MoveRange {
+  bool rows;
+  int direction;
+  int first;
+  int count;
+};
+
+std::optional<MoveRange> moveRange(const QTextTable* table, const TableCells& cells,
+                                   TableCommand command) {
+  if (!table || !cells.valid()) return std::nullopt;
+  const bool rows = command == TableCommand::MoveRowsUp || command == TableCommand::MoveRowsDown;
+  if (!rows && command != TableCommand::MoveColumnsLeft &&
+      command != TableCommand::MoveColumnsRight)
+    return std::nullopt;
+  const int direction =
+      command == TableCommand::MoveRowsUp || command == TableCommand::MoveColumnsLeft ? -1 : 1;
+  const int start = rows ? cells.row : cells.column;
+  const int count = rows ? cells.rows : cells.columns;
+  const int neighbor = direction < 0 ? start - 1 : start + count;
+  const int firstMovable = rows ? 1 : 0;
+  if (start < firstMovable || neighbor < firstMovable ||
+      neighbor >= (rows ? table->rows() : table->columns()))
+    return std::nullopt;
+  return MoveRange{rows, direction, qMin(neighbor, start), count + 1};
+}
+
+struct CellSnapshot {
+  QTextDocumentFragment text;
+  QTextBlockFormat block;
+  QTextCharFormat blockText;
+  QTextCharFormat cell;
+};
 }  // namespace
 TableCells tableCells(const QTextCursor& cursor) {
   auto* table = cursor.currentTable();
@@ -317,6 +352,88 @@ bool moveTableCell(QTextCursor& cursor, bool backwards) {
     cursor.endEditBlock();
   } else
     cursor = table->cellAt(next / table->columns(), next % table->columns()).firstCursorPosition();
+  return true;
+}
+
+bool canMoveTable(const QTextCursor& cursor, TableCommand command) {
+  return moveRange(cursor.currentTable(), tableCells(cursor), command).has_value();
+}
+
+bool moveTable(QTextCursor& cursor, TableCommand command) {
+  auto* table = cursor.currentTable();
+  const auto selection = tableCells(cursor);
+  const auto range = moveRange(table, selection, command);
+  if (!range) return false;
+  const int lanes = range->rows ? table->columns() : table->rows();
+  const auto cellAt = [&](int track, int lane) {
+    return range->rows ? table->cellAt(range->first + track, lane)
+                       : table->cellAt(lane, range->first + track);
+  };
+
+  // Move the formatted content within the existing frame. In particular, a column
+  // carries its header and the Markdown alignment property stored on each block.
+  QVector<CellSnapshot> snapshots;
+  snapshots.reserve(range->count * lanes);
+  for (int track = 0; track < range->count; ++track) {
+    for (int lane = 0; lane < lanes; ++lane) {
+      const auto cell = cellAt(track, lane);
+      if (cell.rowSpan() != 1 || cell.columnSpan() != 1) return false;
+      auto text = cell.firstCursorPosition();
+      text.setPosition(cell.lastPosition(), QTextCursor::KeepAnchor);
+      const auto first = cell.firstCursorPosition().block();
+      snapshots.append(
+          {QTextDocumentFragment(text), first.blockFormat(), first.charFormat(), cell.format()});
+    }
+  }
+
+  const bool rectangular = cursor.hasComplexSelection();
+  const bool reversed = cursor.position() < cursor.anchor();
+  const int originalStart = table->cellAt(selection.row, selection.column).firstPosition();
+  const int anchorOffset = cursor.anchor() - originalStart;
+  const int caretOffset = cursor.position() - originalStart;
+  const int shift = range->direction < 0 ? 1 : range->count - 1;
+  cursor.beginEditBlock();
+  for (int track = 0; track < range->count; ++track) {
+    const int from = (track + shift) % range->count;
+    for (int lane = 0; lane < lanes; ++lane) {
+      auto cell = cellAt(track, lane);
+      const auto& snapshot = snapshots.at(from * lanes + lane);
+      auto text = cell.firstCursorPosition();
+      text.setPosition(cell.lastPosition(), QTextCursor::KeepAnchor);
+      text.removeSelectedText();
+      text.setBlockFormat(snapshot.block);
+      text.setBlockCharFormat(snapshot.blockText);
+      text.insertFragment(snapshot.text);
+      cell.setFormat(snapshot.cell);
+    }
+  }
+  if (!range->rows) {
+    auto format = table->format();
+    auto widths = format.columnWidthConstraints();
+    if (widths.size() == table->columns()) {
+      const auto previous = widths;
+      for (int i = 0; i < range->count; ++i)
+        widths[range->first + i] = previous.at(range->first + (i + shift) % range->count);
+      format.setColumnWidthConstraints(widths);
+      table->setFormat(format);
+    }
+  }
+  cursor.endEditBlock();
+
+  const int row = selection.row + (range->rows ? range->direction : 0);
+  const int column = selection.column + (range->rows ? 0 : range->direction);
+  const auto first = table->cellAt(row, column);
+  if (rectangular) {
+    const auto last = table->cellAt(row + selection.rows - 1, column + selection.columns - 1);
+    cursor.setPosition(reversed ? last.lastPosition() : first.firstPosition());
+    cursor.setPosition(reversed ? first.firstPosition() : last.lastPosition(),
+                       QTextCursor::KeepAnchor);
+  } else {
+    const int length = first.lastPosition() - first.firstPosition();
+    cursor.setPosition(first.firstPosition() + qBound(0, anchorOffset, length));
+    cursor.setPosition(first.firstPosition() + qBound(0, caretOffset, length),
+                       QTextCursor::KeepAnchor);
+  }
   return true;
 }
 }  // namespace typist::editor
