@@ -1653,8 +1653,8 @@
         <translation>编辑源码，右侧预览会自动更新。</translation>
     </message>
     <message>
-        <source>Supports flowchart, sequenceDiagram and pie. Other syntax is kept as source.</source>
-        <translation>支持流程图 flowchart、时序图 sequenceDiagram 和饼图 pie，其余语法保留为源码。</translation>
+        <source>Supports flowchart, sequenceDiagram, pie and timeline. Other syntax is kept as source.</source>
+        <translation>支持流程图 flowchart、时序图 sequenceDiagram、饼图 pie 和时间线 timeline，其余语法保留为源码。</translation>
     </message>
     <message>
         <source>Double-click a formula or diagram in the document to edit it.</source>
