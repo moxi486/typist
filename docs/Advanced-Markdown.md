@@ -4,7 +4,7 @@
 
 行内公式写作 `$E=mc^2$`。输入闭合的 `$` 后自动渲染；独立公式使用单独成行的 `$$` 包围。公式支持分数、根式、上下标、求和、积分、矩阵等 LaTeX 数学排版。双击已渲染公式可打开源码与预览，修改后可撤销。未能渲染的公式保留原文，可切到源码模式修改。
 
-Mermaid 使用带 `mermaid` 语言标记的代码围栏。目前支持 `flowchart / graph` 的 TD、TB、BT、LR、RL 方向，矩形、圆角、圆形、菱形节点，普通与虚线连接、边标签、分支和环；支持 `sequenceDiagram` 的 participant / actor、消息、返回消息、autonumber、Note over。subgraph、样式指令、复杂时序控制和类图等保留为源码，避免显示不完整图形。actor 当前使用统一参与者标题框。
+Mermaid 使用带 `mermaid` 语言标记的代码围栏。目前支持 `flowchart / graph` 的 TD、TB、BT、LR、RL 方向，矩形、圆角、圆形、菱形节点，普通与虚线连接、边标签、分支和环；支持 `sequenceDiagram` 的 participant / actor、消息、返回消息、autonumber、Note over。subgraph、样式指令和复杂时序控制等保留为源码，避免显示不完整图形。actor 当前使用统一参与者标题框。
 
 ```mermaid
 flowchart LR
@@ -59,6 +59,22 @@ stateDiagram-v2
     Active --> Active : 自动保存
     Active --> Idle : 关闭文档
     Active --> [*] : 退出应用
+```
+
+`classDiagram` 支持类名、自定义显示名称、类注解、属性和方法。成员可写在类的花括号内，也可写作 `Class : 成员`。保留可见性符号，静态成员加下划线，抽象方法用斜体。支持继承、实现、组合、聚合、关联与依赖，关系可附文字说明和双端多重性。用 `direction` 设置上下或左右布局。单图最多 24 个类、48 条关系，每类最多 18 个成员。命名空间、泛型、笔记、交互和样式指令保留为可编辑源码。 [Mermaid 类图语法](https://mermaid.js.org/syntax/classDiagram.html)
+
+```mermaid
+classDiagram
+    class Document["文档"] {
+        -String title
+        +save() bool
+    }
+    class MarkdownDocument["Markdown 文档"] {
+        +toMarkdown() String
+    }
+    class Section["章节"]
+    Document <|-- MarkdownDocument
+    Document "1" *-- "1..*" Section : 包含
 ```
 
 `gantt` 绘制按日期排列的项目计划。用 `title` 添加标题、`section` 分组。日期采用 `YYYY-MM-DD`，工期支持分钟 `m`、小时 `h`、天 `d` 和周 `w`，精确到分钟。可直接写开始和结束日期，也可指定任务 ID，通过 `after` 接续一个或多个任务；省略开始时间时接续上一项，首项须提供日期或依赖。使用 `done`、`active`、`crit` 和 `milestone` 标记状态。

@@ -203,29 +203,33 @@ void rankStates(QList<Node>& nodes, const QList<Edge>& edges) {
     if (node.shape == NodeShape::End) node.rank = deepest + 1;
 }
 
-void rankFlowchart(QList<Node>& nodes, const QList<Edge>& edges) {
+}  // namespace
+
+QList<int> graphRanks(int count, const QList<QPair<int, int>>& links) {
   // Kahn ordering gives branches their own row/column; cycles remain on bounded
   // fallback ranks rather than iterating rank relaxation indefinitely.
-  QList<int> indegree(nodes.size(), 0), queue;
+  QList<int> ranks(count, 0), indegree(count, 0), queue;
   int maxRank = 0;
-  for (const auto& edge : edges)
-    if (edge.from != edge.to) ++indegree[edge.to];
-  for (int i = 0; i < nodes.size(); ++i)
+  for (const auto& [from, to] : links)
+    if (from != to) ++indegree[to];
+  for (int i = 0; i < count; ++i)
     if (!indegree[i]) queue.append(i);
   QSet<int> visited;
   for (int at = 0; at < queue.size(); ++at) {
     const int n = queue[at];
     visited.insert(n);
-    for (const auto& edge : edges)
-      if (edge.from == n && edge.to != n) {
-        nodes[edge.to].rank = qMax(nodes[edge.to].rank, nodes[n].rank + 1);
-        if (!--indegree[edge.to]) queue.append(edge.to);
+    for (const auto& [from, to] : links)
+      if (from == n && to != n) {
+        ranks[to] = qMax(ranks[to], ranks[n] + 1);
+        if (!--indegree[to]) queue.append(to);
       }
   }
-  for (int i = 0; i < nodes.size(); ++i)
-    if (!visited.contains(i)) nodes[i].rank = maxRank++;
+  for (int i = 0; i < count; ++i)
+    if (!visited.contains(i)) ranks[i] = maxRank++;
+  return ranks;
 }
 
+namespace {
 QRectF visibleStateBox(const Node& node) {
   if (node.shape != NodeShape::Start && node.shape != NodeShape::End &&
       node.shape != NodeShape::Choice)
@@ -297,8 +301,12 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
   if (nodes.isEmpty()) return {{}, unsupported};
   if (states)
     rankStates(nodes, edges);
-  else
-    rankFlowchart(nodes, edges);
+  else {
+    QList<QPair<int, int>> links;
+    for (const auto& edge : edges) links.append({edge.from, edge.to});
+    const auto ranks = graphRanks(int(nodes.size()), links);
+    for (int i = 0; i < nodes.size(); ++i) nodes[i].rank = ranks.at(i);
+  }
   const bool horizontal = mode == "LR" || mode == "RL";
   int maxRank = 0;
   QHash<int, QList<int>> ranks;

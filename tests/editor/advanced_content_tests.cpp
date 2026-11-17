@@ -501,6 +501,90 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void classDiagramsRenderMembersAndUmlRelations() {
+    const QString plot = QStringLiteral(
+        "classDiagram\n"
+        " class Document[\"文档\"] {\n"
+        "  <<abstract>>\n  -String title\n  +int count$\n  +save() bool*\n }\n"
+        " class MarkdownDocument[\"Markdown 文档\"] {\n  +toMarkdown() String\n }\n"
+        " class Section[\"章节\"]\n"
+        " Document <|-- MarkdownDocument\n"
+        " Document \"1\" *-- \"1..*\" Section : 包含\n"
+        " Section --> Section : 下一节\n");
+    const auto light = render::mermaid(plot);
+    const auto dark = render::mermaid(plot, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+
+    const auto alternate = render::mermaid(QStringLiteral(
+        "classDiagram\n"
+        " class Document[\"文档\"] <<abstract>>\n"
+        " Document : +save() bool*\n Document : -String title\n Document : +int count$\n"
+        " class MarkdownDocument[\"Markdown 文档\"]\n"
+        " MarkdownDocument : +toMarkdown() String\n"
+        " class Section[\"章节\"]\n"
+        " Document<|--MarkdownDocument\n"
+        " Document \"1\" *-- \"1..*\" Section : 包含\n"
+        " Section --> Section : 下一节\n"));
+    QCOMPARE(light.image, alternate.image);
+
+    const auto base = QStringLiteral("classDiagram\nclass Whole\nclass Part\n");
+    const auto composition = render::mermaid(base + QStringLiteral("Whole *-- Part"));
+    const auto aggregation = render::mermaid(base + QStringLiteral("Whole o-- Part"));
+    const auto reversed = render::mermaid(base + QStringLiteral("Part --* Whole"));
+    QVERIFY(!composition.image.isNull());
+    QCOMPARE(composition.image.size(), aggregation.image.size());
+    QVERIFY(composition.image != aggregation.image);
+    QCOMPARE(composition.image, reversed.image);
+    const auto dependency = render::mermaid(base + QStringLiteral("Whole ..> Part"));
+    const auto association = render::mermaid(base + QStringLiteral("Whole --> Part"));
+    QCOMPARE(dependency.image.size(), association.image.size());
+    QVERIFY(dependency.image != association.image);
+    const auto realization = render::mermaid(base + QStringLiteral("Whole <|.. Part"));
+    const auto inheritance = render::mermaid(base + QStringLiteral("Whole <|-- Part"));
+    QCOMPARE(realization.image.size(), inheritance.image.size());
+    QVERIFY(realization.image != inheritance.image);
+    const auto horizontal = render::mermaid(base + QStringLiteral("direction LR\nWhole *-- Part"));
+    const auto rtl = render::mermaid(base + QStringLiteral("direction RL\nWhole *-- Part"));
+    const auto upwards = render::mermaid(base + QStringLiteral("direction BT\nWhole *-- Part"));
+    QVERIFY(horizontal.image.width() > composition.image.width());
+    QVERIFY(horizontal.image.height() < composition.image.height());
+    QCOMPARE(horizontal.image.size(), rtl.image.size());
+    QVERIFY(horizontal.image != rtl.image);
+    QCOMPARE(upwards.image.size(), composition.image.size());
+    QVERIFY(upwards.image != composition.image);
+    QVERIFY(!render::mermaid(
+                 QStringLiteral("classDiagram\n A --> B\n B --> C\n A \"1\" --> \"many\" C\n"
+                                " C --> A\n"))
+                 .image.isNull());
+    const auto standalone = render::mermaid(QStringLiteral("classDiagram\nclass 文档"));
+    const auto byReference = render::mermaid(
+        QStringLiteral("classDiagram\nclass 文档\n<<interface>> 文档\n文档 : +打开()"));
+    QVERIFY(byReference.image.height() > standalone.image.height());
+
+    for (const auto& invalid : {
+             QStringLiteral("classDiagram"),
+             QStringLiteral("classDiagram\nclass A{\n-int field"),
+             QStringLiteral("classDiagram\nclass A~int~"),
+             QStringLiteral("classDiagram\nclass A\nA : +List~int~ items"),
+             QStringLiteral("classDiagram\nnamespace Core {\n class A\n}"),
+             QStringLiteral("classDiagram\nclass A\nnote for A \"text\""),
+             QStringLiteral("classDiagram\nclass A\nA ?-- B"),
+             QStringLiteral("classDiagram\nclass A\nclassDef selected fill:#ccc"),
+             QStringLiteral("%%{init: {}}%%\nclassDiagram\nclass A"),
+         }) {
+      const auto result = render::mermaid(invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/class-light.png"));
+      QVERIFY(dark.image.save(retained + "/class-dark.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -530,6 +614,12 @@ class AdvancedContentTests : public QObject {
                                   "  section Distribution\n"
                                   "  Publish :milestone, after draft, 0d\n")
                            << QStringLiteral("gantt\n  Publish :after missing, 0d\n");
+    QTest::newRow("class") << QStringLiteral(
+                                  "classDiagram\n class Document[\"文档\"] {\n -String title\n"
+                                  " +save()\n }\n Document <|-- MarkdownDocument\n"
+                                  " Document \"1\" *-- \"1..*\" Section : contains\n")
+                           << QStringLiteral(
+                                  "classDiagram\n namespace Core {\n   class Document\n }\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {

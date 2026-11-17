@@ -1319,8 +1319,8 @@ void Editor::editAdvancedSource(const QString& type, const QString& source, QTex
   layout->addWidget(splitter, 1);
   auto* hint = new QLabel(
       diagram ? editorText(
-                    "Supports flowchart, sequenceDiagram, stateDiagram, gantt, pie, timeline and "
-                    "xychart. "
+                    "Supports flowchart, sequenceDiagram, stateDiagram, classDiagram, gantt, pie, "
+                    "timeline and xychart. "
                     "Other syntax is kept as source.")
               : editorText("Double-click a formula or diagram in the document to edit it."),
       &dialog);
