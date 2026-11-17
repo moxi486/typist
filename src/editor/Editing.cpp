@@ -589,7 +589,33 @@ QTextTable* insertTable(QTextCursor& cursor, int rows, int columns) {
   return table;
 }
 
+bool canEditTable(const QTextCursor& cursor, TableCommand command) {
+  const auto* table = cursor.currentTable();
+  const auto cells = tableCells(cursor);
+  if (!table || !cells.valid()) return false;
+  switch (command) {
+    case TableCommand::RowAbove:
+    case TableCommand::RowBelow:
+      return table->rows() < kMaxTableRows;
+    case TableCommand::ColumnBefore:
+    case TableCommand::ColumnAfter:
+      return table->columns() < kMaxTableColumns;
+    case TableCommand::DeleteRow:
+      return cells.row > 0 && table->rows() - cells.rows >= 2;
+    case TableCommand::DeleteColumn:
+      return table->columns() - cells.columns >= 1;
+    case TableCommand::MoveRowsUp:
+    case TableCommand::MoveRowsDown:
+    case TableCommand::MoveColumnsLeft:
+    case TableCommand::MoveColumnsRight:
+      return canMoveTable(cursor, command);
+    default:
+      return true;
+  }
+}
+
 bool editTable(QTextCursor& cursor, TableCommand command) {
+  if (!canEditTable(cursor, command)) return false;
   switch (command) {
     case TableCommand::MoveRowsUp:
     case TableCommand::MoveRowsDown:
@@ -599,19 +625,9 @@ bool editTable(QTextCursor& cursor, TableCommand command) {
     default:
       break;
   }
-  QTextTable* table = cursor.currentTable();
-  if (!table) return false;
+  auto* table = cursor.currentTable();
   const auto cells = tableCells(cursor);
-  if (!cells.valid()) return false;
   const int row = cells.row, column = cells.column;
-  if ((command == TableCommand::RowAbove || command == TableCommand::RowBelow) &&
-      table->rows() >= kMaxTableRows)
-    return false;
-  if ((command == TableCommand::ColumnBefore || command == TableCommand::ColumnAfter) &&
-      table->columns() >= kMaxTableColumns)
-    return false;
-  if (command == TableCommand::DeleteRow && (row == 0 || table->rows() - cells.rows < 2))
-    return false;
   cursor.beginEditBlock();
   switch (command) {
     case TableCommand::RowAbove:
@@ -630,10 +646,6 @@ bool editTable(QTextCursor& cursor, TableCommand command) {
       table->insertColumns(column + cells.columns, 1);
       break;
     case TableCommand::DeleteColumn:
-      if (table->columns() - cells.columns < 1) {
-        cursor.endEditBlock();
-        return false;
-      }
       table->removeColumns(column, cells.columns);
       break;
     case TableCommand::DeleteTable: {

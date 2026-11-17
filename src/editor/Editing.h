@@ -31,6 +31,7 @@ void toggleInlineStyle(QTextCursor& cursor, InlineStyle style);
 void setLink(QTextCursor& cursor, const QString& destination, const QString& label = QString());
 bool indentList(QTextCursor& cursor, int delta);
 QTextTable* insertTable(QTextCursor& cursor, int rows, int columns);
+bool canEditTable(const QTextCursor& cursor, TableCommand command);
 bool editTable(QTextCursor& cursor, TableCommand command);
 bool renderInlineMarkdown(QTextCursor& cursor, bool unicodeLinkTitles = false);
 QString selectedMarkdown(const QTextCursor& cursor);

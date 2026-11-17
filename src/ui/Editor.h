@@ -241,7 +241,9 @@ class Editor : public QTextEdit {
   void updateZoomControls();
   void positionZoomControls();
   void insertFileLink(const QString& path);
+  QPoint documentPoint(const QPoint& viewportPoint) const;
   void addImageFileActions(QMenu* menu, const QContextMenuEvent& event);
+  void addTableActions(QMenu* menu, const QContextMenuEvent& event, QTextCursor target);
   void saveImageResource(QTextCursor image, bool relink);
   QString selectedPlainText() const;
   bool copyOrCutCurrentLine(bool cut);

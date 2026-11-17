@@ -45,6 +45,7 @@
 | 切换当前 / 所选任务状态 | Ctrl+Shift+Space |
 | 列表项内换行 | Shift+Enter |
 | 插入表格 | Ctrl+T |
+| 上移 / 下移表格数据行 | Alt+↑ / Alt+↓（macOS Option+↑ / Option+↓），支持矩形选区 |
 | 表格下一格 / 上一格 | Tab / Shift+Tab；末行最后一格 Tab 新增一行 |
 | 退出表格，继续正文 | Ctrl+Enter |
 | 矩形表格选区复制 / 剪切 / 清空 | Ctrl+C / Ctrl+X / Delete（或 Backspace） |
