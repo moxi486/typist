@@ -725,8 +725,14 @@ class AdvancedContentTests : public QObject {
     const auto longNode =
         render::mermaid(QStringLiteral("mindmap\n  root[") +
                         QStringLiteral("长标签").repeated(200) + QStringLiteral("]\n    Short"));
+    const auto fourLines =
+        render::mermaid(QStringLiteral("mindmap\n  root[I<br>I<br>I<br>I]\n    Short"));
     QVERIFY(!longNode.image.isNull());
-    QVERIFY(longNode.image.height() < 260 * longNode.image.devicePixelRatio());
+    QVERIFY(!fourLines.image.isNull());
+    QVERIFY2(longNode.image.height() <= fourLines.image.height(),
+             qPrintable(QStringLiteral("Long label: %1 px; four explicit lines: %2 px")
+                            .arg(longNode.image.height())
+                            .arg(fourLines.image.height())));
 
     const QString many =
         QStringLiteral("mindmap\nRoot\n") + QStringLiteral("  Child\n").repeated(47);
