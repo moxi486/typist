@@ -266,10 +266,10 @@ class AdvancedContentTests : public QObject {
     QCOMPARE(light.image, render::mermaid(equivalent).image);
     QCOMPARE(dark.image.size(), light.image.size());
     QVERIFY(dark.image.pixelColor(0, 0) != light.image.pixelColor(0, 0));
-    auto reordered = equivalent;
-    reordered.replace(QStringLiteral("收集材料\n            : 完成初稿"),
-                      QStringLiteral("完成初稿\n            : 收集材料"));
-    QVERIFY(render::mermaid(reordered).image != light.image);
+    const auto firstOrder = render::mermaid(QStringLiteral("timeline\nDay : Draft : Publish"));
+    const auto secondOrder = render::mermaid(QStringLiteral("timeline\nDay : Publish : Draft"));
+    QVERIFY(!firstOrder.image.isNull() && !secondOrder.image.isNull());
+    QVERIFY(firstOrder.image != secondOrder.image);
 
     const auto row = QStringLiteral("timeline\nA : one\nB : two\nC : three\nD : four\n");
     const auto before = render::mermaid(row);
