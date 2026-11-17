@@ -369,6 +369,61 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void stateDiagramsRenderDirectionsLoopsAndChoice() {
+    const auto source = QStringLiteral(
+        "stateDiagram-v2\n"
+        "    state \"等待编辑\" as Idle\n    Active: 编辑中\n"
+        "    [*] --> Idle\n    Idle --> Active : 打开文档 %% enter\n"
+        "    Active --> Idle : 关闭文档\n    Idle --> [*] : 取消\n"
+        "    Active --> Active : 自动保存\n    Active --> [*] : 退出应用\n");
+    const auto light = render::mermaid(source);
+    const auto dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.devicePixelRatio(), 2.);
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image.pixelColor(0, 0) != dark.image.pixelColor(0, 0));
+
+    auto equivalent = source;
+    equivalent.replace(QStringLiteral("stateDiagram-v2"), QStringLiteral("stateDiagram"));
+    equivalent.replace(QStringLiteral("state \"等待编辑\" as Idle"),
+                       QStringLiteral("Idle: 等待编辑"));
+    QCOMPARE(light.image, render::mermaid(equivalent).image);
+
+    auto horizontal = source;
+    horizontal.replace(QStringLiteral("stateDiagram-v2\n"),
+                       QStringLiteral("stateDiagram-v2\r\n    direction LR\r\n"));
+    const auto wide = render::mermaid(horizontal);
+    QVERIFY2(!wide.image.isNull(), qPrintable(wide.error));
+    QVERIFY(wide.image.width() > wide.image.height());
+    QVERIFY(light.image.height() > light.image.width());
+    auto noLoop = source;
+    noLoop.remove(QStringLiteral("    Active --> Active : 自动保存\n"));
+    const auto smaller = render::mermaid(noLoop);
+    QVERIFY(!smaller.image.isNull());
+    QVERIFY(smaller.image.width() < light.image.width());
+
+    const auto branching = render::mermaid(
+        QStringLiteral("stateDiagram-v2\nstate Decision <<choice>>; [*] --> Decision\n"
+                       "Decision --> Approved : yes\nDecision --> Denied : no\n"
+                       "Approved --> [*]\nDenied --> [*]"));
+    QVERIFY2(!branching.image.isNull(), qPrintable(branching.error));
+    for (const auto& invalid : {QStringLiteral("stateDiagram-v2\nstate Active {\n[*] --> Idle\n}"),
+                                QStringLiteral("stateDiagram\nA --> B:::warning"),
+                                QStringLiteral("stateDiagram\naccTitle: Hidden metadata\nA --> B"),
+                                QStringLiteral("stateDiagram\nUnfinished -->"),
+                                QStringLiteral("stateDiagram-v2\ndirection unknown\nA --> B")}) {
+      const auto result = render::mermaid(invalid);
+      QVERIFY(result.image.isNull() && !result.error.isEmpty());
+    }
+
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/state-light.png"));
+      QVERIFY(dark.image.save(retained + "/state-dark.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -386,6 +441,12 @@ class AdvancedContentTests : public QObject {
                                     "  y-axis Volume -5 --> 10\n"
                                     "  bar Actual [4, 7, -3]\n  line Target [6, 6, 2]\n")
                              << QStringLiteral("xychart\n  bar [1, missing]\n");
+    QTest::newRow("state") << QStringLiteral(
+                                  "stateDiagram-v2\n  state \"Reading mode\" as Read\n"
+                                  "  [*] --> Read\n  Read --> Edit : Open\n"
+                                  "  Edit --> Read : Save\n  Edit --> [*]\n")
+                           << QStringLiteral(
+                                  "stateDiagram\n  state Parent {\n    [*] --> Child\n  }\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {
