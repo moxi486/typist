@@ -1,4 +1,4 @@
-#include "SpecialContent.h"
+#include "MermaidInternal.h"
 
 #include <QFontMetricsF>
 #include <QHash>
@@ -14,27 +14,32 @@
 #include <utility>
 
 namespace typist::render {
-namespace {
-const QString unsupported = QStringLiteral(
-    "This Mermaid syntax is not supported by the native renderer. Edit the source to use "
-    "flowchart, sequenceDiagram, pie or timeline.");
+namespace mermaid_detail {
 QFont diagramFont() {
   QFont f;
   f.setFamilies({"Arial", "Microsoft YaHei", "Noto Sans"});
   f.setPointSizeF(11);
   return f;
 }
-QString label(QString text) {
-  text = text.trimmed();
-  if (text.startsWith('"') && text.endsWith('"')) text = text.mid(1, text.size() - 2);
-  text.replace(QRegularExpression("<br\\s*/?>", QRegularExpression::CaseInsensitiveOption), "\n");
-  return text;
-}
 QImage canvas(int width, int height, bool dark) {
   QImage image(width * 2, height * 2, QImage::Format_ARGB32_Premultiplied);
   image.setDevicePixelRatio(2);
   image.fill(dark ? QColor("#262b31") : QColor("#ffffff"));
   return image;
+}
+}  // namespace mermaid_detail
+
+namespace {
+using mermaid_detail::canvas;
+using mermaid_detail::diagramFont;
+const QString unsupported = QStringLiteral(
+    "This Mermaid syntax is not supported by the native renderer. Edit the source to use "
+    "flowchart, sequenceDiagram, pie, timeline or xychart.");
+QString label(QString text) {
+  text = text.trimmed();
+  if (text.startsWith('"') && text.endsWith('"')) text = text.mid(1, text.size() - 2);
+  text.replace(QRegularExpression("<br\\s*/?>", QRegularExpression::CaseInsensitiveOption), "\n");
+  return text;
 }
 
 struct PieSlice {
@@ -645,6 +650,8 @@ RenderResult mermaid(const QString& source, bool dark) {
   if (header.startsWith("graph ") || header.startsWith("flowchart ")) return flowchart(lines, dark);
   if (header.startsWith("pie") && (header.size() == 3 || header.at(3).isSpace()))
     return pieChart(lines, dark);
+  if (header.startsWith(QLatin1String("xychart"), Qt::CaseInsensitive))
+    return mermaid_detail::xyChart(lines, dark);
   return {{}, unsupported};
 }
 }  // namespace typist::render

@@ -303,6 +303,72 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void xyChartsRenderBothOrientationsAndCombineSeries() {
+    const auto definition = QStringLiteral("x-axis [A, B]\ny-axis -4 --> 4\nbar [3, -3]\n");
+    const auto portrait = render::mermaid(QStringLiteral("xychart\n") + definition);
+    const auto landscape =
+        render::mermaid(QStringLiteral("xychart-beta horizontal\n") + definition);
+    QVERIFY2(!portrait.image.isNull(), qPrintable(portrait.error));
+    QVERIFY2(!landscape.image.isNull(), qPrintable(landscape.error));
+    const auto bounds = [](const QImage& image, const QRect& region, const QColor& color) {
+      QRect found;
+      for (int y = region.top(); y <= region.bottom(); y += 2)
+        for (int x = region.left(); x <= region.right(); x += 2)
+          if (image.pixel(x, y) == color.rgba()) found |= QRect(x, y, 1, 1);
+      return found;
+    };
+    const QColor blue("#327fc2"), orange("#bf521c");
+    const int px = portrait.image.width() / 2, py = portrait.image.height();
+    const auto verticalPositive = bounds(portrait.image, QRect(0, 0, px, py), blue);
+    const auto verticalNegative = bounds(portrait.image, QRect(px, 0, px, py), blue);
+    QVERIFY(verticalPositive.isValid() && verticalNegative.isValid());
+    QVERIFY(verticalPositive.bottom() < verticalNegative.top());
+    const int hx = landscape.image.width(), hy = landscape.image.height() / 2;
+    const auto horizontalPositive = bounds(landscape.image, QRect(0, 0, hx, hy), blue);
+    const auto horizontalNegative = bounds(landscape.image, QRect(0, hy, hx, hy), blue);
+    QVERIFY(horizontalPositive.isValid() && horizontalNegative.isValid());
+    QVERIFY(horizontalNegative.right() < horizontalPositive.left());
+
+    const auto monthly = QStringLiteral(
+        "xychart-beta\ntitle \"每月产量（件）\"\nx-axis \"月份\" [一月, 二月, \"三月, 试产\", "
+        "四月]\n"
+        "y-axis \"数量\" 0 --> 100\nbar \"实际\" [40, 65, 72, 83]\n"
+        "line \"目标 %% 计划\" [50, 60, 75, 80] %% planned\n");
+    const auto light = render::mermaid(monthly);
+    const auto dark = render::mermaid(monthly, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.devicePixelRatio(), 2.);
+    QVERIFY(dark.image.pixelColor(0, 0) != light.image.pixelColor(0, 0));
+    QVERIFY(bounds(light.image, light.image.rect().adjusted(0, 0, 0, -128), blue).isValid());
+    QVERIFY(bounds(light.image, light.image.rect().adjusted(0, 0, 0, -128), orange).isValid());
+    auto alias = monthly;
+    alias.replace("xychart-beta\n", "xychart vertical\n");
+    QCOMPARE(light.image, render::mermaid(alias).image);
+    const auto numeric =
+        render::mermaid(QStringLiteral("xychart\nx-axis Time -2 --> 2\ny-axis Level\nline [5, 5]"));
+    QVERIFY2(!numeric.image.isNull(), qPrintable(numeric.error));
+    QVERIFY(!render::mermaid(QStringLiteral("xychart\nline [+1.3, .6, -.34]")).image.isNull());
+    const auto clipped =
+        render::mermaid(QStringLiteral("xychart\nx-axis [A, B]\nbar [4, -3, 999]"));
+    const auto paired = render::mermaid(QStringLiteral("xychart\nx-axis [A, B]\nbar [4, -3]"));
+    QVERIFY(!clipped.image.isNull());
+    QCOMPARE(clipped.image, paired.image);
+    for (const auto& invalid :
+         {QStringLiteral("xychart\ny-axis 5 --> 1\nline [2]"),
+          QStringLiteral("xychart\nx-axis [A, \"unfinished]\nbar [2]"),
+          QStringLiteral("xychart\nbar [1, NaN]"), QStringLiteral("xychart\nline [1,]"),
+          QStringLiteral("xychart\n") + QStringLiteral("line [1]\n").repeated(9)}) {
+      const auto result = render::mermaid(invalid);
+      QVERIFY(result.image.isNull() && !result.error.isEmpty());
+    }
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/xychart-light.png"));
+      QVERIFY(dark.image.save(retained + "/xychart-dark.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -315,6 +381,11 @@ class AdvancedContentTests : public QObject {
                                      "  Monday : Draft\n         : Review<br>examples\n"
                                      "  section Distribution\n  Tuesday : Publish\n")
                               << QStringLiteral("timeline\n  : No period\n");
+    QTest::newRow("xychart") << QStringLiteral(
+                                    "xychart-beta\n  x-axis [A, B, C]\n"
+                                    "  y-axis Volume -5 --> 10\n"
+                                    "  bar Actual [4, 7, -3]\n  line Target [6, 6, 2]\n")
+                             << QStringLiteral("xychart\n  bar [1, missing]\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {
