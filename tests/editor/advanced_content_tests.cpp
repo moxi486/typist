@@ -717,8 +717,8 @@ class AdvancedContentTests : public QObject {
     auto noIcon = source;
     noIcon.remove("    ::icon(fa fa-book)\n");
     QVERIFY(light.image != render::mermaid(noIcon).image);
-    const auto oneLine = render::mermaid(QStringLiteral("mindmap\nroot(Draft plan)"));
-    const auto lineBreak = render::mermaid(QStringLiteral("mindmap\nroot(Draft<br>plan)"));
+    const auto oneLine = render::mermaid(QStringLiteral("mindmap\nroot(I)"));
+    const auto lineBreak = render::mermaid(QStringLiteral("mindmap\nroot(I<br>I)"));
     QVERIFY(!oneLine.image.isNull());
     QVERIFY(lineBreak.image.height() > oneLine.image.height());
     QVERIFY(!render::mermaid(QStringLiteral("mindmap\n[\"Heading (details)\"]")).image.isNull());

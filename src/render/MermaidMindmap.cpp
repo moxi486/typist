@@ -25,7 +25,7 @@ struct Node {
   QStringList lines;
   QSizeF textSize;
   QRectF rect;
-  qreal subtreeHeight = 0;
+  qreal lineHeight = 0, subtreeHeight = 0;
 };
 
 bool readLabel(const QString& text, Node& node) {
@@ -112,6 +112,7 @@ QStringList wrapText(const QString& text, const QFont& font, qreal width) {
   const QFontMetricsF metrics(font);
   for (qsizetype i = 0; i < paragraphs.size() && lines.size() < maxLines; ++i) {
     const auto& paragraph = paragraphs.at(i);
+    const auto previousSize = lines.size();
     QTextLayout layout(paragraph, font);
     layout.setTextOption(option);
     layout.beginLayout();
@@ -126,6 +127,10 @@ QStringList wrapText(const QString& text, const QFont& font, qreal width) {
       lines.append(part);
     }
     layout.endLayout();
+    if (lines.size() == previousSize) {
+      // Some offscreen platforms lack font metrics, but explicit paragraphs still occupy a row.
+      lines.append(metrics.elidedText(paragraph, Qt::ElideRight, width));
+    }
   }
   return lines;
 }
@@ -140,7 +145,8 @@ void measureNodes(QList<Node>& nodes) {
     qreal textWidth = 0;
     for (const auto& line : node.lines)
       textWidth = qMax(textWidth, metrics.horizontalAdvance(line));
-    node.textSize = {textWidth, metrics.height() * node.lines.size()};
+    node.lineHeight = qMax(19., metrics.height());
+    node.textSize = {textWidth, node.lineHeight * node.lines.size()};
     qreal width = qMax(66., textWidth + iconWidth + 26), height = node.textSize.height() + 20;
     if (node.shape == Shape::Circle) width = height = qCeil(qHypot(width, height));
     if (node.shape == Shape::Hexagon) width += 20;
@@ -344,11 +350,10 @@ QImage drawMap(QList<Node>& nodes, bool dark) {
              {center.x() - (node.textSize.width() + iconWidth) / 2, center.y() - 7}, style.stroke);
     const auto left = center.x() - (node.textSize.width() - iconWidth) / 2;
     qreal top = center.y() - node.textSize.height() / 2;
-    const qreal lineHeight = QFontMetricsF(font).height();
     for (const auto& line : node.lines) {
-      painter.drawText(QRectF(left - 1, top, node.textSize.width() + 2, lineHeight),
+      painter.drawText(QRectF(left - 1, top, node.textSize.width() + 2, node.lineHeight),
                        Qt::AlignCenter, line);
-      top += lineHeight;
+      top += node.lineHeight;
     }
   }
   return image;
