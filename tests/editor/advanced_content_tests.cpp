@@ -193,7 +193,7 @@ class AdvancedContentTests : public QObject {
       QVERIFY(!render::mermaid(source, true).image.isNull());
     }
     const QString unsupported = QStringLiteral(
-        "```mermaid\ngantt\n title Plan\n section Work\n Writing: 2026-10-28, 1d\n```\n");
+        "```mermaid\ngantt\n dateFormat DD-MM-YYYY\n Writing: 28-10-2026, 1d\n```\n");
     QTextDocument document;
     QVERIFY(editor::loadMarkdown(unsupported, &document, nullptr));
     QVERIFY(same(unsupported, editor::serializeDocument(&document)));
@@ -424,6 +424,83 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void ganttSchedulesResolveGroupsDependenciesAndExcludedDates() {
+    const QString header = QStringLiteral(
+        "gantt\n title 文档发布计划\n dateFormat YYYY-MM-DD\n excludes weekends\n"
+        " excludes 2026-11-25 %% 休息日\n section 准备\n");
+    const QString source =
+        header + QStringLiteral(
+                     " 整理资料 :done, draft, 2026-11-19, 2d\n"
+                     " 技术复核 :active, review, after draft, 2d\n"
+                     " section 发布\n 校对样例 :crit, check, after draft review, 24h\n"
+                     " 发布新版 :milestone, after check, 0d\n"
+                     " 小范围验收 :12h\n");
+    const auto light = render::mermaid(source);
+    const auto dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+
+    const QString fixed = header + QStringLiteral(
+                                       " 整理资料 :done, 2026-11-19, 2026-11-21\n"
+                                       " 技术复核 :active, 2026-11-23, 2026-11-25\n"
+                                       " section 发布\n 校对样例 :crit, 2026-11-26, 2026-11-27\n"
+                                       " 发布新版 :milestone, 2026-11-27, 2026-11-27\n"
+                                       " 小范围验收 :2026-11-27, 0.5d\n");
+    QCOMPARE(light.image, render::mermaid(fixed).image);
+
+    QString noExclusions = source;
+    noExclusions.remove("excludes weekends\n ").remove("excludes 2026-11-25 %% 休息日\n ");
+    const auto continuous = render::mermaid(noExclusions);
+    QVERIFY(!continuous.image.isNull());
+    QVERIFY(light.image != continuous.image);
+    const auto forward = render::mermaid(
+        QStringLiteral("gantt\n Second :after one, 30m\n First :one, 2026-11-19, 3h\n"));
+    QCOMPARE(forward.image,
+             render::mermaid(
+                 QStringLiteral("gantt\n Second :after one, 30m\n First :one, 2026-11-19, 180m\n"))
+                 .image);
+    QVERIFY(!forward.image.isNull());
+    QVERIFY(!render::mermaid(QStringLiteral("gantt\n Week :2026-11-19, 1w")).image.isNull());
+
+    const auto matchingPixels = [](const QImage& diagram, QColor color) {
+      int count = 0;
+      for (int y = 0; y < diagram.height(); ++y)
+        for (int x = 0; x < diagram.width(); ++x) count += diagram.pixelColor(x, y) == color;
+      return count;
+    };
+    for (const char* color : {"#397458", "#167d86", "#b34542", "#4576bc", "#f1e7e9"}) {
+      QVERIFY(matchingPixels(light.image, QColor(color)) > 100);
+    }
+    QCOMPARE(matchingPixels(continuous.image, QColor("#f1e7e9")), 0);
+
+    const QString row = QStringLiteral(" Work :2026-11-19, 1d\n");
+    QVERIFY(!render::mermaid(QStringLiteral("gantt\n") + row.repeated(24)).image.isNull());
+    QVERIFY(render::mermaid(QStringLiteral("gantt\n") + row.repeated(25)).image.isNull());
+    for (const QString& invalid : {
+             QStringLiteral("gantt\n title No tasks"),
+             QStringLiteral("gantt\n Work :2026-02-29, 1d"),
+             QStringLiteral("gantt\n Work :2026-11-19, 2026-11-18"),
+             QStringLiteral("gantt\n Work :2026-11-19, 9999999w"),
+             QStringLiteral("gantt\n Work :1d"),
+             QStringLiteral("gantt\n Work :after missing, 1d"),
+             QStringLiteral("gantt\n A :a, after b, 1d\n B :b, after a, 1d"),
+             QStringLiteral("gantt\n A :a, 2026-11-19, 1d\n B :a, after a, 1d"),
+             QStringLiteral("gantt\n excludes 2026-02-31\n Work :2026-11-19, 1d"),
+             QStringLiteral("gantt\n axisFormat %m-%d\n Work :2026-11-19, 1d"),
+             QStringLiteral("%%{init: {}}%%\ngantt\n Work :2026-11-19, 1d"),
+         }) {
+      const auto result = render::mermaid(invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/gantt-light.png"));
+      QVERIFY(dark.image.save(retained + "/gantt-dark.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -447,6 +524,12 @@ class AdvancedContentTests : public QObject {
                                   "  Edit --> Read : Save\n  Edit --> [*]\n")
                            << QStringLiteral(
                                   "stateDiagram\n  state Parent {\n    [*] --> Child\n  }\n");
+    QTest::newRow("gantt") << QStringLiteral(
+                                  "gantt\n  title Release plan\n  section Preparation\n"
+                                  "  Draft :done, draft, 2026-11-19, 2d\n"
+                                  "  section Distribution\n"
+                                  "  Publish :milestone, after draft, 0d\n")
+                           << QStringLiteral("gantt\n  Publish :after missing, 0d\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {

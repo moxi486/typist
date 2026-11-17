@@ -4,7 +4,7 @@
 
 行内公式写作 `$E=mc^2$`。输入闭合的 `$` 后自动渲染；独立公式使用单独成行的 `$$` 包围。公式支持分数、根式、上下标、求和、积分、矩阵等 LaTeX 数学排版。双击已渲染公式可打开源码与预览，修改后可撤销。未能渲染的公式保留原文，可切到源码模式修改。
 
-Mermaid 使用带 `mermaid` 语言标记的代码围栏。目前支持 `flowchart / graph` 的 TD、TB、BT、LR、RL 方向，矩形、圆角、圆形、菱形节点，普通与虚线连接、边标签、分支和环；支持 `sequenceDiagram` 的 participant / actor、消息、返回消息、autonumber、Note over。此实现的目标是离线原生排版，目前并不覆盖 Mermaid 的完整语法。subgraph、样式指令、复杂时序控制、甘特图、类图等保留为源码，避免显示不完整图形。actor 当前使用统一参与者标题框。
+Mermaid 使用带 `mermaid` 语言标记的代码围栏。目前支持 `flowchart / graph` 的 TD、TB、BT、LR、RL 方向，矩形、圆角、圆形、菱形节点，普通与虚线连接、边标签、分支和环；支持 `sequenceDiagram` 的 participant / actor、消息、返回消息、autonumber、Note over。subgraph、样式指令、复杂时序控制和类图等保留为源码，避免显示不完整图形。actor 当前使用统一参与者标题框。
 
 ```mermaid
 flowchart LR
@@ -59,6 +59,23 @@ stateDiagram-v2
     Active --> Active : 自动保存
     Active --> Idle : 关闭文档
     Active --> [*] : 退出应用
+```
+
+`gantt` 绘制按日期排列的项目计划。用 `title` 添加标题、`section` 分组。日期采用 `YYYY-MM-DD`，工期支持分钟 `m`、小时 `h`、天 `d` 和周 `w`，精确到分钟。可直接写开始和结束日期，也可指定任务 ID，通过 `after` 接续一个或多个任务；省略开始时间时接续上一项，首项须提供日期或依赖。使用 `done`、`active`、`crit` 和 `milestone` 标记状态。
+
+`excludes` 可指定 `weekends` 或单个日期。排除日在图中有底色。以工期指定的任务遇到排除日时会顺延。任务尾部遇到排除日时，图条在休假前结束，后续任务从休假后接续。明确指定结束日期的任务保留原日期。单图最多 24 项任务和约十年跨度。自定义日期格式、`until`、自定义坐标轴或样式会保留为可编辑源码。 [Mermaid 甘特图语法](https://mermaid.js.org/syntax/gantt.html)
+
+```mermaid
+gantt
+    title 文档发布计划
+    dateFormat YYYY-MM-DD
+    excludes weekends, 2026-11-25
+    section 准备
+        整理资料 :done, draft, 2026-11-19, 2d
+        技术复核 :active, review, after draft, 2d
+    section 发布
+        校对样例 :crit, check, after review, 1d
+        发布新版 :milestone, after check, 0d
 ```
 
 脚注使用 `[^note]` 引用和 `[^note]: 注释内容` 定义；后续行缩进四个空格。点击引用跳转到定义，正文与定义均保留在 Markdown 中，未引用的定义也会保留。定义区当前直接展示可编辑的原始内容。Word 导出使用原生脚注；HTML 输出带跳转的脚注区；PDF 将定义放在文末。
