@@ -585,6 +585,90 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void quadrantChartsPlotNormalizedCoordinatesAndKeepDenseLabels() {
+    const QString header = QStringLiteral(
+        "quadrantChart\n"
+        " title 写作改进优先级\n x-axis 低投入 --> 高投入\n y-axis 低收益 --> 高收益\n"
+        " quadrant-1 规划后实施\n quadrant-2 优先实施\n quadrant-3 维持现状\n"
+        " quadrant-4 暂缓\n");
+    const QString points = QStringLiteral(
+        " 模板整理: [0.25, 0.75]\n \"移动端: 适配\": [0.75, 0.75]\n"
+        " 快捷键微调: [0.25, 0.25]\n 主题重绘: [.75, .25]\n"
+        " 起点: [0, 0]\n 终点: [1, 1]\n");
+    const auto light = render::mermaid(header + points);
+    const auto dark = render::mermaid(header + points, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+
+    const auto chartPixel = [&](qreal x, qreal y) {
+      return light.image.pixelColor(qRound((78 + x * 440) * light.image.devicePixelRatio()),
+                                    qRound((59 + (1 - y) * 440) * light.image.devicePixelRatio()));
+    };
+    const QColor marker("#245c93");
+    for (const qreal x : {0.25, 0.75})
+      for (const qreal y : {0.25, 0.75}) QCOMPARE(chartPixel(x, y), marker);
+    QCOMPARE(chartPixel(0, 0), marker);
+    QCOMPARE(chartPixel(1, 1), marker);
+    QCOMPARE(chartPixel(0.9, 0.9), QColor("#e7f3eb"));
+    QCOMPARE(chartPixel(0.1, 0.9), QColor("#e8f1fc"));
+    QCOMPARE(chartPixel(0.1, 0.1), QColor("#f0edf7"));
+    QCOMPARE(chartPixel(0.9, 0.1), QColor("#f7eee6"));
+    const QString orientation = QStringLiteral("quadrantChart\n Point: [0.2, 0.8]\n");
+    const auto plotted = render::mermaid(orientation);
+    const QColor located =
+        plotted.image.pixelColor(qRound((78 + 0.2 * 440) * plotted.image.devicePixelRatio()),
+                                 qRound((22 + 0.2 * 440) * plotted.image.devicePixelRatio()));
+    QCOMPARE(located, marker);
+
+    const auto blank = render::mermaid(header);
+    QVERIFY(!blank.image.isNull());
+    QVERIFY(blank.image != light.image);
+    const auto singleAxis =
+        render::mermaid(QStringLiteral("quadrantChart\n x-axis \"low --> target\"\n"));
+    QVERIFY(!singleAxis.image.isNull());
+    QCOMPARE(singleAxis.image.size(),
+             render::mermaid(QStringLiteral("quadrantChart\n x-axis low\n")).image.size());
+    auto quoted = header;
+    quoted.replace("低投入 --> 高投入", "\"低投入\" --> \"高投入\"");
+    quoted.replace("低收益 --> 高收益", "\"低收益\" --> \"高收益\"");
+    QCOMPARE(light.image, render::mermaid(quoted + points).image);
+    QCOMPARE(light.image,
+             render::mermaid(QStringLiteral("%% Comment\r\n") + header + points).image);
+
+    QString dense = header;
+    for (int i = 1; i <= 32; ++i)
+      dense += QStringLiteral("Repeated observation %1: [0.5, 0.5]\n").arg(i);
+    const auto crowded = render::mermaid(dense), crowdedDark = render::mermaid(dense, true);
+    QVERIFY(crowded.image.height() > light.image.height());
+    QCOMPARE(crowded.image.size(), crowdedDark.image.size());
+    QVERIFY(render::mermaid(dense + QStringLiteral("One more: [0.5, 0.5]\n")).image.isNull());
+
+    for (const auto& invalid : {
+             QStringLiteral("quadrantChart\n Point: [1.2, 0.2]"),
+             QStringLiteral("quadrantChart\n Point: [-0.2, 0.2]"),
+             QStringLiteral("quadrantChart\n Point: [0.2, NaN]"),
+             QStringLiteral("quadrantChart\n Point: [0.2, 0.2] radius: 8"),
+             QStringLiteral("quadrantChart\n Point:::style: [0.2, 0.2]"),
+             QStringLiteral("quadrantChart\n x-axis baseline -->"),
+             QStringLiteral("quadrantChart\n x-axis a --> b --> c"),
+             QStringLiteral("quadrantChart\n quadrant-5 Somewhere"),
+             QStringLiteral("quadrantChart\n quadrant-1 One\n quadrant-1 Two"),
+             QStringLiteral("%%{init: {}}%%\nquadrantChart\n Point: [0.2, 0.2]"),
+         }) {
+      const auto result = render::mermaid(invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/quadrant-light.png"));
+      QVERIFY(dark.image.save(retained + "/quadrant-dark.png"));
+      QVERIFY(blank.image.save(retained + "/quadrant-blank.png"));
+      QVERIFY(crowded.image.save(retained + "/quadrant-dense.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -620,6 +704,11 @@ class AdvancedContentTests : public QObject {
                                   " Document \"1\" *-- \"1..*\" Section : contains\n")
                            << QStringLiteral(
                                   "classDiagram\n namespace Core {\n   class Document\n }\n");
+    QTest::newRow("quadrant") << QStringLiteral(
+                                     "quadrantChart\n title Priorities\n x-axis Less --> More\n"
+                                     " y-axis Low --> High\n quadrant-2 Start here\n"
+                                     " Review: [0.2, 0.8]\n Coedit: [0.7, 0.6]\n")
+                              << QStringLiteral("quadrantChart\n Invalid: [2, 0.5]\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {

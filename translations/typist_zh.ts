@@ -1653,8 +1653,8 @@
         <translation>编辑源码，右侧预览会自动更新。</translation>
     </message>
     <message>
-        <source>Supports flowchart, sequenceDiagram, stateDiagram, classDiagram, gantt, pie, timeline and xychart. Other syntax is kept as source.</source>
-        <translation>支持流程图 flowchart、时序图 sequenceDiagram、状态图 stateDiagram、类图 classDiagram、甘特图 gantt、饼图 pie、时间线 timeline 和 XY 图 xychart，其余语法保留为源码。</translation>
+        <source>Supports flowchart, sequenceDiagram, stateDiagram, classDiagram, gantt, pie, timeline, quadrantChart and xychart. Other syntax is kept as source.</source>
+        <translation>支持流程图 flowchart、时序图 sequenceDiagram、状态图 stateDiagram、类图 classDiagram、甘特图 gantt、饼图 pie、时间线 timeline、四象限图 quadrantChart 和 XY 图 xychart，其余语法保留为源码。</translation>
     </message>
     <message>
         <source>Double-click a formula or diagram in the document to edit it.</source>
