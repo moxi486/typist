@@ -35,7 +35,7 @@ struct FormatChange {
 void prepareDocument(QTextDocument& document, const ImageExportOptions& options, bool dark) {
   document.setUndoRedoEnabled(false);
   document.setLayoutEnabled(false);
-  render::expandTocForPrint(&document);
+  render::expandTocForPrint(&document, options.tocDepth);
   const qreal originalPointSize = document.defaultFont().pointSizeF();
   QFont font = document.defaultFont();
   font.setPixelSize(options.fontPixels);

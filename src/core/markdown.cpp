@@ -1029,8 +1029,10 @@ std::string renderHtml(std::string_view source, const ParseOptions& options, boo
 }
 }  // namespace
 
-std::string toHtml(std::string_view source, const ParseOptions& options, bool styled) {
-  return decorateAdvancedHtml(renderHtml(prepareAdvancedMarkdown(source), options, true), styled);
+std::string toHtml(std::string_view source, const ParseOptions& options, bool styled,
+                   int tocDepth) {
+  return decorateAdvancedHtml(renderHtml(prepareAdvancedMarkdown(source), options, true), styled,
+                              tocDepth);
 }
 
 std::string toSemanticHtml(std::string_view source, const ParseOptions& options) {

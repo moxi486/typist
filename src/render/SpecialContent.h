@@ -12,6 +12,7 @@ struct HtmlHeading;
 struct HtmlRenderOptions {
   bool dark = false;
   bool styled = true;
+  int tocDepth = 6;
 };
 struct RenderResult {
   QImage image;
@@ -24,15 +25,18 @@ QString html(const QString& markdown, bool dark = false);
 QString html(const QString& markdown, const HtmlRenderOptions& options,
              QList<HtmlHeading>* outline = nullptr);
 constexpr int kTocObjectType = QTextFormat::UserObject + 44;
+constexpr int kTocPadding = 8;
+constexpr int kTocRowHeight = 26;
 void installDocumentObjects(QTextDocument* document);
 void invalidateToc(QTextDocument* document);
-void expandTocForPrint(QTextDocument* document);
+void expandTocForPrint(QTextDocument* document, int tocDepth = 6);
+void setTocDepth(QTextDocument* document, int depth);
 struct Heading {
   int level;
   QString text;
   int position;
 };
-QList<Heading> headings(const QTextDocument* document);
+QList<Heading> tocHeadings(const QTextDocument* document);
 
 class TocObject : public QObject, public QTextObjectInterface {
   Q_OBJECT

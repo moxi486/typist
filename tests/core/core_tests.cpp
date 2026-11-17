@@ -64,6 +64,16 @@ int main(int argc, char** argv) {
   for (const auto& file : mdFilesIn(corpus)) checkRoundTrip(file);
   for (const auto& file : mdFilesIn(corpus / "gfm")) checkRoundTrip(file);
 
+  const std::string contents = "[TOC]\n\n# Parent\n\n### Skipped\n\n## Next\n\n###### Last\n";
+  const auto allLevels = typist::core::toHtml(contents);
+  const auto limitedLevels = typist::core::toHtml(contents, {}, false, 2);
+  check(allLevels.find("href=\"#heading-4\"") != std::string::npos &&
+            limitedLevels.find("href=\"#heading-3\"") != std::string::npos &&
+            limitedLevels.find("href=\"#heading-2\"") == std::string::npos &&
+            limitedLevels.find("href=\"#heading-4\"") == std::string::npos &&
+            limitedLevels.find("<h3 id=\"heading-2\">Skipped</h3>") != std::string::npos,
+        "TOC depth keeps skipped heading IDs and filters entries");
+
   using typist::core::BlockType;
   const auto pageBreakSource = readFile(corpus / "page-breaks.md");
   const auto pageBreaks = typist::core::parseMarkdown(pageBreakSource);

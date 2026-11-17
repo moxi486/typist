@@ -1659,9 +1659,11 @@ void Editor::mouseReleaseEvent(QMouseEvent* event) {
   auto clicked = cursorForPosition(event->position().toPoint());
   if (clicked.blockFormat().property(editor::kSpecialBlockProperty).toString() ==
       QLatin1String("toc")) {
-    const auto entries = render::headings(document());
-    const int index =
-        (event->position().y() - cursorRect(QTextCursor(clicked.block())).top() - 8) / 26;
+    const auto y = event->position().y() - cursorRect(QTextCursor(clicked.block())).top() -
+                   render::kTocPadding;
+    if (y < 0) return;
+    const auto entries = render::tocHeadings(document());
+    const int index = y / render::kTocRowHeight;
     if (index >= 0 && index < entries.size()) {
       QTextCursor target(document());
       target.setPosition(entries[index].position);

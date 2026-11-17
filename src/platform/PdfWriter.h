@@ -36,6 +36,7 @@ struct PdfPageOptions {
   QString subject = {};
   QString keywords = {};
   QString sourcePath = {};  // used by header/footer variables
+  int tocDepth = 6;
 };
 
 // Renders the document to a PDF file. Printing lays out the whole document, so callers

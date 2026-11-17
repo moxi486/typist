@@ -55,18 +55,39 @@ RenderResult math(const QString& source, bool display, const QColor& color) {
     return {{}, QStringLiteral("Unable to render this formula")};
   }
 }
-QList<Heading> headings(const QTextDocument* document) {
+namespace {
+int documentTocDepth(const QTextDocument* document) {
+  bool ok = false;
+  const int depth = document->property("typistTocDepth").toInt(&ok);
+  return ok ? qBound(1, depth, 6) : 6;
+}
+
+QList<Heading> headingsThroughLevel(const QTextDocument* document, int depth) {
   QList<Heading> out;
   for (auto block = document->begin(); block.isValid(); block = block.next()) {
     const int level = block.blockFormat().headingLevel();
-    if (level > 0 && !block.text().isEmpty()) out.append({level, block.text(), block.position()});
+    if (level > 0 && level <= depth && !block.text().isEmpty())
+      out.append({level, block.text(), block.position()});
   }
   return out;
 }
+}  // namespace
+
+QList<Heading> tocHeadings(const QTextDocument* document) {
+  return headingsThroughLevel(document, documentTocDepth(document));
+}
+
+void setTocDepth(QTextDocument* document, int depth) {
+  depth = qBound(1, depth, 6);
+  if (documentTocDepth(document) == depth) return;
+  document->setProperty("typistTocDepth", depth);
+  invalidateToc(document);
+}
+
 TocObject::TocObject(QTextDocument* document) : QObject(document) {}
 QSizeF TocObject::intrinsicSize(QTextDocument* document, int, const QTextFormat&) {
   return {qBound(180., document->textWidth() > 0 ? document->textWidth() : 640., 760.),
-          qMax(30, headings(document).size() * 26 + 16) * 1.};
+          qMax(30, tocHeadings(document).size() * kTocRowHeight + kTocPadding * 2) * 1.};
 }
 void TocObject::drawObject(QPainter* painter, const QRectF& rect, QTextDocument* document, int,
                            const QTextFormat&) {
@@ -75,14 +96,14 @@ void TocObject::drawObject(QPainter* painter, const QRectF& rect, QTextDocument*
   QFont font = document->defaultFont();
   font.setPointSizeF(11);
   painter->setFont(font);
-  qreal y = rect.top() + 8;
-  for (const auto& heading : headings(document)) {
+  qreal y = rect.top() + kTocPadding;
+  for (const auto& heading : tocHeadings(document)) {
     painter->drawText(QRectF(rect.left() + (heading.level - 1) * 18, y,
-                             rect.width() - (heading.level - 1) * 18, 26),
+                             rect.width() - (heading.level - 1) * 18, kTocRowHeight),
                       Qt::AlignVCenter,
                       QFontMetricsF(font).elidedText(heading.text, Qt::ElideRight,
                                                      rect.width() - (heading.level - 1) * 18));
-    y += 26;
+    y += kTocRowHeight;
   }
   painter->restore();
 }
@@ -99,8 +120,8 @@ void invalidateToc(QTextDocument* document) {
     }
   }
 }
-void expandTocForPrint(QTextDocument* document) {
-  const auto entries = headings(document);
+void expandTocForPrint(QTextDocument* document, int tocDepth) {
+  const auto entries = headingsThroughLevel(document, qBound(1, tocDepth, 6));
   QList<int> positions;
   for (auto block = document->begin(); block.isValid(); block = block.next())
     for (auto it = block.begin(); !it.atEnd(); ++it)
@@ -133,8 +154,8 @@ QString html(const QString& markdown, bool dark) { return html(markdown, HtmlRen
 QString html(const QString& markdown, const HtmlRenderOptions& options,
              QList<HtmlHeading>* outline) {
   const bool dark = options.styled && options.dark;
-  const QString body =
-      QString::fromStdString(core::toHtml(markdown.toStdString(), {}, options.styled));
+  const QString body = QString::fromStdString(
+      core::toHtml(markdown.toStdString(), {}, options.styled, options.tocDepth));
   static const QRegularExpression pattern(QStringLiteral(
       "<(span|div) class=\"typist-(math|diagram)\" data-source=\"([0-9a-f]+)\">[\\s\\S]*?</\\1>"));
   QString out;

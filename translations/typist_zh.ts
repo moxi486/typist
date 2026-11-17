@@ -968,6 +968,10 @@
         <translation>目录</translation>
     </message>
     <message>
+        <source>Table of Contents Levels</source>
+        <translation>目录层级</translation>
+    </message>
+    <message>
         <source>Code Language</source>
         <translation>代码语言</translation>
     </message>

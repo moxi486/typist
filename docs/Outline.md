@@ -10,6 +10,12 @@
 
 行为参考 [Typora 大纲文档](https://support.typora.io/Outline/)。
 
+## 正文目录层级
+
+「视图 → 目录层级」可限制正文 `[TOC]` 显示到 H1 至 H6 中的任一级，默认显示全部六级。设置即时应用到已打开的文档并保存为偏好。正文标题、Markdown 和大纲导航各自保留原有内容。
+
+新的 HTML、PDF、PNG 和 DOCX 导出使用这一层级。DOCX 的目录域也记录相同范围，供 Word 更新。EPUB 的层级可在 EPUB 导出窗口单独设置。 [Typora 目录层级说明](https://support.typora.io/TOC-levels/)
+
 ## 导出到 HTML
 
 在「设置 → HTML 导出包含大纲」启用目录导航。此选项默认关闭，适用于「文件 → 导出 HTML」和「文件 → 导出 HTML（无样式）」。导出时沿用侧栏的平铺或可折叠模式。点击大纲标题跳转到正文，正文中的 `[TOC]` 也会保留。

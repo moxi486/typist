@@ -137,6 +137,13 @@ const auto htmlOutlineSetting = QStringLiteral("export/htmlOutline");
 const auto htmlContentSetting = QStringLiteral("export/htmlContent");
 const auto htmlThemeSetting = QStringLiteral("export/htmlTheme");
 const auto epubCssSetting = QStringLiteral("export/epubCss");
+const auto tocDepthSetting = QStringLiteral("view/tocDepth");
+
+int tocDepthPreference() {
+  bool ok = false;
+  const int depth = QSettings().value(tocDepthSetting, 6).toInt(&ok);
+  return ok && depth >= 1 && depth <= 6 ? depth : 6;
+}
 
 QString htmlExportThemePreference(const QSettings& settings) {
   const auto saved = settings.value(htmlThemeSetting).toString();
@@ -608,6 +615,7 @@ MainWindow::MainWindow(QWidget* parent, bool benchmark)
   }
 
   createEditingActions(fileMenu, editMenu, viewMenu, settingsMenu);
+  createTocDepthMenu(viewMenu);
   createEditorToolbar(viewMenu, appearanceMenu);
 
   statusBar()->setSizeGripEnabled(false);
@@ -1331,6 +1339,33 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
           [](bool enabled) { QSettings().setValue(htmlOutlineSetting, enabled); });
   connect(settings, &QMenu::aboutToShow, htmlOutline, [htmlOutline] {
     htmlOutline->setChecked(QSettings().value(htmlOutlineSetting).toBool());
+  });
+}
+
+void MainWindow::createTocDepthMenu(QMenu* view) {
+  auto* menu = view->addMenu(tr("Table of Contents Levels"));
+  menu->setObjectName(QStringLiteral("tocDepthMenu"));
+  auto* group = new QActionGroup(menu);
+  for (int level = 1; level <= 6; ++level) {
+    auto* action =
+        menu->addAction(level == 1 ? QStringLiteral("H1") : QStringLiteral("H1–H%1").arg(level));
+    action->setData(level);
+    action->setCheckable(true);
+    group->addAction(action);
+  }
+  const auto sync = [group] {
+    const int depth = tocDepthPreference();
+    for (auto* action : group->actions()) action->setChecked(action->data().toInt() == depth);
+  };
+  sync();
+  render::setTocDepth(m_view->rendered(), tocDepthPreference());
+  connect(menu, &QMenu::aboutToShow, group, sync);
+  connect(group, &QActionGroup::triggered, this, [this](QAction* action) {
+    const int depth = action->data().toInt();
+    QSettings().setValue(tocDepthSetting, depth);
+    render::setTocDepth(m_view->rendered(), depth);
+    for (auto* window : documentWindows())
+      if (window != this) render::setTocDepth(window->m_view->rendered(), depth);
   });
 }
 
@@ -2347,7 +2382,7 @@ void MainWindow::exportHtmlDocument(bool styled) {
   exportHtmlDocument({styled, theme == ui::Theme::Dark,
                       settings.value(htmlOutlineSetting, false).toBool(),
                       m_outlinePanel->collapsible(), extra.value(QStringLiteral("head")).toString(),
-                      extra.value(QStringLiteral("body")).toString()});
+                      extra.value(QStringLiteral("body")).toString(), tocDepthPreference()});
 }
 
 void MainWindow::exportHtmlDocument(const HtmlExportSettings& options,
@@ -2366,7 +2401,7 @@ void MainWindow::exportHtmlDocument(const HtmlExportSettings& options,
   if (path.isEmpty()) return;
 
   QList<render::HtmlHeading> headings;
-  const render::HtmlRenderOptions renderOptions{options.dark, options.styled};
+  const render::HtmlRenderOptions renderOptions{options.dark, options.styled, options.tocDepth};
   QString body = render::embedLocalImages(
       render::html(currentMarkdown(), renderOptions, options.includeOutline ? &headings : nullptr),
       m_view->rendered()->baseUrl());
@@ -2420,6 +2455,7 @@ void MainWindow::exportImageDocument(const platform::ImageExportOptions* previou
         this);
     if (setup.exec() != QDialog::Accepted) return;
     options = setup.options();
+    options.tocDepth = tocDepthPreference();
   }
 
   const QFileInfo file(m_currentPath);
@@ -2501,6 +2537,7 @@ void MainWindow::exportPdfDocument(const platform::PdfPageOptions* previous,
   options.title = title;
   options.sourcePath = m_currentPath;
   if (!previous) {
+    options.tocDepth = tocDepthPreference();
     ui::PdfExportDialog setup(&rendered, options, this);
     if (setup.exec() != QDialog::Accepted) return;
     options = setup.options();
@@ -2524,9 +2561,9 @@ void MainWindow::exportPdfDocument(const platform::PdfPageOptions* previous,
       [this, options](const ExportReplacement* target) { exportPdfDocument(&options, target); });
 }
 
-void MainWindow::exportDocx() { exportDocxDocument(nullptr); }
+void MainWindow::exportDocx() { exportDocxDocument(tocDepthPreference(), nullptr); }
 
-void MainWindow::exportDocxDocument(const ExportReplacement* replacement) {
+void MainWindow::exportDocxDocument(int tocDepth, const ExportReplacement* replacement) {
   const QString path =
       replacement ? replacement->stagedPath
                   : QFileDialog::getSaveFileName(this, tr("Export DOCX"),
@@ -2536,17 +2573,18 @@ void MainWindow::exportDocxDocument(const ExportReplacement* replacement) {
 
   // DOCX reflects Markdown semantics directly, so it renders from the source text.
   QString error;
-  if (!typist::platform::exportDocx(path, currentMarkdown(), &error,
-                                    m_currentPath.isEmpty()
-                                        ? QDir::currentPath()
-                                        : QFileInfo(m_currentPath).absolutePath())) {
+  if (!typist::platform::exportDocx(
+          path, currentMarkdown(), &error,
+          m_currentPath.isEmpty() ? QDir::currentPath() : QFileInfo(m_currentPath).absolutePath(),
+          tocDepth)) {
     statusBar()->showMessage(error);
     return;
   }
   const auto savedPath = completeExportPath(path, replacement);
   if (savedPath.isEmpty()) return;
-  finishExport(savedPath, platform::ExportFormat::Docx, tr("Exported DOCX"),
-               [this](const ExportReplacement* target) { exportDocxDocument(target); });
+  finishExport(
+      savedPath, platform::ExportFormat::Docx, tr("Exported DOCX"),
+      [this, tocDepth](const ExportReplacement* target) { exportDocxDocument(tocDepth, target); });
 }
 
 void MainWindow::exportEpub() { exportEpubDocument(); }
