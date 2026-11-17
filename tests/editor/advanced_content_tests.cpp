@@ -669,6 +669,96 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void mindmapsUseIndentationShapesAndBranchColors() {
+    const QString source = QStringLiteral(
+        "mindmap\n"
+        "  root((写作计划))\n"
+        "    research[资料整理]\n"
+        "    ::icon(fa fa-book)\n"
+        "      Sources\n"
+        "      整理术语<br/>与例子\n"
+        "    drafting(撰写初稿)\n"
+        "      goals{{大纲}}\n"
+        "      idea)记录想法(\n"
+        "    review))检查与发布((\n"
+        "      ::icon(fas fa-check)\n"
+        "      发布\n");
+    const auto light = render::mermaid(source);
+    const auto dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const auto colored = [&](const QColor& color) {
+      int pixels = 0;
+      for (int y = 0; y < light.image.height(); ++y)
+        for (int x = 0; x < light.image.width(); ++x)
+          pixels += light.image.pixelColor(x, y) == color;
+      return pixels;
+    };
+    for (const char* fill : {"#e8f3fa", "#f0ebfa", "#e6f4eb"}) {
+      QVERIFY(colored(QColor(fill)) > 150);
+    }
+
+    auto uneven = source;
+    uneven.replace("      Sources\n", "         Sources\n    %% note\n");
+    uneven.replace("      整理", "       整理");
+    QCOMPARE(light.image, render::mermaid(uneven).image);
+    auto shifted = source;
+    shifted.replace("\n ", "\n    ");
+    QCOMPARE(light.image, render::mermaid(shifted).image);
+    auto chain = source;
+    chain.replace("      整理", "       整理");
+    QVERIFY(light.image != render::mermaid(chain).image);
+
+    auto square = source;
+    square.replace("research[资料整理]", "research(资料整理)");
+    QVERIFY(light.image != render::mermaid(square).image);
+    auto noIcon = source;
+    noIcon.remove("    ::icon(fa fa-book)\n");
+    QVERIFY(light.image != render::mermaid(noIcon).image);
+    const auto oneLine = render::mermaid(QStringLiteral("mindmap\nroot(Draft plan)"));
+    const auto lineBreak = render::mermaid(QStringLiteral("mindmap\nroot(Draft<br>plan)"));
+    QVERIFY(!oneLine.image.isNull());
+    QVERIFY(lineBreak.image.height() > oneLine.image.height());
+    QVERIFY(!render::mermaid(QStringLiteral("mindmap\n[\"Heading (details)\"]")).image.isNull());
+    const auto longNode =
+        render::mermaid(QStringLiteral("mindmap\n  root[") +
+                        QStringLiteral("长标签").repeated(200) + QStringLiteral("]\n    Short"));
+    QVERIFY(!longNode.image.isNull());
+    QVERIFY(longNode.image.height() < 260 * longNode.image.devicePixelRatio());
+
+    const QString many =
+        QStringLiteral("mindmap\nRoot\n") + QStringLiteral("  Child\n").repeated(47);
+    QVERIFY(!render::mermaid(many).image.isNull());
+    QVERIFY(render::mermaid(many + QStringLiteral("  Child\n")).image.isNull());
+    QString deep = QStringLiteral("mindmap\n");
+    for (int i = 0; i < 8; ++i) deep += QString(i, ' ') + QStringLiteral("Node\n");
+    QVERIFY(!render::mermaid(deep).image.isNull());
+    QVERIFY(render::mermaid(deep + QStringLiteral("        Too deep")).image.isNull());
+
+    for (const auto& invalid : {
+             QStringLiteral("mindmap"),
+             QStringLiteral("mindmap\n  Root\n  Another root"),
+             QStringLiteral("mindmap\n  Root\nAnother root"),
+             QStringLiteral("mindmap\n  root((Missing delimiter)"),
+             QStringLiteral("mindmap\n  root(( ))"),
+             QStringLiteral("mindmap\n  Root\n  ::icon(fa fa-incomplete)"),
+             QStringLiteral("mindmap\n  ::icon(fa fa-book)\n  Root"),
+             QStringLiteral("mindmap\n  Root\n    Child\n    :::custom"),
+             QStringLiteral("mindmap\n  root[\"%1Bold%1\"]").arg(QChar(0x60)),
+             QStringLiteral("%%{init: {}}%%\nmindmap\n  Root"),
+         }) {
+      const auto result = render::mermaid(invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/mindmap-light.png"));
+      QVERIFY(dark.image.save(retained + "/mindmap-dark.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -709,6 +799,11 @@ class AdvancedContentTests : public QObject {
                                      " y-axis Low --> High\n quadrant-2 Start here\n"
                                      " Review: [0.2, 0.8]\n Coedit: [0.7, 0.6]\n")
                               << QStringLiteral("quadrantChart\n Invalid: [2, 0.5]\n");
+    QTest::newRow("mindmap") << QStringLiteral(
+                                    "mindmap\n  root((写作计划))\n    Planning[准备]\n"
+                                    "    ::icon(fa fa-book)\n      Review<br>examples\n"
+                                    "    Drafting(写作)\n      Chapter 1\n")
+                             << QStringLiteral("mindmap\n  Root\n    Child\n    :::custom\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {
