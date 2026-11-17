@@ -1161,8 +1161,7 @@ void Editor::updateTableBar() {
     if (table->cellAt(0, column).firstCursorPosition().blockFormat().intProperty(
             editor::kTableAlignmentProperty) != alignment)
       alignment = 0;
-  m_tableBar->setTableState(table->rows(), table->columns(), cells.row, cells.column, cells.rows,
-                            cells.columns, alignment);
+  m_tableBar->setTableState(cursor, cells, alignment);
   const int width = qMin(viewport()->width(), m_tableBar->sizeHint().width());
   m_tableBar->setGeometry(viewport()->geometry().right() - width + 1, 3, width, 28);
   m_tableBar->show();
@@ -1837,6 +1836,7 @@ void Editor::createTable(int rows, int columns) {
 }
 
 bool Editor::changeTable(editor::TableCommand command) {
+  if (isReadOnly()) return false;
   finishParagraphSourceEdit();
   if (!m_rendered) return false;
   QTextCursor cursor = textCursor();

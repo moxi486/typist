@@ -5686,6 +5686,46 @@ class WindowTests : public QObject {
     QCOMPARE(draft->toPlainText(), QStringLiteral("Pending **snapshot**."));
     window.setBenchMode(true);
   }
+  void tableMoveActionsFollowTheActiveCellAndView() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QFile file(directory.filePath(QStringLiteral("table.md")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write("| Name | Count |\n| --- | --- |\n| First | 1 |\n| Last | 2 |\n") > 0);
+    file.close();
+    typist::MainWindow window(nullptr, true);
+    QVERIFY(window.openFile(file.fileName()));
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* up = window.findChild<QAction*>(QStringLiteral("table_move_rows_up"));
+    auto* down = window.findChild<QAction*>(QStringLiteral("table_move_rows_down"));
+    auto* left = window.findChild<QAction*>(QStringLiteral("table_move_columns_left"));
+    auto* right = window.findChild<QAction*>(QStringLiteral("table_move_columns_right"));
+    QVERIFY(editor && up && down && left && right);
+    auto* menu = qobject_cast<QMenu*>(down->parent());
+    QVERIFY(menu);
+
+    auto cursor = editor->document()->find(QStringLiteral("Name"));
+    auto* table = cursor.currentTable();
+    QVERIFY(table);
+    editor->setTextCursor(cursor);
+    menu->aboutToShow();
+    QVERIFY(!up->isEnabled() && !down->isEnabled());
+    QVERIFY(!left->isEnabled() && right->isEnabled());
+
+    editor->setTextCursor(table->cellAt(1, 0).firstCursorPosition());
+    menu->aboutToShow();
+    QVERIFY(!up->isEnabled() && down->isEnabled());
+    down->trigger();
+    QCOMPARE(table->cellAt(1, 0).firstCursorPosition().block().text(), QStringLiteral("Last"));
+    QCOMPARE(table->cellAt(editor->textCursor()).row(), 2);
+    menu->aboutToShow();
+    QVERIFY(up->isEnabled() && !down->isEnabled());
+
+    QVERIFY(QMetaObject::invokeMethod(&window, "toggleSourceView"));
+    menu->aboutToShow();
+    QVERIFY(!up->isEnabled() && !down->isEnabled() && !left->isEnabled() && !right->isEnabled());
+  }
+
   void defaultPastePrefersHtmlAndKeepsExplicitMarkdownPaste() {
     typist::MainWindow window(nullptr, true);
     auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));

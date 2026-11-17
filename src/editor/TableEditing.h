@@ -5,6 +5,7 @@
 
 class QTextTable;
 namespace typist::editor {
+enum class TableCommand;
 constexpr int kMaxTableRows = 500;
 constexpr int kMaxTableColumns = 40;
 struct TableCells {
@@ -19,4 +20,6 @@ QString tableTsv(const QTextCursor& cursor, bool selectionOnly = false);
 bool clearTableCells(QTextCursor& cursor);
 bool exitTable(QTextCursor& cursor);
 bool moveTableCell(QTextCursor& cursor, bool backwards);
+bool canMoveTable(const QTextCursor& cursor, TableCommand command);
+bool moveTable(QTextCursor& cursor, TableCommand command);
 }  // namespace typist::editor

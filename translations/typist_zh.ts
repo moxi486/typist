@@ -612,6 +612,22 @@
         <translation>插入表格</translation>
     </message>
     <message>
+        <source>Move Rows Up</source>
+        <translation>上移行</translation>
+    </message>
+    <message>
+        <source>Move Rows Down</source>
+        <translation>下移行</translation>
+    </message>
+    <message>
+        <source>Move Columns Left</source>
+        <translation>左移列</translation>
+    </message>
+    <message>
+        <source>Move Columns Right</source>
+        <translation>右移列</translation>
+    </message>
+    <message>
         <source>New</source>
         <translation>新建</translation>
     </message>
@@ -1773,6 +1789,14 @@
         <translation>删除选中行</translation>
     </message>
     <message>
+        <source>Move rows up</source>
+        <translation>上移行</translation>
+    </message>
+    <message>
+        <source>Move rows down</source>
+        <translation>下移行</translation>
+    </message>
+    <message>
         <source>Insert column left</source>
         <translation>在左侧插入列</translation>
     </message>
@@ -1783,6 +1807,14 @@
     <message>
         <source>Delete selected columns</source>
         <translation>删除选中列</translation>
+    </message>
+    <message>
+        <source>Move columns left</source>
+        <translation>左移列</translation>
+    </message>
+    <message>
+        <source>Move columns right</source>
+        <translation>右移列</translation>
     </message>
     <message>
         <source>Align columns left</source>
