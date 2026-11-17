@@ -246,12 +246,85 @@ class AdvancedContentTests : public QObject {
     }
   }
 
-  void pieChartsKeepTheSourceAndEmbedThePictureInExports() {
-    const auto malformed = QStringLiteral("```mermaid\npie\n  \"Bad\" : -1\n```\n");
-    const auto diagram = QStringLiteral(
-        "pie showData title Writing time\n  \"Draft\" : 45\n"
-        "  \"Review\" : 22.5\n  \"Revise\" : 22.5\n");
-    const auto source = QStringLiteral("```mermaid\n") + diagram + QStringLiteral("```\n");
+  void timelineRespectsSectionsAndWrapsPeriods() {
+    const auto source = QStringLiteral(
+        "%% Shared milestones\r\ntimeline\r\n"
+        "  title 文档发布计划\r\n  section 准备\r\n"
+        "      09:00 : 收集材料 : 完成初稿\r\n"
+        "      核对 : 核对术语\r\n           : 审阅示例\r\n"
+        "  section 发布\r\n      2026-11-19 : 发布新版 <br> 下载包 %% finished\r\n");
+    const auto equivalent = QStringLiteral(
+        "timeline\n  title 文档发布计划\n  section 准备\n"
+        "      09:00 : 收集材料\n            : 完成初稿\n"
+        "      核对 : 核对术语 : 审阅示例\n"
+        "  section 发布\n      2026-11-19 : 发布新版 <br /> 下载包\n");
+    const auto light = render::mermaid(source);
+    const auto dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.devicePixelRatio(), 2.);
+    QCOMPARE(light.image, render::mermaid(equivalent).image);
+    QCOMPARE(dark.image.size(), light.image.size());
+    QVERIFY(dark.image.pixelColor(0, 0) != light.image.pixelColor(0, 0));
+    const auto firstOrder = render::mermaid(QStringLiteral("timeline\nDay : Draft : Publish"));
+    const auto secondOrder = render::mermaid(QStringLiteral("timeline\nDay : Publish : Draft"));
+    QVERIFY(!firstOrder.image.isNull() && !secondOrder.image.isNull());
+    QVERIFY(firstOrder.image != secondOrder.image);
+
+    const auto row = QStringLiteral("timeline\nA : one\nB : two\nC : three\nD : four\n");
+    const auto before = render::mermaid(row);
+    const auto after = render::mermaid(row + QStringLiteral("E : five\n"));
+    QVERIFY(!before.image.isNull() && !after.image.isNull());
+    QCOMPARE(after.image.width(), before.image.width());
+    QVERIFY(after.image.height() > before.image.height());
+    const auto longEvent =
+        render::mermaid(QStringLiteral("timeline\nA : ") + QStringLiteral("描述").repeated(1000));
+    QVERIFY(!longEvent.image.isNull() && longEvent.image.height() <= 1440);
+    auto full = QStringLiteral("timeline\n");
+    for (auto period = 1; period <= 24; ++period)
+      full += QStringLiteral("%1 : Event\n").arg(period);
+    full += QStringLiteral(": Event\n").repeated(40);
+    QVERIFY(!render::mermaid(full).image.isNull());
+    QVERIFY(render::mermaid(full + QStringLiteral("Another period\n")).image.isNull());
+    QVERIFY(render::mermaid(full + QStringLiteral(": Another event\n")).image.isNull());
+    for (const auto& invalid :
+         {QStringLiteral("timeline\n: first"), QStringLiteral("timeline\nA :"),
+          QStringLiteral("timeline\nsection First\nA\nsection Second\n: misplaced"),
+          QStringLiteral("timeline\ntitle Missing periods"),
+          QStringLiteral("timeline\naccTitle: Milestones\n2026 : Release")}) {
+      const auto result = render::mermaid(invalid);
+      QVERIFY(result.image.isNull() && !result.error.isEmpty());
+    }
+
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/timeline-light.png"));
+      QVERIFY(dark.image.save(retained + "/timeline-dark.png"));
+    }
+  }
+
+  void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
+    QTest::addColumn<QString>("diagram");
+    QTest::addColumn<QString>("invalid");
+    QTest::newRow("pie") << QStringLiteral(
+                                "pie showData title Writing time\n  \"Draft\" : 45\n"
+                                "  \"Review\" : 22.5\n  \"Revise\" : 22.5\n")
+                         << QStringLiteral("pie\n  \"Bad\" : -1\n");
+    QTest::newRow("timeline") << QStringLiteral(
+                                     "timeline\n  title Release\n  section Preparation\n"
+                                     "  Monday : Draft\n         : Review<br>examples\n"
+                                     "  section Distribution\n  Tuesday : Publish\n")
+                              << QStringLiteral("timeline\n  : No period\n");
+  }
+
+  void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {
+    QFETCH(QString, diagram);
+    QFETCH(QString, invalid);
+    const auto fence = [](const QString& text) {
+      return QStringLiteral("```mermaid\n") + text + QStringLiteral("```\n");
+    };
+    const auto malformed = fence(invalid);
+    const auto source = fence(diagram);
     QTextDocument document;
     QVERIFY(editor::loadMarkdown(malformed, &document, nullptr));
     QVERIFY(same(malformed, editor::serializeDocument(&document)));
@@ -278,19 +351,19 @@ class AdvancedContentTests : public QObject {
     QTemporaryDir out;
     QVERIFY(out.isValid());
     QString error;
-    QFile pdf(out.filePath(QStringLiteral("pie.pdf")));
+    QFile pdf(out.filePath(QStringLiteral("chart.pdf")));
     QVERIFY2(platform::exportPdf(pdf.fileName(), &document, &error), qPrintable(error));
     QVERIFY(pdf.open(QIODevice::ReadOnly));
     QVERIFY(pdf.readAll().contains("/Subtype /Image"));
-    QFile docx(out.filePath(QStringLiteral("pie.docx")));
+    QFile docx(out.filePath(QStringLiteral("chart.docx")));
     QVERIFY2(platform::exportDocx(docx.fileName(), source, &error), qPrintable(error));
     QVERIFY(docx.open(QIODevice::ReadOnly));
     const auto word = unzip(docx.readAll());
     QVERIFY(word.value("word/document.xml").contains("w:drawing"));
     QVERIFY(!QImage::fromData(word.value("word/media/image1.png")).isNull());
-    QFile epub(out.filePath(QStringLiteral("pie.epub")));
+    QFile epub(out.filePath(QStringLiteral("chart.epub")));
     platform::EpubOptions options;
-    options.title = QStringLiteral("Writing time");
+    options.title = QStringLiteral("Diagram export");
     QVERIFY2(platform::exportEpub(epub.fileName(), source, options, &error), qPrintable(error));
     QVERIFY(epub.open(QIODevice::ReadOnly));
     const auto book = unzip(epub.readAll());
