@@ -1,5 +1,6 @@
 add_library(typist_render STATIC DocumentProperties.h SpecialContent.h SpecialContent.cpp Mermaid.cpp
-  MermaidClass.cpp MermaidGantt.cpp MermaidGraph.cpp MermaidInternal.h MermaidQuadrant.cpp MermaidXY.cpp
+  MermaidClass.cpp MermaidGantt.cpp MermaidGraph.cpp MermaidInternal.h MermaidMindmap.cpp
+  MermaidQuadrant.cpp MermaidXY.cpp
   SyntaxHighlighter.h SyntaxHighlighter.cpp ImageResources.h ImageResources.cpp
   HeadingLinks.h HeadingLinks.cpp)
 set_target_properties(typist_render PROPERTIES AUTOMOC ON)

@@ -19,6 +19,7 @@ QList<int> graphRanks(int count, const QList<QPair<int, int>>& links);
 RenderResult classDiagram(const QStringList& lines, bool dark);
 RenderResult flowchart(QStringList lines, bool dark);
 RenderResult ganttChart(const QStringList& lines, bool dark);
+RenderResult mindmap(const QStringList& lines, bool dark);
 RenderResult quadrantChart(const QStringList& lines, bool dark);
 RenderResult stateDiagram(QStringList lines, bool dark);
 RenderResult xyChart(const QStringList& lines, bool dark);
