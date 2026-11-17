@@ -3,11 +3,17 @@
 #include "TableEditing.h"
 
 #include <QAction>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QEvent>
+#include <QFormLayout>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QMenu>
 #include <QPushButton>
+#include <QSpinBox>
+#include <QTableWidget>
 #include <QTextTable>
 #include <QToolButton>
 
@@ -17,8 +23,11 @@ TableBar::TableBar(QWidget* parent) : QFrame(parent) {
   auto* layout = new QHBoxLayout(this);
   layout->setContentsMargins(6, 1, 4, 1);
   layout->setSpacing(3);
-  m_dimensions = new QLabel(this);
+  m_dimensions = new QPushButton(this);
   m_dimensions->setObjectName(QStringLiteral("tableDimensions"));
+  m_dimensions->setFocusPolicy(Qt::NoFocus);
+  m_dimensions->setCursor(Qt::PointingHandCursor);
+  connect(m_dimensions, &QPushButton::clicked, this, &TableBar::resizeRequested);
   layout->addWidget(m_dimensions);
   const auto menuButton = [&](const char* id, const char* text) {
     auto* button = new QToolButton(this);
@@ -101,8 +110,8 @@ void TableBar::setTableState(const QTextCursor& cursor, const editor::TableCells
   const auto* table = cursor.currentTable();
   const int rows = table->rows(), columns = table->columns();
   m_dimensions->setText(QStringLiteral("%1 × %2").arg(rows).arg(columns));
-  m_dimensions->setToolTip(tr("Rows × columns, including the header"));
-  m_dimensions->setAccessibleName(tr("%1 rows and %2 columns").arg(rows).arg(columns));
+  m_dimensions->setAccessibleName(
+      tr("Resize table (%1 rows and %2 columns)").arg(rows).arg(columns));
   m_deleteRow->setEnabled(selection.row > 0 && rows - selection.rows >= 2);
   m_deleteColumn->setEnabled(columns - selection.columns >= 1);
   for (auto* item : m_addRows) item->setEnabled(rows < editor::kMaxTableRows);
@@ -118,7 +127,6 @@ void TableBar::setDark(bool dark) {
   setStyleSheet(
       QStringLiteral(
           "QFrame#tableBar{background:%1;border:1px solid %2;border-radius:5px;}"
-          "QLabel{background:transparent;color:%3;border:0;padding:3px 7px;font-size:9pt;}"
           "QToolButton,QPushButton{background:transparent;color:%3;border:0;border-radius:3px;"
           "padding:3px 7px;font-size:9pt;}"
           "QToolButton:hover,QToolButton:pressed,QPushButton:hover{background:%4;}"
@@ -131,6 +139,7 @@ void TableBar::setDark(bool dark) {
                dark ? "#778493" : "#a1a8b2"));
 }
 void TableBar::retranslate() {
+  m_dimensions->setToolTip(tr("Resize table"));
   for (auto* action : m_actions)
     action->setText(tr(qPrintable(action->property("tableTranslationSource").toString())));
   for (auto* button : findChildren<QToolButton*>())
@@ -140,6 +149,88 @@ void TableBar::retranslate() {
     exit->setToolTip(tr("Continue in a normal paragraph · Ctrl+Enter"));
   }
 }
+
+QSize TableBar::chooseSize(QWidget* parent, QSize current) {
+  QDialog dialog(parent);
+  dialog.setObjectName(QStringLiteral("resizeTableDialog"));
+  dialog.setWindowTitle(tr("Resize Table"));
+  dialog.setPalette(parent->palette());
+  QFormLayout layout(&dialog);
+  QSpinBox rows, columns;
+  rows.setObjectName(QStringLiteral("tableResizeRows"));
+  rows.setRange(2, qMax(current.height(), editor::kMaxTableRows));
+  rows.setValue(current.height());
+  columns.setObjectName(QStringLiteral("tableResizeColumns"));
+  columns.setRange(1, qMax(current.width(), editor::kMaxTableColumns));
+  columns.setValue(current.width());
+  layout.addRow(tr("Rows (including header)"), &rows);
+  layout.addRow(tr("Columns"), &columns);
+
+  QTableWidget grid(10, 6);
+  grid.setObjectName(QStringLiteral("tableResizeGrid"));
+  grid.setAccessibleName(tr("Table size grid"));
+  grid.setSelectionMode(QAbstractItemView::NoSelection);
+  grid.setEditTriggers(QAbstractItemView::NoEditTriggers);
+  grid.setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  grid.setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  grid.horizontalHeader()->hide();
+  grid.verticalHeader()->hide();
+  grid.horizontalHeader()->setDefaultSectionSize(36);
+  grid.verticalHeader()->setDefaultSectionSize(18);
+  grid.setFixedSize(grid.horizontalHeader()->length() + 2 * grid.frameWidth(),
+                    grid.verticalHeader()->length() + 2 * grid.frameWidth());
+  for (int row = 0; row < grid.rowCount(); ++row)
+    for (int column = 0; column < grid.columnCount(); ++column) {
+      auto* cell = new QTableWidgetItem;
+      const auto label = tr("%1 rows and %2 columns").arg(qMax(2, row + 1)).arg(column + 1);
+      cell->setData(Qt::AccessibleTextRole, label);
+      cell->setToolTip(label);
+      grid.setItem(row, column, cell);
+    }
+  layout.addRow(&grid);
+  const auto pick = [&](int row, int column) {
+    rows.setValue(row + 1);
+    columns.setValue(column + 1);
+  };
+  connect(&grid, &QTableWidget::cellClicked, &dialog, pick);
+  connect(&grid, &QTableWidget::cellActivated, &dialog, pick);
+
+  QLabel warning;
+  warning.setObjectName(QStringLiteral("tableResizeWarning"));
+  warning.setWordWrap(true);
+  layout.addRow(&warning);
+  QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+  auto* apply = buttons.button(QDialogButtonBox::Ok);
+  apply->setText(tr("Resize"));
+  buttons.button(QDialogButtonBox::Cancel)->setText(tr("Cancel"));
+  layout.addRow(&buttons);
+  connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+  connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+  const auto refresh = [&] {
+    for (int row = 0; row < grid.rowCount(); ++row)
+      for (int column = 0; column < grid.columnCount(); ++column)
+        grid.item(row, column)
+            ->setBackground(row < rows.value() && column < columns.value()
+                                ? grid.palette().highlight()
+                                : QBrush());
+    const bool fewerRows = rows.value() < current.height();
+    const bool fewerColumns = columns.value() < current.width();
+    warning.setText(fewerRows && fewerColumns
+                        ? tr("Bottom rows and rightmost columns will be removed.")
+                    : fewerRows    ? tr("Bottom rows will be removed.")
+                    : fewerColumns ? tr("Rightmost columns will be removed.")
+                                   : QString());
+    warning.setVisible(fewerRows || fewerColumns);
+    apply->setEnabled(QSize(columns.value(), rows.value()) != current);
+  };
+  connect(&rows, &QSpinBox::valueChanged, &dialog, refresh);
+  connect(&columns, &QSpinBox::valueChanged, &dialog, refresh);
+  refresh();
+  rows.selectAll();
+  return dialog.exec() == QDialog::Accepted ? QSize(columns.value(), rows.value()) : QSize();
+}
+
 void TableBar::changeEvent(QEvent* event) {
   if (event->type() == QEvent::LanguageChange && m_dimensions) retranslate();
   QFrame::changeEvent(event);

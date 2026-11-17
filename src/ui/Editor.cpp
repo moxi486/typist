@@ -1149,6 +1149,7 @@ void Editor::updateTableBar() {
             });
     connect(m_tableBar, &TableBar::copyRequested, this,
             [this](bool spreadsheet) { copyTable(spreadsheet); });
+    connect(m_tableBar, &TableBar::resizeRequested, this, &Editor::promptResizeTable);
     connect(m_tableBar, &TableBar::exitRequested, this, [this] { exitTable(); });
     updateTableTheme();
   }
@@ -1832,6 +1833,20 @@ void Editor::createTable(int rows, int columns) {
     cursor.insertText(source + QStringLiteral("\n\n"));
   }
   setTextCursor(cursor);
+  setFocus();
+}
+
+void Editor::promptResizeTable() {
+  if (!renderedEditingAvailable() || isReadOnly()) return;
+  auto cursor = textCursor();
+  const QPointer<QTextTable> table = cursor.currentTable();
+  if (!table || !editor::tableCells(cursor).valid()) return;
+  const QSize size = TableBar::chooseSize(this, QSize(table->columns(), table->rows()));
+  if (!size.isValid() || !table || textCursor().currentTable() != table ||
+      !renderedEditingAvailable() || isReadOnly())
+    return;
+  if (editor::resizeTable(cursor, size.height(), size.width())) setTextCursor(cursor);
+  updateTableBar();
   setFocus();
 }
 

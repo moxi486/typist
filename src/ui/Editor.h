@@ -110,6 +110,7 @@ class Editor : public QTextEdit {
   bool shiftHeadingLevels(int delta);
   void insertLink(const QString& target, const QString& label = QString());
   void createTable(int rows, int columns);
+  void promptResizeTable();
   bool changeTable(editor::TableCommand command);
   void changeListIndent(int delta);
   bool changeTaskStatus(editor::TaskStatus status);

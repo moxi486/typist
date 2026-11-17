@@ -3,8 +3,8 @@
 
 #include <QFrame>
 #include <QPair>
-class QLabel;
 class QAction;
+class QPushButton;
 namespace typist::editor {
 struct TableCells;
 }
@@ -15,8 +15,10 @@ class TableBar : public QFrame {
   explicit TableBar(QWidget* parent);
   void setTableState(const QTextCursor& cursor, const editor::TableCells& selection, int alignment);
   void setDark(bool dark);
+  static QSize chooseSize(QWidget* parent, QSize current);
  signals:
   void operationRequested(editor::TableCommand command);
+  void resizeRequested();
   void copyRequested(bool spreadsheet);
   void exitRequested();
 
@@ -25,7 +27,7 @@ class TableBar : public QFrame {
 
  private:
   void retranslate();
-  QLabel* m_dimensions = nullptr;
+  QPushButton* m_dimensions = nullptr;
   QList<QAction*> m_actions;
   QAction* m_deleteRow = nullptr;
   QAction* m_deleteColumn = nullptr;

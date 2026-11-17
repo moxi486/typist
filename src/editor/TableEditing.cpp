@@ -161,7 +161,7 @@ TableCells tableCells(const QTextCursor& cursor) {
   const auto cell = table->cellAt(cursor.position());
   return cell.isValid() ? TableCells{cell.row(), 1, cell.column(), 1} : TableCells{};
 }
-void styleTable(QTextTable* table) {
+static void styleTable(QTextTable* table, int retainedRows, int retainedColumns) {
   if (!table) return;
   auto format = table->format();
   format.setHeaderRowCount(1);
@@ -172,7 +172,7 @@ void styleTable(QTextTable* table) {
     const auto header = table->cellAt(0, column);
     const int alignment =
         header.firstCursorPosition().blockFormat().intProperty(kTableAlignmentProperty);
-    for (int row = 0; row < table->rows(); ++row) {
+    for (int row = column < retainedColumns ? retainedRows : 0; row < table->rows(); ++row) {
       auto cell = table->cellAt(row, column);
       if (cell.row() != row || cell.column() != column) continue;
       auto cellFormat = cell.format().toTableCellFormat();
@@ -225,6 +225,36 @@ void styleTable(QTextTable* table) {
     }
   }
 }
+void styleTable(QTextTable* table) { styleTable(table, 0, 0); }
+
+bool resizeTable(QTextCursor& cursor, int rows, int columns) {
+  auto* table = cursor.currentTable();
+  if (!table || !tableCells(cursor).valid()) return false;
+  const int currentRows = table->rows(), currentColumns = table->columns();
+  if (rows < 2 || columns < 1 || rows > qMax(currentRows, kMaxTableRows) ||
+      columns > qMax(currentColumns, kMaxTableColumns) ||
+      (rows == currentRows && columns == currentColumns))
+    return false;
+  const auto active = table->cellAt(cursor);
+  if (!active.isValid()) return false;
+  const int row = qMin(active.row(), rows - 1), column = qMin(active.column(), columns - 1);
+  const bool retainCursor =
+      row == active.row() && column == active.column() && !cursor.hasComplexSelection();
+  cursor.beginEditBlock();
+  // Remove trailing cells first so a resize with mixed directions never grows past
+  // the requested size on either axis before removing the other axis.
+  if (rows < currentRows) table->removeRows(rows, currentRows - rows);
+  if (columns < currentColumns) table->removeColumns(columns, currentColumns - columns);
+  if (rows > currentRows) table->appendRows(rows - currentRows);
+  if (columns > currentColumns) table->appendColumns(columns - currentColumns);
+  if (rows > currentRows || columns > currentColumns)
+    styleTable(table, qMin(currentRows, rows), qMin(currentColumns, columns));
+  cursor.endEditBlock();
+  if (!retainCursor || cursor.currentTable() != table)
+    cursor = table->cellAt(row, column).firstCursorPosition();
+  return true;
+}
+
 bool pasteTableCells(QTextCursor& cursor, const QString& text, QString* error) {
   const bool selected = cursor.hasComplexSelection() && cursor.currentTable();
   if (!text.contains('\t') && !selected) return false;

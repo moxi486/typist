@@ -612,6 +612,10 @@
         <translation>插入表格</translation>
     </message>
     <message>
+        <source>Resize Table</source>
+        <translation>调整表格尺寸</translation>
+    </message>
+    <message>
         <source>Move Rows Up</source>
         <translation>上移行</translation>
     </message>
@@ -1845,8 +1849,44 @@
         <translation>继续编辑正文 · Ctrl+Enter</translation>
     </message>
     <message>
-        <source>Rows × columns, including the header</source>
-        <translation>行数 × 列数（包含表头）</translation>
+        <source>Resize table</source>
+        <translation>调整表格尺寸</translation>
+    </message>
+    <message>
+        <source>Resize Table</source>
+        <translation>调整表格尺寸</translation>
+    </message>
+    <message>
+        <source>Resize table (%1 rows and %2 columns)</source>
+        <translation>调整表格尺寸（%1 行 %2 列）</translation>
+    </message>
+    <message>
+        <source>Rows (including header)</source>
+        <translation>行数（包含表头）</translation>
+    </message>
+    <message>
+        <source>Table size grid</source>
+        <translation>表格尺寸网格</translation>
+    </message>
+    <message>
+        <source>Resize</source>
+        <translation>调整尺寸</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Bottom rows and rightmost columns will be removed.</source>
+        <translation>底部的行和最右侧的列将被移除。</translation>
+    </message>
+    <message>
+        <source>Bottom rows will be removed.</source>
+        <translation>底部的行将被移除。</translation>
+    </message>
+    <message>
+        <source>Rightmost columns will be removed.</source>
+        <translation>最右侧的列将被移除。</translation>
     </message>
     <message>
         <source>%1 rows and %2 columns</source>

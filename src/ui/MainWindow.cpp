@@ -1044,6 +1044,13 @@ void MainWindow::createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMe
   auto* table = paragraph->addMenu(tr("Table"));
   command(table, QStringLiteral("insert_table"), tr("Insert Table"), QStringLiteral("Ctrl+T"),
           [this] { insertTableDialog(); });
+  auto* resize = command(table, QStringLiteral("resize_table"), tr("Resize Table"), QString(),
+                         [editor] { editor->promptResizeTable(); });
+  connect(table, &QMenu::aboutToShow, resize, [editor, resize] {
+    resize->setEnabled(editor->renderedEditingAvailable() && !editor->isReadOnly() &&
+                       editor::tableCells(editor->textCursor()).valid());
+  });
+  table->addSeparator();
   const auto tableAction = [&](const QString& id, const QString& text,
                                editor::TableCommand operation) {
     command(table, id, text, QString(), [this, editor, operation] {
