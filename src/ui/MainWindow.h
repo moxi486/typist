@@ -44,7 +44,6 @@ class AutoSave;
 class FileTree;
 class FindBar;
 class ViewSwitch;
-class AppTranslator;
 class WorkspaceSearchPanel;
 class FolderLocationsMenu;
 class OutlinePanel;
@@ -166,6 +165,10 @@ class MainWindow : public QMainWindow {
   void retranslateUi();
   void updateSearchFocusGuard();
   void createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMenu* settings);
+  static QList<MainWindow*> openDocumentWindows();
+  void rebuildDocumentWindowsMenu(QMenu* menu);
+  void switchDocumentWindow(int direction);
+  void activateDocumentWindow();
   void createSmartQuoteStyleMenu(QMenu* settings);
   void createEditorToolbar(QMenu* view, QMenu* appearance);
   void updateEditorToolbar();
@@ -175,6 +178,7 @@ class MainWindow : public QMainWindow {
   void openDroppedMarkdown(const QString& path);
   void createLineEndingMenu(QMenu* settings);
   bool writeMarkdownFile(const QString& path, const QString& markdown);
+  QString recoveryDocumentKey() const;
   void createExportMenu(QMenu* settings);
   QString chooseDirectory(const QString& title, const QString& initial);
   bool maybeSaveBeforeNavigate(bool discardImmediately = true);
@@ -264,13 +268,14 @@ class MainWindow : public QMainWindow {
   QAction* m_pasteMarkdownAction = nullptr;
   QAction* m_updateAction = nullptr;
   ui::DocumentStatisticsButton* m_statistics = nullptr;
-  ui::AppTranslator* m_translator = nullptr;
   bool m_autoSaveEnabled = true;
 #ifdef TYPIST_HAS_NETWORK
   QNetworkAccessManager* m_network = nullptr;
 #endif
   ui::ViewSwitch* m_view = nullptr;
+  const quint64 m_documentWindowSequence;
   bool m_benchMode = false;
+  QString m_untitledRecoveryKey;
   QString m_currentPath;
   QString m_savedMarkdown;
   std::optional<platform::LineEnding> m_lineEnding;

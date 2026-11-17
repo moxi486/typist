@@ -536,6 +536,22 @@
         <translation>窗口置顶</translation>
     </message>
     <message>
+        <source>Next Document</source>
+        <translation>下一个文档</translation>
+    </message>
+    <message>
+        <source>Previous Document</source>
+        <translation>上一个文档</translation>
+    </message>
+    <message>
+        <source>Open Documents</source>
+        <translation>打开的文档</translation>
+    </message>
+    <message>
+        <source>Untitled %1</source>
+        <translation>未命名 %1</translation>
+    </message>
+    <message>
         <source>Heading %1</source>
         <translation>%1 级标题</translation>
     </message>

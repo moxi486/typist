@@ -10,6 +10,7 @@
 #include <QFont>
 #include <QIcon>
 #include <QLocale>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <QTemporaryDir>
@@ -49,7 +50,9 @@ int main(int argc, char* argv[]) {
   const bool benchmark = benchStartup || benchRepaint || benchViewSwitch || benchSearch ||
                          benchFolderSearch || benchTree || benchDocx || benchEpub ||
                          benchHtmlImport || benchPdf;
-  typist::MainWindow window(nullptr, benchmark);
+  QPointer<typist::MainWindow> mainWindow = new typist::MainWindow(nullptr, benchmark);
+  auto& window = *mainWindow;
+  window.setAttribute(Qt::WA_DeleteOnClose, !benchmark);
   const auto target = typist::platform::startupTarget(
       args, benchmark, QString::fromUtf8(qgetenv("TYPIST_BENCH_FILE")));
   const bool opened = window.openStartupTarget(target);
@@ -144,6 +147,7 @@ int main(int argc, char* argv[]) {
   }
 
   const int code = application.exec();
+  delete mainWindow.data();
   if (benchRepaint && repaintBudgetBreaches > 0) return 1;
   if (benchViewSwitch && !undoKept) return 1;
   if (benchSearch && searchMatches == 0) return 1;

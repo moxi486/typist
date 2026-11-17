@@ -72,6 +72,7 @@
 #include <QWheelEvent>
 #include <QWindow>
 #include <QXmlStreamReader>
+#include <QtAlgorithms>
 #include <QtTest>
 
 #ifdef Q_OS_WIN
@@ -126,6 +127,15 @@ QAction* actionBySource(QWidget& widget, const QString& source) {
     if (action->property("translationSource").toString() == source) return action;
   return nullptr;
 }
+
+void deleteNewDocumentWindows(const QWidgetList& originalWindows) {
+  QList<typist::MainWindow*> created;
+  for (auto* widget : QApplication::topLevelWidgets()) {
+    if (originalWindows.contains(widget)) continue;
+    if (auto* window = qobject_cast<typist::MainWindow*>(widget)) created.append(window);
+  }
+  qDeleteAll(created);
+}
 }  // namespace
 
 class LinkReceiver : public QObject {
@@ -150,6 +160,162 @@ class WindowTests : public QObject {
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/packaging/linux/typist.png")));
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settings.path());
+  }
+
+  void openDocumentWindowsKeepTheirStateWhenCycling() {
+    const auto previousLanguage = typist::platform::languagePreference();
+    const auto language =
+        qScopeGuard([&] { typist::platform::setLanguagePreference(previousLanguage); });
+    typist::platform::setLanguagePreference(QStringLiteral("en"));
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QVERIFY(QDir(directory.path()).mkpath(QStringLiteral("a")));
+    QVERIFY(QDir(directory.path()).mkpath(QStringLiteral("b")));
+    const auto firstPath = directory.filePath(QStringLiteral("a/note.md"));
+    const auto lastPath = directory.filePath(QStringLiteral("b/note.md"));
+    for (const auto& path : {firstPath, lastPath}) {
+      QFile file(path);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      QVERIFY(file.write(path == firstPath ? "First document" : "Last document") > 0);
+    }
+    typist::MainWindow first(nullptr, true);
+    const auto originalWindows = QApplication::topLevelWidgets();
+    const auto cleanup = qScopeGuard([&] { deleteNewDocumentWindows(originalWindows); });
+    const auto editorFor = [](typist::MainWindow& window) {
+      return window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    };
+    const auto menuFor = [](typist::MainWindow& window) {
+      return window.findChild<QMenu*>(QStringLiteral("openDocumentWindows"));
+    };
+    const auto active = [] {
+      return qobject_cast<typist::MainWindow*>(QApplication::activeWindow());
+    };
+    QVERIFY(first.openFile(firstPath));
+    first.show();
+    first.activateWindow();
+    QTRY_COMPARE(active(), &first);
+    auto* firstEditor = editorFor(first);
+    auto* firstMenu = menuFor(first);
+    auto* newWindow = first.findChild<QAction*>(QStringLiteral("newWindow"));
+    auto* chinese = first.findChild<QAction*>(QStringLiteral("language_zh"));
+    QVERIFY(firstEditor && firstMenu && newWindow && chinese);
+    chinese->trigger();
+    QVERIFY(firstEditor->startParagraphSourceEdit());
+    auto* input = firstEditor->findChild<QPlainTextEdit*>(QStringLiteral("paragraphSourceInput"));
+    QVERIFY(input);
+    input->setPlainText(QStringLiteral("Pending **source**."));
+    newWindow->trigger();
+    QTRY_VERIFY(active() && active() != &first);
+    QPointer<typist::MainWindow> second = active();
+    QVERIFY(second->testAttribute(Qt::WA_DeleteOnClose));
+    auto* secondMenu = menuFor(*second);
+    auto* secondEditor = editorFor(*second);
+    QVERIFY(secondMenu && secondEditor);
+    QCOMPARE(secondMenu->title(), QStringLiteral("\u6253\u5f00\u7684\u6587\u6863"));
+    auto* english = second->findChild<QAction*>(QStringLiteral("language_en"));
+    QVERIFY(english);
+    english->trigger();
+    QCOMPARE(firstMenu->title(), QStringLiteral("Open Documents"));
+    QCOMPARE(secondMenu->title(), QStringLiteral("Open Documents"));
+    QVERIFY(!chinese->isChecked());
+    QVERIFY(firstEditor->paragraphSourceActive());
+    QCOMPARE(input->toPlainText(), QStringLiteral("Pending **source**."));
+
+    auto* source = actionBySource(*second, QStringLiteral("Source View"));
+    QVERIFY(source);
+    source->trigger();
+    secondEditor->insertPlainText(QStringLiteral("# Untitled draft"));
+    auto selection = secondEditor->document()->find(QStringLiteral("draft"));
+    secondEditor->setTextCursor(selection);
+    QVERIFY(secondEditor->document()->isUndoAvailable());
+    auto* sidebar = first.findChild<typist::ui::FileTree*>();
+    QVERIFY(sidebar);
+    emit sidebar->entryOpenInNewWindow(lastPath);
+    QTRY_VERIFY(active() && active() != &first && active() != second);
+    QPointer<typist::MainWindow> third = active();
+    auto* thirdEditor = editorFor(*third);
+    auto* thirdMenu = menuFor(*third);
+    QVERIFY(thirdEditor && thirdMenu);
+    QCOMPARE(thirdEditor->toPlainText(), QStringLiteral("Last document"));
+
+#ifdef Q_OS_MACOS
+    constexpr auto cycleKey = Qt::Key_QuoteLeft;
+#else
+    constexpr auto cycleKey = Qt::Key_Tab;
+#endif
+    thirdEditor->setFocus();
+    QTest::keyClick(thirdEditor, cycleKey, Qt::ControlModifier);
+    QTRY_COMPARE(active(), &first);
+    QVERIFY(firstEditor->paragraphSourceActive());
+#ifdef Q_OS_MACOS
+    QTest::keyClick(input, Qt::Key_Left, Qt::ControlModifier | Qt::AltModifier);
+#else
+    QTest::keyClick(input, cycleKey, Qt::ControlModifier | Qt::ShiftModifier);
+#endif
+    QTRY_COMPARE(active(), third.data());
+
+    second->showMinimized();
+    thirdMenu->aboutToShow();
+    QCOMPARE(thirdMenu->actions().size(), 3);
+    QCOMPARE(thirdMenu->actions().first()->toolTip(), QDir::toNativeSeparators(firstPath));
+    QCOMPARE(thirdMenu->actions().last()->text(), QDir::toNativeSeparators(lastPath));
+    QVERIFY(thirdMenu->actions().last()->isChecked());
+    QVERIFY(thirdMenu->actions().at(1)->text().endsWith(QStringLiteral(" *")));
+    thirdMenu->actions().at(1)->trigger();
+    QTRY_COMPARE(active(), second.data());
+    QVERIFY(!second->isMinimized());
+    QCOMPARE(secondEditor->toPlainText(), QStringLiteral("# Untitled draft"));
+    QCOMPARE(secondEditor->textCursor().selectedText(), QStringLiteral("draft"));
+    QVERIFY(!secondEditor->renderedEditingAvailable());
+    QVERIFY(secondEditor->document()->isUndoAvailable());
+    QVERIFY(third->close());
+    QTRY_VERIFY(third.isNull());
+    secondMenu->aboutToShow();
+    QCOMPARE(secondMenu->actions().size(), 2);
+  }
+
+  void untitledDocumentWindowsWriteSeparateRecoveryDrafts() {
+    QTemporaryDir recovery;
+    QVERIFY(recovery.isValid());
+    const auto oldRecovery = qgetenv("TYPIST_RECOVERY_DIR");
+    const auto restore = qScopeGuard([&] {
+      if (oldRecovery.isNull())
+        qunsetenv("TYPIST_RECOVERY_DIR");
+      else
+        qputenv("TYPIST_RECOVERY_DIR", oldRecovery);
+    });
+    qputenv("TYPIST_RECOVERY_DIR", recovery.path().toUtf8());
+    typist::MainWindow first(nullptr, true);
+    first.show();
+    const auto originalWindows = QApplication::topLevelWidgets();
+    const auto cleanup = qScopeGuard([&] { deleteNewDocumentWindows(originalWindows); });
+    auto* create = first.findChild<QAction*>(QStringLiteral("newWindow"));
+    QVERIFY(create);
+    create->trigger();
+    typist::MainWindow* second = nullptr;
+    for (auto* widget : QApplication::topLevelWidgets())
+      if (!originalWindows.contains(widget))
+        if (auto* window = qobject_cast<typist::MainWindow*>(widget)) second = window;
+    QVERIFY(second);
+    for (auto* window : {&first, second}) {
+      auto* editor = window->findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+      QVERIFY(editor);
+      editor->insertPlainText(window == &first ? QStringLiteral("First draft")
+                                               : QStringLiteral("Second draft"));
+      window->setBenchMode(false);
+      QVERIFY(QMetaObject::invokeMethod(window, "writeRecoveryDraft"));
+      window->setBenchMode(true);
+    }
+    const auto paths = typist::ui::draftPaths();
+    QCOMPARE(paths.size(), 2);
+    QStringList drafts;
+    for (const auto& path : paths) {
+      QFile file(path);
+      QVERIFY(file.open(QIODevice::ReadOnly));
+      drafts.append(QString::fromUtf8(file.readAll()).trimmed());
+    }
+    drafts.sort();
+    QCOMPARE(drafts, (QStringList{QStringLiteral("First draft"), QStringLiteral("Second draft")}));
   }
 
   void closedHistoryMigratesFromStartupAndSkipsUnavailableFiles() {
