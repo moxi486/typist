@@ -6,7 +6,7 @@ namespace typist::platform {
 
 // Minimal OOXML (.docx) writer: headings, paragraphs, lists, code, quotes, breaks, tables.
 bool exportDocx(const QString& path, const QString& markdown, QString* error,
-                const QString& baseDirectory = QString());
+                const QString& baseDirectory = QString(), int tocDepth = 6);
 bool docxExportAvailable();
 
 // Bytes written for the markdown, or -1 when the write failed.

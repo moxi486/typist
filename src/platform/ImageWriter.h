@@ -18,6 +18,7 @@ struct ImageExportOptions {
   int scale = 1;
   enum class Theme { Current, Light, Dark };
   Theme theme = Theme::Current;
+  int tocDepth = 6;
 };
 
 enum class ImageExportError { None, InvalidOptions, ContentTooWide, ImageTooLarge, Render, Write };

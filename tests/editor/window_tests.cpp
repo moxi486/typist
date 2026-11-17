@@ -24,6 +24,7 @@
 #include "editor_document.h"
 #include "markdown.h"
 
+#include <QAbstractTextDocumentLayout>
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
@@ -160,6 +161,64 @@ class WindowTests : public QObject {
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/packaging/linux/typist.png")));
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settings.path());
+  }
+
+  void tableOfContentsDepthUpdatesLayoutAndClickTargets() {
+    QSettings settings;
+    const auto key = QStringLiteral("view/tocDepth");
+    const auto previous = settings.value(key);
+    const auto restore = qScopeGuard([&] {
+      if (previous.isValid())
+        settings.setValue(key, previous);
+      else
+        settings.remove(key);
+    });
+    settings.remove(key);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto path = directory.filePath(QStringLiteral("toc.md"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write("[TOC]\n\n# Parent\n\n#### Deep\n\n## Next\n\n###### Last\n") > 0);
+    file.close();
+
+    typist::MainWindow window(nullptr, true);
+    QVERIFY(window.openFile(path));
+    window.show();
+    auto* editor = window.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    auto* menu = window.findChild<QMenu*>(QStringLiteral("tocDepthMenu"));
+    QVERIFY(editor && menu);
+    QCOMPARE(menu->actions().size(), 6);
+    QVERIFY(menu->actions().last()->isChecked());
+    const auto doc = editor->document();
+    const auto toc = doc->begin();
+    const auto height = [&] { return doc->documentLayout()->blockBoundingRect(toc).height(); };
+    QCOMPARE(typist::render::tocHeadings(doc).size(), 4);
+    const auto full = height();
+    const auto markdown = typist::editor::serializeDocument(doc);
+    const int undo = doc->availableUndoSteps();
+
+    menu->actions().at(1)->trigger();
+    QCOMPARE(settings.value(key).toInt(), 2);
+    QCOMPARE(typist::render::tocHeadings(doc).size(), 2);
+    QTRY_VERIFY(height() < full);
+    QCOMPARE(typist::editor::serializeDocument(doc), markdown);
+    QCOMPARE(doc->availableUndoSteps(), undo);
+    const auto top = editor->cursorRect(QTextCursor(toc)).topLeft();
+    const auto row =
+        top + QPoint(24, typist::render::kTocPadding + typist::render::kTocRowHeight * 3 / 2);
+    QTest::mouseClick(editor->viewport(), Qt::LeftButton, {}, row);
+    QCOMPARE(editor->textCursor().block().text(), QStringLiteral("Next"));
+
+    typist::MainWindow second(nullptr, true);
+    QVERIFY(second.openFile(path));
+    auto* secondMenu = second.findChild<QMenu*>(QStringLiteral("tocDepthMenu"));
+    auto* secondEditor = second.findChild<typist::ui::Editor*>(QStringLiteral("writingEditor"));
+    QVERIFY(secondMenu && secondEditor && secondMenu->actions().at(1)->isChecked());
+    QCOMPARE(typist::render::tocHeadings(secondEditor->document()).size(), 2);
+    secondMenu->actions().first()->trigger();
+    QCOMPARE(typist::render::tocHeadings(doc).size(), 1);
+    QCOMPARE(typist::render::tocHeadings(secondEditor->document()).size(), 1);
   }
 
   void openDocumentWindowsKeepTheirStateWhenCycling() {

@@ -1,6 +1,8 @@
 #include "DocxWriter.h"
 #include "Editor.h"
 #include "EpubWriter.h"
+#include "HeadingLinks.h"
+#include "ImageWriter.h"
 #include "PdfWriter.h"
 #include "SpecialContent.h"
 #include "ViewSwitch.h"
@@ -268,6 +270,71 @@ class AdvancedContentTests : public QObject {
     QVERIFY(editor::loadMarkdown(quote, &document, nullptr));
     QVERIFY2(same(quote, editor::serializeDocument(&document)),
              qPrintable(editor::serializeDocument(&document)));
+  }
+  void tableOfContentsDepthFiltersExportsAndKeepsHeadingTargets() {
+    const auto source = QStringLiteral(
+        "[TOC]\n\n# Parent\n\n#### Deep\n\n## Next\n\n###### Last\n\n[Jump](#deep)\n");
+    for (const bool styled : {true, false}) {
+      QList<render::HtmlHeading> outline;
+      const auto html = render::html(source, {false, styled, 2}, &outline);
+      const auto start = html.indexOf(QStringLiteral("<nav class=\"table-of-contents\">"));
+      const auto end = html.indexOf(QStringLiteral("</nav>"), start);
+      QVERIFY(start >= 0 && end > start);
+      const auto toc = html.mid(start, end - start);
+      QVERIFY(toc.contains(QStringLiteral("href=\"#parent\"")));
+      QVERIFY(toc.contains(QStringLiteral("href=\"#next\"")));
+      QVERIFY(!toc.contains(QStringLiteral("href=\"#deep\"")));
+      QVERIFY(!toc.contains(QStringLiteral("href=\"#last\"")));
+      QVERIFY(html.contains(QStringLiteral("<h4 id=\"deep\">Deep</h4>")));
+      QVERIFY(html.contains(QStringLiteral("<a href=\"#deep\">Jump</a>")));
+      QCOMPARE(outline.size(), 4);
+    }
+
+    QTextDocument document;
+    QVERIFY(editor::loadMarkdown(source, &document, nullptr));
+    std::unique_ptr<QTextDocument> printed(document.clone());
+    render::expandTocForPrint(printed.get(), 2);
+    QStringList entries;
+    for (auto block = printed->begin(); block.isValid() && !block.blockFormat().headingLevel();
+         block = block.next())
+      entries.append(block.text());
+    QCOMPARE(entries, (QStringList{QStringLiteral("Parent"), QStringLiteral("Next")}));
+
+    QString error;
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto path = directory.filePath(QStringLiteral("toc.docx"));
+    QVERIFY2(platform::exportDocx(path, source, &error, {}, 2), qPrintable(error));
+    QFile docx(path);
+    QVERIFY(docx.open(QIODevice::ReadOnly));
+    const auto xml = unzip(docx.readAll()).value("word/document.xml");
+    const auto fieldEnd = xml.indexOf("w:fldCharType=\"end\"");
+    QVERIFY(fieldEnd > 0);
+    const auto toc = xml.left(fieldEnd);
+    QVERIFY(toc.contains("TOC \\o &quot;1-2&quot;"));
+    QVERIFY(!toc.contains("\\u"));
+    QVERIFY(toc.contains("w:anchor=\"heading_1\""));
+    QVERIFY(toc.contains("w:anchor=\"heading_3\""));
+    QVERIFY(!toc.contains("w:anchor=\"heading_2\""));
+    QVERIFY(xml.contains("w:name=\"heading_2\""));
+
+    platform::ImageExportOptions pngOptions;
+    const auto fullPath = directory.filePath(QStringLiteral("full.png"));
+    const auto limitedPath = directory.filePath(QStringLiteral("limited.png"));
+    QCOMPARE(platform::exportImage(fullPath, document, pngOptions, false),
+             platform::ImageExportError::None);
+    pngOptions.tocDepth = 2;
+    QCOMPARE(platform::exportImage(limitedPath, document, pngOptions, false),
+             platform::ImageExportError::None);
+    const QImage full(fullPath), limited(limitedPath);
+    QVERIFY(!limited.isNull() && limited.height() < full.height());
+
+    platform::PdfPageOptions pdfOptions;
+    const auto fullPage = platform::pdfPagePreview(&document, pdfOptions, 0, nullptr, &error);
+    pdfOptions.tocDepth = 2;
+    const auto limitedPage = platform::pdfPagePreview(&document, pdfOptions, 0, nullptr, &error);
+    QVERIFY2(!fullPage.isNull() && !limitedPage.isNull(), qPrintable(error));
+    QVERIFY(fullPage != limitedPage);
   }
   void longTocPrintsAsParagraphs() {
     QString source = QStringLiteral("[TOC]\n\n");

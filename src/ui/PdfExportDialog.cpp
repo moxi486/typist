@@ -22,7 +22,8 @@ PdfExportDialog::PdfExportDialog(const QTextDocument* document,
     : QDialog(parent),
       m_document(document),
       m_title(initial.title),
-      m_sourcePath(initial.sourcePath) {
+      m_sourcePath(initial.sourcePath),
+      m_tocDepth(initial.tocDepth) {
   if (parent) setPalette(parent->palette());
   setObjectName(QStringLiteral("pdfExportDialog"));
   resize(980, 760);
@@ -227,6 +228,7 @@ platform::PdfPageOptions PdfExportDialog::options() const {
   result.breakBetweenTopHeadings = m_sectionBreaks->isChecked();
   result.title = m_title;
   result.sourcePath = m_sourcePath;
+  result.tocDepth = m_tocDepth;
   result.metadataTitle = m_metadataTitle->text().trimmed();
   result.author = m_author->text().trimmed();
   result.creator = m_creator->text().trimmed();

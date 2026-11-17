@@ -77,6 +77,7 @@ struct XmlContext {
   QMap<int, QString> footnoteBodies;
   QVector<QPair<int, QString>> headings;
   QMap<QString, QString> bookmarks;
+  int tocDepth = 6;
   int headingNumber = 0;
   int drawingNumber = 0;
 
@@ -470,16 +471,20 @@ QString blocksXml(const std::vector<typist::core::Block>& blocks, XmlContext& co
         break;  // Emitted in word/footnotes.xml, referenced by native Word fields.
       case typist::core::BlockType::TableOfContents: {
         out += QStringLiteral(
-            "<w:p><w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText "
-            "xml:space=\"preserve\"> TOC \\o &quot;1-6&quot; \\h \\z \\u "
-            "</w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r></w:p>");
+                   "<w:p><w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText "
+                   "xml:space=\"preserve\"> TOC \\o &quot;1-%1&quot; \\h \\z%2 "
+                   "</w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r></w:p>")
+                   .arg(context.tocDepth)
+                   .arg(context.tocDepth == 6 ? QStringLiteral(" \\u") : QString());
         int number = 0;
         for (const auto& heading : context.headings) {
+          ++number;
+          if (heading.first > context.tocDepth) continue;
           out += paragraphXml(
               QStringLiteral(
                   "<w:pPr><w:ind w:left=\"%1\"/></w:pPr><w:hyperlink w:anchor=\"heading_%2\">")
                   .arg((heading.first - 1) * 240)
-                  .arg(++number) +
+                  .arg(number) +
               runXml(heading.second, false, false, false, false, true) +
               QStringLiteral("</w:hyperlink>"));
         }
@@ -699,7 +704,7 @@ QString documentRelsXml(const QVector<QString>& hyperlinkTargets,
 }  // namespace
 
 bool exportDocx(const QString& path, const QString& markdown, QString* error,
-                const QString& baseDirectory) {
+                const QString& baseDirectory, int tocDepth) {
   const auto parsed = core::parseMarkdown(markdown.toStdString(), {}, core::HtmlComments::Omit);
   if (!parsed.ok) {
     if (error) *error = QStringLiteral("Cannot parse markdown for DOCX export");
@@ -708,6 +713,7 @@ bool exportDocx(const QString& path, const QString& markdown, QString* error,
 
   XmlContext context;
   context.baseDirectory = baseDirectory;
+  context.tocDepth = qBound(1, tocDepth, 6);
   const std::function<void(const std::vector<core::Block>&)> collect = [&](const auto& blocks) {
     for (const auto& block : blocks) {
       if (block.type == core::BlockType::Footnote) {

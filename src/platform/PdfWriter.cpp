@@ -301,7 +301,7 @@ bool preparePages(const QTextDocument* document, const PdfPageOptions& options,
     return fail(QStringLiteral("No room left for page content"));
   pages.document.reset(document->clone());
   auto* copy = pages.document.get();
-  typist::render::expandTocForPrint(copy);
+  typist::render::expandTocForPrint(copy, options.tocDepth);
   typist::render::installDocumentObjects(copy);
   QTextDocument& laidOut = *copy;
   laidOut.setUndoRedoEnabled(false);

@@ -165,6 +165,7 @@ class MainWindow : public QMainWindow {
   void retranslateUi();
   void updateSearchFocusGuard();
   void createEditingActions(QMenu* file, QMenu* edit, QMenu* view, QMenu* settings);
+  void createTocDepthMenu(QMenu* view);
   static QList<MainWindow*> openDocumentWindows();
   void rebuildDocumentWindowsMenu(QMenu* menu);
   void switchDocumentWindow(int direction);
@@ -202,6 +203,7 @@ class MainWindow : public QMainWindow {
     bool collapsible;
     QString extraHead;
     QString extraBody;
+    int tocDepth;
   };
   struct ExportReplacement {
     const platform::ExportedFile& destination;
@@ -215,7 +217,7 @@ class MainWindow : public QMainWindow {
                            const ExportReplacement* replacement = nullptr);
   void exportPdfDocument(const platform::PdfPageOptions* previous = nullptr,
                          const ExportReplacement* replacement = nullptr);
-  void exportDocxDocument(const ExportReplacement* replacement);
+  void exportDocxDocument(int tocDepth, const ExportReplacement* replacement);
   void exportEpubDocument(const platform::EpubOptions* previous = nullptr,
                           const ExportReplacement* replacement = nullptr);
   QString suggestedExportPath(const QString& suffix) const;
