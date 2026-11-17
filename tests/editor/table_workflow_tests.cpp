@@ -7,11 +7,13 @@
 
 #include <QAction>
 #include <QClipboard>
+#include <QContextMenuEvent>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFile>
 #include <QImage>
 #include <QLabel>
+#include <QMenu>
 #include <QMimeData>
 #include <QPushButton>
 #include <QScopeGuard>
@@ -22,6 +24,7 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QtTest>
+#include <functional>
 
 using namespace typist;
 namespace {
@@ -64,6 +67,18 @@ bool same(const QString& left, const QString& right) {
              b = core::parseMarkdown(right.toStdString());
   return a.ok && b.ok && core::astEqual(a.blocks, b.blocks);
 }
+void inspectContextMenu(ui::Editor& editor, const QPoint& point, QContextMenuEvent::Reason reason,
+                        const std::function<void(QMenu*)>& inspect) {
+  QVERIFY(editor.viewport()->rect().contains(point));
+  QTimer::singleShot(0, &editor, [&] {
+    auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+    QVERIFY(menu);
+    inspect(menu->findChild<QMenu*>(QStringLiteral("tableToolsContextMenu")));
+    menu->close();
+  });
+  QContextMenuEvent event(reason, point, editor.viewport()->mapToGlobal(point));
+  QApplication::sendEvent(editor.viewport(), &event);
+}
 const QString fixture = QStringLiteral(
     "Before.\n\n| Name | Value |\n|:---|---:|\n| **one** | 1 |\n| two | 2 |\n\nTAIL.\n");
 }  // namespace
@@ -71,6 +86,113 @@ class TableWorkflowTests : public QObject {
   Q_OBJECT
  private slots:
   void initTestCase() { QApplication::setStyle(QStringLiteral("Fusion")); }
+
+  void tableContextUsesTheClickedCellOrTheExistingRectangle() {
+    ui::Editor edit;
+    ui::ViewSwitch view;
+    prepare(edit, view,
+            QStringLiteral("Before.\n\n| Name | Notes | Value |\n| --- | --- | --- |\n"
+                           "| First | **bold** | 1 |\n| Second | plain | 2 |\n| Last | end | 3 |\n"
+                           "\nAfter.\n"));
+    auto* table = firstTable(edit.document());
+    QVERIFY(table);
+    const auto original = view.currentMarkdown();
+    const auto menuPoint = [&](int row, int column) {
+      auto cursor = table->cellAt(row, column).firstCursorPosition();
+      cursor.movePosition(QTextCursor::Right);
+      return edit.cursorRect(cursor).center();
+    };
+    select(edit, table, 1, 0, 2, 1);
+    const auto selection = edit.textCursor();
+    const auto outside = edit.cursorRect(QTextCursor(edit.document()->begin())).center();
+    inspectContextMenu(edit, outside, QContextMenuEvent::Mouse,
+                       [](QMenu* tools) { QVERIFY(!tools); });
+    QCOMPARE(edit.textCursor().position(), selection.position());
+    QCOMPARE(edit.textCursor().anchor(), selection.anchor());
+    inspectContextMenu(edit, outside, QContextMenuEvent::Keyboard, [](QMenu* tools) {
+      QVERIFY(tools);
+      auto* resize = tools->findChild<QAction*>(QStringLiteral("tableContextResize"));
+      auto* up = tools->findChild<QAction*>(QStringLiteral("tableContextMoveRowsUp"));
+      auto* down = tools->findChild<QAction*>(QStringLiteral("tableContextMoveRowsDown"));
+      QVERIFY(resize && up && down);
+      QVERIFY(resize->isEnabled() && !up->isEnabled() && down->isEnabled());
+    });
+    inspectContextMenu(edit, menuPoint(2, 1), QContextMenuEvent::Mouse, [](QMenu* tools) {
+      QVERIFY(tools);
+      auto* down = tools->findChild<QAction*>(QStringLiteral("tableContextMoveRowsDown"));
+      QVERIFY(down && down->isEnabled());
+      down->trigger();
+    });
+    QCOMPARE(plain(table->cellAt(1, 0)), QStringLiteral("Last"));
+    QCOMPARE(plain(table->cellAt(2, 0)), QStringLiteral("First"));
+    QCOMPARE(plain(table->cellAt(3, 0)), QStringLiteral("Second"));
+    const auto moved = editor::tableCells(edit.textCursor());
+    QCOMPARE(moved.row, 2);
+    QCOMPARE(moved.rows, 2);
+    QCOMPARE(moved.columns, 2);
+    edit.undo();
+    QCOMPARE(view.currentMarkdown(), original);
+
+    select(edit, table, 1, 0, 2, 1);
+    inspectContextMenu(edit, menuPoint(3, 2), QContextMenuEvent::Mouse, [](QMenu* tools) {
+      QVERIFY(tools);
+      auto* align = tools->findChild<QAction*>(QStringLiteral("tableContextAlignRight"));
+      auto* down = tools->findChild<QAction*>(QStringLiteral("tableContextMoveRowsDown"));
+      QVERIFY(align && down && align->isEnabled() && !down->isEnabled());
+      align->trigger();
+    });
+    const auto alignment = [table](int column) {
+      return table->cellAt(0, column).firstCursorPosition().blockFormat().alignment();
+    };
+    QCOMPARE(alignment(0), Qt::Alignment(Qt::AlignLeft));
+    QCOMPARE(alignment(1), Qt::Alignment(Qt::AlignLeft));
+    QCOMPARE(alignment(2), Qt::Alignment(Qt::AlignRight));
+
+    inspectContextMenu(edit, menuPoint(0, 0), QContextMenuEvent::Mouse, [](QMenu* tools) {
+      QVERIFY(tools);
+      auto* remove = tools->findChild<QAction*>(QStringLiteral("tableContextDeleteRow"));
+      auto* insert = tools->findChild<QAction*>(QStringLiteral("tableContextInsertRowBelow"));
+      QVERIFY(remove && insert && !remove->isEnabled() && insert->isEnabled());
+    });
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    inspectContextMenu(edit, edit.cursorRect().center(), QContextMenuEvent::Keyboard,
+                       [](QMenu* tools) { QVERIFY(!tools); });
+  }
+
+  void altArrowsMoveSelectedBodyRowsAndRespectTheHeader() {
+    ui::Editor edit;
+    ui::ViewSwitch view;
+    prepare(edit, view,
+            QStringLiteral("| Title | Value |\n| --- | --- |\n| First | 1 |\n"
+                           "| **Second** | 2 |\n| Third | 3 |\n| Last | 4 |\n"));
+    auto* table = firstTable(edit.document());
+    QVERIFY(table);
+    const auto original = view.currentMarkdown();
+    choose(edit, table, 0, 0);
+    const int header = edit.textCursor().position();
+    QTest::keyClick(&edit, Qt::Key_Down, Qt::AltModifier);
+    QCOMPARE(edit.textCursor().position(), header);
+    QCOMPARE(view.currentMarkdown(), original);
+    select(edit, table, 2, 0, 3, 1);
+    QTest::keyClick(&edit, Qt::Key_Up, Qt::AltModifier);
+    const auto moved = view.currentMarkdown();
+    QVERIFY2(same(moved, QStringLiteral("| Title | Value |\n| --- | --- |\n| **Second** | 2 |\n"
+                                        "| Third | 3 |\n| First | 1 |\n| Last | 4 |\n")),
+             qPrintable(moved));
+    const auto selection = editor::tableCells(edit.textCursor());
+    QCOMPARE(selection.row, 1);
+    QCOMPARE(selection.rows, 2);
+    QTest::keyClick(&edit, Qt::Key_Up, Qt::AltModifier);
+    QCOMPARE(view.currentMarkdown(), moved);
+    QTest::keyClick(&edit, Qt::Key_Down, Qt::AltModifier);
+    QCOMPARE(view.currentMarkdown(), original);
+    edit.undo();
+    QCOMPARE(view.currentMarkdown(), moved);
+    edit.undo();
+    QCOMPARE(view.currentMarkdown(), original);
+    QVERIFY(!edit.document()->isUndoAvailable());
+  }
 
   void resizeRetainsRichCellsAlignmentAndDocumentNeighbors() {
     ui::Editor edit;

@@ -1537,6 +1537,66 @@
         <translation>代码工具</translation>
     </message>
     <message>
+        <source>Table</source>
+        <translation>表格</translation>
+    </message>
+    <message>
+        <source>Resize Table</source>
+        <translation>调整表格尺寸</translation>
+    </message>
+    <message>
+        <source>Insert Row Above</source>
+        <translation>在上方插入行</translation>
+    </message>
+    <message>
+        <source>Insert Row Below</source>
+        <translation>在下方插入行</translation>
+    </message>
+    <message>
+        <source>Delete Row</source>
+        <translation>删除行</translation>
+    </message>
+    <message>
+        <source>Move Rows Up</source>
+        <translation>上移行</translation>
+    </message>
+    <message>
+        <source>Move Rows Down</source>
+        <translation>下移行</translation>
+    </message>
+    <message>
+        <source>Insert Column Left</source>
+        <translation>在左侧插入列</translation>
+    </message>
+    <message>
+        <source>Insert Column Right</source>
+        <translation>在右侧插入列</translation>
+    </message>
+    <message>
+        <source>Delete Column</source>
+        <translation>删除列</translation>
+    </message>
+    <message>
+        <source>Move Columns Left</source>
+        <translation>左移列</translation>
+    </message>
+    <message>
+        <source>Move Columns Right</source>
+        <translation>右移列</translation>
+    </message>
+    <message>
+        <source>Align Left</source>
+        <translation>左对齐</translation>
+    </message>
+    <message>
+        <source>Align Center</source>
+        <translation>居中对齐</translation>
+    </message>
+    <message>
+        <source>Align Right</source>
+        <translation>右对齐</translation>
+    </message>
+    <message>
         <source>Auto Indent Code</source>
         <translation>自动缩进代码</translation>
     </message>

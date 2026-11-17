@@ -1447,6 +1447,12 @@ bool Editor::viewportEvent(QEvent* event) {
   return QTextEdit::viewportEvent(event);
 }
 
+QPoint Editor::documentPoint(const QPoint& viewportPoint) const {
+  const auto* horizontal = horizontalScrollBar();
+  const int x = isRightToLeft() ? horizontal->maximum() - horizontal->value() : horizontal->value();
+  return viewportPoint + QPoint(x, verticalScrollBar()->value());
+}
+
 void Editor::addImageFileActions(QMenu* menu, const QContextMenuEvent& event) {
   if (!renderedEditingAvailable()) return;
   QTextCursor image;
@@ -1459,12 +1465,8 @@ void Editor::addImageFileActions(QMenu* menu, const QContextMenuEvent& event) {
   } else {
     // QTextEdit receives viewport coordinates. ExactHit resolves the character
     // under the mouse even when the nearest caret is on its trailing edge.
-    const auto* horizontal = horizontalScrollBar();
-    const int x =
-        isRightToLeft() ? horizontal->maximum() - horizontal->value() : horizontal->value();
-    const QPoint position = event.pos() + QPoint(x, verticalScrollBar()->value());
-    image =
-        imageCharacter(document(), document()->documentLayout()->hitTest(position, Qt::ExactHit));
+    image = imageCharacter(document(), document()->documentLayout()->hitTest(
+                                           documentPoint(event.pos()), Qt::ExactHit));
   }
   if (image.isNull()) return;
   const auto format = image.charFormat();
@@ -1547,6 +1549,66 @@ void Editor::saveImageResource(QTextCursor image, bool relink) {
   emit imageFileStatus(relink ? tr("Image copied and link updated") : tr("Image saved"));
 }
 
+void Editor::addTableActions(QMenu* menu, const QContextMenuEvent& event, QTextCursor target) {
+  if (!renderedEditingAvailable()) return;
+  const QPointer<QTextTable> table = target.currentTable();
+  if (!table || !editor::tableCells(target).valid()) return;
+  if (event.reason() != QContextMenuEvent::Keyboard) {
+    if (!document()->documentLayout()->frameBoundingRect(table).contains(
+            documentPoint(event.pos())))
+      return;
+    const auto selection = textCursor();
+    if (selection.hasSelection() && selection.currentTable() == table) {
+      const auto cells = editor::tableCells(selection);
+      const auto clicked = table->cellAt(target);
+      if (clicked.row() >= cells.row && clicked.row() < cells.row + cells.rows &&
+          clicked.column() >= cells.column && clicked.column() < cells.column + cells.columns)
+        target = selection;
+    }
+  }
+  const auto activate = [this, table, target] {
+    if (!table || target.document() != document() || target.currentTable() != table ||
+        isReadOnly() || !renderedEditingAvailable())
+      return false;
+    setTextCursor(target);
+    return true;
+  };
+  menu->addSeparator();
+  auto* tools = menu->addMenu(tr("Table"));
+  tools->setObjectName(QStringLiteral("tableToolsContextMenu"));
+  tools->setEnabled(!isReadOnly());
+  auto* resize = tools->addAction(tr("Resize Table"));
+  resize->setObjectName(QStringLiteral("tableContextResize"));
+  connect(resize, &QAction::triggered, this, [this, activate] {
+    if (activate()) promptResizeTable();
+  });
+  tools->addSeparator();
+  using Command = editor::TableCommand;
+  const auto add = [&](const char* name, const QString& label, Command command) {
+    auto* action = tools->addAction(label);
+    action->setObjectName(QString::fromLatin1(name));
+    action->setEnabled(editor::canEditTable(target, command));
+    connect(action, &QAction::triggered, this, [this, activate, command] {
+      if (activate()) changeTable(command);
+    });
+  };
+  add("tableContextInsertRowAbove", tr("Insert Row Above"), Command::RowAbove);
+  add("tableContextInsertRowBelow", tr("Insert Row Below"), Command::RowBelow);
+  add("tableContextDeleteRow", tr("Delete Row"), Command::DeleteRow);
+  add("tableContextMoveRowsUp", tr("Move Rows Up"), Command::MoveRowsUp);
+  add("tableContextMoveRowsDown", tr("Move Rows Down"), Command::MoveRowsDown);
+  tools->addSeparator();
+  add("tableContextInsertColumnLeft", tr("Insert Column Left"), Command::ColumnBefore);
+  add("tableContextInsertColumnRight", tr("Insert Column Right"), Command::ColumnAfter);
+  add("tableContextDeleteColumn", tr("Delete Column"), Command::DeleteColumn);
+  add("tableContextMoveColumnsLeft", tr("Move Columns Left"), Command::MoveColumnsLeft);
+  add("tableContextMoveColumnsRight", tr("Move Columns Right"), Command::MoveColumnsRight);
+  tools->addSeparator();
+  add("tableContextAlignLeft", tr("Align Left"), Command::AlignLeft);
+  add("tableContextAlignCenter", tr("Align Center"), Command::AlignCenter);
+  add("tableContextAlignRight", tr("Align Right"), Command::AlignRight);
+}
+
 void Editor::contextMenuEvent(QContextMenuEvent* event) {
   auto* menu = createStandardContextMenu();
   addImageFileActions(menu, *event);
@@ -1563,9 +1625,10 @@ void Editor::contextMenuEvent(QContextMenuEvent* event) {
     addFormat(tr("Copy without Theme Styling"), CopyFormat::WithoutTheme);
   }
   const auto cursor = cursorForPosition(event->pos());
-  const auto codeCursor = event->reason() == QContextMenuEvent::Keyboard ? textCursor() : cursor;
-  const auto code =
-      m_rendered && !m_paragraphSourceActive ? editor::codeRange(codeCursor) : editor::CodeRange();
+  const auto contextCursor = event->reason() == QContextMenuEvent::Keyboard ? textCursor() : cursor;
+  addTableActions(menu, *event, contextCursor);
+  const auto code = m_rendered && !m_paragraphSourceActive ? editor::codeRange(contextCursor)
+                                                           : editor::CodeRange();
   if (code.valid()) {
     menu->addSeparator();
     auto* tools = menu->addMenu(tr("Code Tools"));
@@ -1573,36 +1636,37 @@ void Editor::contextMenuEvent(QContextMenuEvent* event) {
     auto* select = tools->addAction(tr("Select Code Block"));
     select->setObjectName(QStringLiteral("codeContextSelect"));
     select->setEnabled(code.selection().hasSelection());
-    connect(select, &QAction::triggered, this, [this, codeCursor] {
-      if (!m_rendered || m_paragraphSourceActive || codeCursor.document() != document()) return;
-      const auto selection = editor::codeRange(codeCursor).selection();
+    connect(select, &QAction::triggered, this, [this, contextCursor] {
+      if (!m_rendered || m_paragraphSourceActive || contextCursor.document() != document()) return;
+      const auto selection = editor::codeRange(contextCursor).selection();
       if (!selection.hasSelection()) return;
       setTextCursor(selection);
       revealSelection();
     });
     auto* copy = tools->addAction(tr("Copy Code Block"));
     copy->setObjectName(QStringLiteral("codeContextCopy"));
-    connect(copy, &QAction::triggered, this, [this, codeCursor] { copyCodeBlock(codeCursor); });
+    connect(copy, &QAction::triggered, this,
+            [this, contextCursor] { copyCodeBlock(contextCursor); });
     auto* indent = tools->addAction(tr("Auto Indent Code"));
     indent->setObjectName(QStringLiteral("codeContextAutoIndent"));
     indent->setEnabled(!isReadOnly() && editor::supportsCodeAutoIndent(code.language()));
     const auto selection = textCursor();
     const auto indentCursor = selection.hasSelection() &&
-                                      codeCursor.position() >= selection.selectionStart() &&
-                                      codeCursor.position() < selection.selectionEnd() &&
+                                      contextCursor.position() >= selection.selectionStart() &&
+                                      contextCursor.position() < selection.selectionEnd() &&
                                       editor::isCodeSelection(selection)
                                   ? selection
-                                  : codeCursor;
+                                  : contextCursor;
     connect(indent, &QAction::triggered, this,
             [this, indentCursor] { autoIndentCode(indentCursor); });
     auto* exit = tools->addAction(tr("Exit Code Block"));
     exit->setObjectName(QStringLiteral("codeContextExit"));
     exit->setEnabled(!isReadOnly());
-    connect(exit, &QAction::triggered, this, [this, codeCursor] {
+    connect(exit, &QAction::triggered, this, [this, contextCursor] {
       if (!m_rendered || m_paragraphSourceActive || isReadOnly() ||
-          codeCursor.document() != document() || !editor::isCodeSelection(codeCursor))
+          contextCursor.document() != document() || !editor::isCodeSelection(contextCursor))
         return;
-      setTextCursor(codeCursor);
+      setTextCursor(contextCursor);
       exitCodeBlock();
     });
   }
@@ -2384,6 +2448,14 @@ void Editor::keyPressEvent(QKeyEvent* event) {
   if (m_markdownAutoPair && m_rendered && plain && !isReadOnly() && !code && !special &&
       handleMarkdownPair(event, cursor))
     return;
+  if (renderedEditingAvailable() && !isReadOnly() && cursor.currentTable() &&
+      event->modifiers() == Qt::AltModifier &&
+      (event->key() == Qt::Key_Up || event->key() == Qt::Key_Down)) {
+    const auto command = event->key() == Qt::Key_Up ? editor::TableCommand::MoveRowsUp
+                                                    : editor::TableCommand::MoveRowsDown;
+    changeTable(command);
+    return;
+  }
   if (m_rendered && cursor.currentTable() && control && returnKey &&
       !event->modifiers().testFlag(Qt::AltModifier)) {
     exitTable();
