@@ -35,6 +35,23 @@ timeline
         2026-11-19 : 发布新版 <br> 下载包
 ```
 
+`quadrantChart` 绘制四象限图。可用 `title` 添加标题、用 `x-axis` 和 `y-axis` 写轴的两端文字，也可只写低值端。象限编号从右上方起逆时针排列。用 `名称: [x, y]` 添加散点，两坐标均在 0 到 1 之间，最多 32 个点。省略散点时可用作空白矩阵。标注密集时，图内放不下的点名和坐标会列在图下。过长的标签会截短显示，源码保留完整内容。点样式、样式类及图表配置会保留为可编辑源码。 [Mermaid 四象限图语法](https://mermaid.js.org/syntax/quadrantChart.html)
+
+```mermaid
+quadrantChart
+    title 写作改进优先级
+    x-axis 低投入 --> 高投入
+    y-axis 低收益 --> 高收益
+    quadrant-1 规划后实施
+    quadrant-2 优先实施
+    quadrant-3 维持现状
+    quadrant-4 暂缓
+    模板整理: [0.23, 0.76]
+    移动端适配: [0.72, 0.68]
+    快捷键微调: [0.18, 0.27]
+    主题重绘: [0.74, 0.32]
+```
+
 `xychart` 和 `xychart-beta` 支持柱形图 `bar`、折线图 `line` 和组合图。在图表声明后加 `horizontal` 可以横向绘制。两条轴都可命名，X 轴可指定类别或数值范围，Y 轴可指定范围或由数据推算。柱形图自动推算时包含零点。带名称的系列显示在图例中。
 
 类别与数据按位置对应。图表最多支持 8 个系列，每个系列最多 32 个值。标签较密时会减少刻度标签，导出仍保留全部已绘制数据。 [Mermaid XY 图语法](https://mermaid.js.org/syntax/xyChart)
