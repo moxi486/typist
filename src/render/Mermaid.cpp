@@ -8,12 +8,13 @@
 #include <QSet>
 #include <QStringList>
 #include <QtMath>
+#include <cmath>
 
 namespace typist::render {
 namespace {
 const QString unsupported = QStringLiteral(
-    "This Mermaid syntax is not supported by the native renderer. Edit the source to use flowchart "
-    "or sequenceDiagram.");
+    "This Mermaid syntax is not supported by the native renderer. Edit the source to use "
+    "flowchart, sequenceDiagram or pie.");
 QFont diagramFont() {
   QFont f;
   f.setFamilies({"Arial", "Microsoft YaHei", "Noto Sans"});
@@ -32,6 +33,138 @@ QImage canvas(int width, int height, bool dark) {
   image.fill(dark ? QColor("#262b31") : QColor("#ffffff"));
   return image;
 }
+
+struct PieSlice {
+  QString legend;
+  double value;
+};
+
+RenderResult pieChart(const QStringList& lines, bool dark) {
+  static const QRegularExpression header(R"(^pie(?:\s+(showData))?(?:\s+title\s+(.+))?$)");
+  static const QRegularExpression titleLine(R"(^title\s+(.+)$)");
+  static const QRegularExpression sliceLine(
+      R"rx(^"([^"]+)"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?)\s*;?\s*(?:%%.*)?$)rx");
+  const auto options = header.match(lines.first().trimmed());
+  if (!options.hasMatch()) return {{}, unsupported};
+  const bool showData = options.capturedStart(1) >= 0;
+  QString title = options.captured(2);
+  QList<PieSlice> slices;
+  QSet<QString> names;
+  double total = 0;
+  for (qsizetype i = 1; i < lines.size(); ++i) {
+    const auto line = lines.at(i).trimmed();
+    if (line.isEmpty() || line.startsWith("%%")) continue;
+    const auto titleMatch = titleLine.match(line);
+    if (titleMatch.hasMatch() && title.isEmpty()) {
+      title = titleMatch.captured(1);
+      continue;
+    }
+    const auto slice = sliceLine.match(line);
+    if (!slice.hasMatch()) return {{}, QStringLiteral("Invalid pie chart syntax")};
+    const auto name = slice.captured(1);
+    const auto quantity = slice.captured(2);
+    bool ok;
+    const double value = quantity.toDouble(&ok);
+    if (!ok || !std::isfinite(value) || value < 0)
+      return {{}, QStringLiteral("Pie chart values must be finite and non-negative")};
+    if (names.contains(name)) continue;
+    names.insert(name);
+    slices.append({showData ? name + QStringLiteral(" [") + quantity + ']' : name, value});
+    total += value;
+    if (slices.size() > 64) return {{}, QStringLiteral("Pie chart exceeds 64 slices")};
+  }
+  if (!std::isfinite(total) || total <= 0)
+    return {{}, QStringLiteral("Pie chart requires a positive total")};
+
+  constexpr int maxWidth = 600, margin = 24, diameter = 232, swatch = 12;
+  constexpr int legendLeft = margin * 2 + diameter;
+  constexpr int legendTextLeft = legendLeft + swatch + 10;
+  constexpr int wrap = Qt::TextWordWrap | Qt::TextWrapAnywhere;
+  const auto font = diagramFont();
+  auto titleFont = font;
+  titleFont.setBold(true);
+  titleFont.setPointSizeF(15);
+  const QFontMetricsF metrics(font), titleMetrics(titleFont);
+  qreal legendTextWidth = 120;
+  for (const auto& slice : slices)
+    legendTextWidth = qMax(legendTextWidth, metrics.horizontalAdvance(slice.legend));
+  const int width =
+      qCeil(qMin(qreal(maxWidth), qMax(legendTextLeft + legendTextWidth + margin,
+                                       titleMetrics.horizontalAdvance(title) + margin * 2)));
+  const int legendWidth = width - margin - legendTextLeft;
+  const qreal titleHeight =
+      title.isEmpty()
+          ? 0
+          : titleMetrics.boundingRect(QRectF(0, 0, width - margin * 2, 0), wrap, title).height();
+  QList<qreal> heights;
+  qreal legendHeight = 0;
+  for (const auto& slice : slices) {
+    const qreal lineHeight =
+        metrics.boundingRect(QRectF(0, 0, legendWidth, 0), wrap, slice.legend).height();
+    heights.append(qMax(metrics.lineSpacing(), lineHeight) + 8);
+    legendHeight += heights.last();
+  }
+  const qreal contentTop = margin + (title.isEmpty() ? 0 : titleHeight + 16);
+  const qreal contentHeight = qMax(qreal(diameter), legendHeight);
+  const qreal height = contentTop + contentHeight + margin;
+  const qreal scale = qMin(1., 720. / height);
+  QImage image = canvas(qCeil(width * scale), qCeil(height * scale), dark);
+  QPainter painter(&image);
+  painter.setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing);
+  painter.scale(scale, scale);
+  const QColor foreground(dark ? "#e8edf5" : "#263449");
+  if (!title.isEmpty()) {
+    painter.setFont(titleFont);
+    painter.setPen(foreground);
+    painter.drawText(QRectF(margin, margin, width - margin * 2, titleHeight),
+                     Qt::AlignHCenter | wrap, title);
+  }
+
+  const QRectF circle(margin, contentTop + (contentHeight - diameter) / 2, diameter, diameter);
+  constexpr int top = 90 * 16, fullTurn = 360 * 16;
+  int start = top;
+  double cumulative = 0;
+  qreal legendY = contentTop + (contentHeight - legendHeight) / 2;
+  auto numberFont = font;
+  numberFont.setBold(true);
+  painter.setFont(font);
+  for (qsizetype i = 0; i < slices.size(); ++i) {
+    const auto& slice = slices.at(i);
+    const auto color = QColor::fromHsv((215 + int(i) * 137) % 360, 148, dark ? 223 : 210);
+    cumulative += slice.value;
+    const int end =
+        top - (i + 1 == slices.size() ? fullTurn : qRound(fullTurn * (cumulative / total)));
+    const int span = start - end;
+    if (span > 0) {
+      painter.setPen(Qt::NoPen);
+      painter.setBrush(color);
+      painter.drawPie(circle, start, -span);
+    }
+    const double share = slice.value / total;
+    if (share >= 0.10) {
+      const auto angle = qDegreesToRadians((start - span / 2.) / 16.);
+      const auto point = circle.center() + QPointF(std::cos(angle), -std::sin(angle)) * 72;
+      painter.setFont(numberFont);
+      painter.setPen(qGray(color.rgb()) > 140 ? QColor("#1c2432") : QColor("#ffffff"));
+      painter.drawText(QRectF(point.x() - 24, point.y() - 12, 48, 24), Qt::AlignCenter,
+                       QString::number(qRound(share * 100)) + '%');
+      painter.setFont(font);
+    }
+    start = end;
+
+    const qreal rowHeight = heights.at(i);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(color);
+    painter.drawRoundedRect(
+        QRectF(legendLeft, legendY + (metrics.height() - swatch) / 2, swatch, swatch), 2, 2);
+    painter.setPen(foreground);
+    painter.drawText(QRectF(legendTextLeft, legendY, legendWidth, rowHeight - 8),
+                     Qt::AlignTop | wrap, slice.legend);
+    legendY += rowHeight;
+  }
+  return {image, {}};
+}
+
 void arrow(QPainter& painter, QPointF a, QPointF b, bool dashed = false, bool head = true) {
   auto pen = painter.pen();
   pen.setWidthF(1.6);
@@ -336,10 +469,11 @@ RenderResult mermaid(const QString& source, bool dark) {
          (lines.first().trimmed().isEmpty() || lines.first().trimmed().startsWith("%%")))
     lines.removeFirst();
   if (lines.isEmpty()) return {{}, unsupported};
-  if (lines.first().trimmed() == "sequenceDiagram") return sequence(lines, dark);
-  if (lines.first().trimmed().startsWith("graph ") ||
-      lines.first().trimmed().startsWith("flowchart "))
-    return flowchart(lines, dark);
+  const auto header = lines.first().trimmed();
+  if (header == "sequenceDiagram") return sequence(lines, dark);
+  if (header.startsWith("graph ") || header.startsWith("flowchart ")) return flowchart(lines, dark);
+  if (header.startsWith("pie") && (header.size() == 3 || header.at(3).isSpace()))
+    return pieChart(lines, dark);
   return {{}, unsupported};
 }
 }  // namespace typist::render

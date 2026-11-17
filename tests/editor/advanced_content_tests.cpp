@@ -198,6 +198,105 @@ class AdvancedContentTests : public QObject {
     QVERIFY(editor::loadMarkdown(unsupported, &document, nullptr));
     QVERIFY(same(unsupported, editor::serializeDocument(&document)));
   }
+  void pieChartsRenderProportionalSlicesAndLegends() {
+    const auto data = QStringLiteral(
+        "\"起草: 初稿\" : 45\n\"核对\" : 22.5; %% review\n\"修订\" : 22.5\n\"其他\" : 0\n");
+    const auto light = render::mermaid(QStringLiteral("pie\n") + data);
+    const auto dark = render::mermaid(QStringLiteral("pie\n") + data, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.devicePixelRatio(), 2.);
+    const auto sample = [&](int x, int y) { return light.image.pixelColor(x * 2, y * 2); };
+    const auto rightSlice = sample(201, 75);
+    QCOMPARE(rightSlice, sample(201, 205));
+    QVERIFY(rightSlice != sample(62, 205) && rightSlice != sample(62, 75));
+    QVERIFY(sample(62, 205) != sample(62, 75));
+    QVERIFY(rightSlice != sample(5, 5));
+    QVERIFY(light.image.pixelColor(10, 10) != dark.image.pixelColor(10, 10));
+
+    const auto titled = render::mermaid(QStringLiteral("%% Workday\r\npie showData\r\n"
+                                                       "title 写作时间（分钟）\r\n") +
+                                        data);
+    const auto sameTitle =
+        render::mermaid(QStringLiteral("pie showData title 写作时间（分钟）\n") + data);
+    const auto noValues = render::mermaid(QStringLiteral("pie title 写作时间（分钟）\n") + data);
+    QVERIFY2(!titled.image.isNull(), qPrintable(titled.error));
+    QCOMPARE(titled.image, sameTitle.image);
+    QVERIFY(titled.image.height() > light.image.height());
+    QVERIFY(!noValues.image.isNull() && noValues.image != titled.image);
+    const auto duplicate =
+        render::mermaid(QStringLiteral("pie\n") + data + QStringLiteral("\"修订\" : 99\n"));
+    QCOMPARE(duplicate.image, light.image);
+    const auto longLabel =
+        render::mermaid(QStringLiteral("pie\n\"") + QStringLiteral("长标签").repeated(450) +
+                        QStringLiteral("\" : 1\n"));
+    QVERIFY(!longLabel.image.isNull() && longLabel.image.height() <= 1440);
+    for (const auto& source :
+         {QStringLiteral("pie\n\"zero\" : 0"), QStringLiteral("pie\n\"negative\" : -1"),
+          QStringLiteral("pie\n\"broken\" : 2.3.4"), QStringLiteral("pie\n\"missing\" 2"),
+          QStringLiteral("pie showData")}) {
+      const auto invalid = render::mermaid(source);
+      QVERIFY(invalid.image.isNull() && !invalid.error.isEmpty());
+    }
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(titled.image.save(retained + "/pie-light.png"));
+      QVERIFY(render::mermaid(QStringLiteral("pie showData title 写作时间（分钟）\n") + data, true)
+                  .image.save(retained + "/pie-dark.png"));
+    }
+  }
+
+  void pieChartsKeepTheSourceAndEmbedThePictureInExports() {
+    const auto malformed = QStringLiteral("```mermaid\npie\n  \"Bad\" : -1\n```\n");
+    const auto diagram = QStringLiteral(
+        "pie showData title Writing time\n  \"Draft\" : 45\n"
+        "  \"Review\" : 22.5\n  \"Revise\" : 22.5\n");
+    const auto source = QStringLiteral("```mermaid\n") + diagram + QStringLiteral("```\n");
+    QTextDocument document;
+    QVERIFY(editor::loadMarkdown(malformed, &document, nullptr));
+    QVERIFY(same(malformed, editor::serializeDocument(&document)));
+    QVERIFY(!document.toPlainText().contains(QChar::ObjectReplacementCharacter));
+    QVERIFY(editor::loadMarkdown(source, &document, nullptr));
+    const auto serialized = editor::serializeDocument(&document);
+    QVERIFY2(same(source, serialized), qPrintable(serialized));
+    QVERIFY(serialized.contains(diagram));
+    bool found = false;
+    for (auto block = document.begin(); block.isValid(); block = block.next())
+      for (auto it = block.begin(); !it.atEnd(); ++it) {
+        const auto format = it.fragment().charFormat();
+        if (!format.isImageFormat()) continue;
+        QCOMPARE(format.property(editor::kSpecialSourceProperty).toString(), diagram);
+        const auto image =
+            document.resource(QTextDocument::ImageResource, QUrl(format.toImageFormat().name()))
+                .value<QImage>();
+        QVERIFY(!image.isNull());
+        found = true;
+      }
+    QVERIFY(found);
+    QVERIFY(render::html(source).contains(QStringLiteral("data:image/png;base64,")));
+
+    QTemporaryDir out;
+    QVERIFY(out.isValid());
+    QString error;
+    QFile pdf(out.filePath(QStringLiteral("pie.pdf")));
+    QVERIFY2(platform::exportPdf(pdf.fileName(), &document, &error), qPrintable(error));
+    QVERIFY(pdf.open(QIODevice::ReadOnly));
+    QVERIFY(pdf.readAll().contains("/Subtype /Image"));
+    QFile docx(out.filePath(QStringLiteral("pie.docx")));
+    QVERIFY2(platform::exportDocx(docx.fileName(), source, &error), qPrintable(error));
+    QVERIFY(docx.open(QIODevice::ReadOnly));
+    const auto word = unzip(docx.readAll());
+    QVERIFY(word.value("word/document.xml").contains("w:drawing"));
+    QVERIFY(!QImage::fromData(word.value("word/media/image1.png")).isNull());
+    QFile epub(out.filePath(QStringLiteral("pie.epub")));
+    platform::EpubOptions options;
+    options.title = QStringLiteral("Writing time");
+    QVERIFY2(platform::exportEpub(epub.fileName(), source, options, &error), qPrintable(error));
+    QVERIFY(epub.open(QIODevice::ReadOnly));
+    const auto book = unzip(epub.readAll());
+    QVERIFY(!QImage::fromData(book.value("OEBPS/images/image1.png")).isNull());
+  }
+
   void viewSwitchThemePasteAndUndo() {
     ui::ViewSwitch view;
     ui::Editor edit;
