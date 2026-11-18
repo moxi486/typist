@@ -12,6 +12,7 @@
 #include <QDir>
 #include <QFile>
 #include <QPlainTextEdit>
+#include <QRegularExpression>
 #include <QTemporaryDir>
 #include <QTextDocumentFragment>
 #include <QXmlStreamReader>
@@ -1756,6 +1757,109 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void sequenceNumberingSupportsStartsStepsAndVisibility() {
+    const auto prefix = QStringLiteral(
+        "sequenceDiagram\n box transparent 写作端\n actor A as 作者\n participant B as 编辑器\n "
+        "end\n");
+    const auto messages = QStringLiteral(
+        " A->>B: First\n Note over A,B: Observe\n loop Reply\n B-->>A: Second\n end\n"
+        " A-)+B: Third\n deactivate B\n");
+    const QStringList labels = {"First", "Second", "Third"};
+    const QList<QPair<QString, QStringList>> samples = {
+        {"autonumber", {"1", "2", "3"}},
+        {"autonumber 7", {"7", "8", "9"}},
+        {"autonumber 10 5", {"10", "15", "20"}},
+        {"autonumber .1 .2", {"0.1", "0.3", "0.5"}},
+        {"autonumber 1.20 .05", {"1.2", "1.25", "1.3"}},
+        {"autonumber 0 .01", {"0", "0.01", "0.02"}},
+        {"autonumber .99 .01", {"0.99", "1", "1.01"}},
+        {"autonumber 2 0", {"2", "2", "2"}},
+        {"autonumber 0 0", {"0", "0", "0"}},
+        {"autonumber 0001.20 0002.30", {"1.2", "3.5", "5.8"}},
+        {"autonumber 999999999.99 999999999.99",
+         {"999999999.99", "1999999999.98", "2999999999.97"}},
+    };
+    for (const auto& sample : samples) {
+      auto explicitMessages = messages;
+      for (int i = 0; i < labels.size(); ++i)
+        explicitMessages.replace(": " + labels.at(i) + '\n',
+                                 ": " + sample.second.at(i) + ". " + labels.at(i) + '\n');
+      for (bool dark : {false, true}) {
+        const auto result = render::mermaid(prefix + sample.first + '\n' + messages, dark);
+        QVERIFY2(!result.image.isNull(), qPrintable(sample.first));
+        QCOMPARE(result.image, render::mermaid(prefix + explicitMessages, dark).image);
+      }
+    }
+    const auto source =
+        prefix +
+        QStringLiteral(
+            " A->>B: Before\n autonumber 10 .25\n A->>+B: Begin\n"
+            " Note right of B: Observe\n rect rgba(80,160,240,.12)\n critical Save\n"
+            " B->>B: Check\n autonumber off\n B-->>A: Hidden\n autonumber\n B-->>-A: Resume\n"
+            " end\n end\n autonumber 3\n create participant Worker\n A-)Worker: Created\n"
+            " Worker-->>A: Running\n autonumber 0 .5\n destroy Worker\n Worker--xA: Finished\n"
+            " autonumber off\n A->>B: Hidden again\n autonumber\n B-->>A: Last\n");
+    auto explicitSource = source;
+    explicitSource.remove(QRegularExpression(R"((?m)^[ \t]*autonumber[^\n]*\n)"));
+    const QList<QPair<QString, QString>> expected = {
+        {"Begin", "10"},  {"Check", "10.25"}, {"Resume", "10.75"}, {"Created", "3"},
+        {"Running", "4"}, {"Finished", "0"},  {"Last", "1"},
+    };
+    for (const auto& entry : expected)
+      explicitSource.replace(": " + entry.first + '\n',
+                             ": " + entry.second + ". " + entry.first + '\n');
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image, render::mermaid(explicitSource).image);
+    QCOMPARE(dark.image, render::mermaid(explicitSource, true).image);
+    QVERIFY(light.image != dark.image);
+    QCOMPARE(render::mermaid("sequenceDiagram\nA->>B: Before\nautonumber\nB->>A: After\n").image,
+             render::mermaid("sequenceDiagram\nA->>B: Before\nB->>A: 2. After\n").image);
+    for (const auto& invalid : {
+             QStringLiteral("autonumber -1"),
+             QStringLiteral("autonumber +1"),
+             QStringLiteral("autonumber 1 -2"),
+             QStringLiteral("autonumber 1.001"),
+             QStringLiteral("autonumber 1 .001"),
+             QStringLiteral("autonumber 1."),
+             QStringLiteral("autonumber 1e3"),
+             QStringLiteral("autonumber NaN"),
+             QStringLiteral("autonumber 1,25"),
+             QStringLiteral("autonumber 1000000000"),
+             QStringLiteral("autonumber 1 1000000000"),
+             QStringLiteral("autonumber 1 2 3"),
+             QStringLiteral("autonumber off 2"),
+             QStringLiteral("autonumber on"),
+             QStringLiteral("box Team\nautonumber 3\nparticipant C\nend"),
+             QStringLiteral("create participant C\nautonumber 3\nA->>C: Create"),
+         }) {
+      const auto result = render::mermaid(prefix + invalid + "\nA->>B: Work\n");
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const auto markdown = QStringLiteral("```mermaid\n") + source + "```\n";
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/numbering-light.png"));
+      QVERIFY(dark.image.save(retained + "/numbering-dark.png"));
+      const auto large = prefix + samples.last().first + '\n' + messages;
+      QVERIFY(render::mermaid(large).image.save(retained + "/numbering-large.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -1865,6 +1969,12 @@ class AdvancedContentTests : public QObject {
                " participant B\n end\n box transparent Storage\n participant Disk\n end\n"
                " A->>+B: Save\n critical Write\n B->>Disk: Write\n end\n B-->>-A: Done\n")
         << QStringLiteral("sequenceDiagram\n box Empty\n end\n A->>B: Work\n");
+    QTest::newRow("sequence-numbering")
+        << QStringLiteral(
+               "sequenceDiagram\n autonumber 1.25 .25\n actor A\n participant B\n"
+               " A->>+B: Write\n Note over A,B: Keep source\n autonumber off\n"
+               " B->>B: Check\n autonumber\n B-->>-A: Saved\n")
+        << QStringLiteral("sequenceDiagram\n autonumber 1 .001\n A->>B: Work\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {
