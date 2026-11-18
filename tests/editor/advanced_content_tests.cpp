@@ -1094,6 +1094,10 @@ class AdvancedContentTests : public QObject {
                             QStringLiteral("activate A\n").repeated(9) + "A->>A: Work\n")
                 .image.isNull());
     const auto interval = QStringLiteral("activate A\ndeactivate A\n");
+    QVERIFY(matchingPixels(render::mermaid(QStringLiteral("sequenceDiagram\n participant A\n") +
+                                           interval + "A->>A: Continue\n")
+                               .image,
+                           QColor("#d8e7ff")) > 0);
     QVERIFY(!render::mermaid(QStringLiteral("sequenceDiagram\n") + interval.repeated(64))
                  .image.isNull());
     QVERIFY(render::mermaid(QStringLiteral("sequenceDiagram\n") + interval.repeated(65))
@@ -1113,6 +1117,88 @@ class AdvancedContentTests : public QObject {
     if (!retained.isEmpty()) {
       QVERIFY(light.image.save(retained + "/activation-light.png"));
       QVERIFY(dark.image.save(retained + "/activation-dark.png"));
+    }
+  }
+
+  void sequenceLifecyclesStartAndStopAtMessages() {
+    const QString source = QStringLiteral(
+        "sequenceDiagram\n participant App as 编辑器\n actor User as 作者\n autonumber\n"
+        " User->>App: 打开文档\n create participant Task as 保存任务<br>Worker\n"
+        " App->>+Task: 创建任务\n loop 校验\n Task->>+Task: 递归检查\n"
+        " Task-->>-Task: 检查完成\n end\n create actor Reviewer as 审核员\n"
+        " Task->>Reviewer: 请求复核\n Reviewer-->>Task: 已通过\n"
+        " destroy Task\n Task-->>-App: 保存成功\n destroy Reviewer\n"
+        " App--xReviewer: 结束审核\n App-->>User: 完成\n");
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+
+    const QString simple = QStringLiteral(
+        "sequenceDiagram\n participant A\n A->>A: Before\n create participant B\n"
+        " A->>B: Create\n B->>A: Reply\n destroy B\n A-xB: Destroy\n A->>A: After\n");
+    const auto lifecycle = render::mermaid(simple).image;
+    auto permanent = simple;
+    permanent.replace("create participant B", "participant B").remove("destroy B\n");
+    const auto normal = render::mermaid(permanent).image;
+    QVERIFY(!lifecycle.isNull() && !normal.isNull());
+    const auto inkInColumn = [](const QImage& image, int start, int end) {
+      int count = 0;
+      const auto background = image.pixelColor(5, 5);
+      const auto ratio = image.devicePixelRatio();
+      for (int y = qRound(start * ratio); y < qRound(end * ratio); ++y)
+        for (int x = qRound(356 * ratio); x <= qRound(358 * ratio); ++x)
+          count += image.pixelColor(x, y) != background;
+      return count;
+    };
+    QCOMPARE(inkInColumn(lifecycle, 18, 100), 0);
+    QVERIFY(inkInColumn(normal, 18, 100) > 30);
+    const int lifeHeight = qRound(lifecycle.height() / lifecycle.devicePixelRatio()),
+              normalHeight = qRound(normal.height() / normal.devicePixelRatio());
+    QCOMPARE(inkInColumn(lifecycle, lifeHeight - 45, lifeHeight - 20), 0);
+    QVERIFY(inkInColumn(normal, normalHeight - 45, normalHeight - 20) > 10);
+    QVERIFY(!render::mermaid(QStringLiteral("sequenceDiagram\n participant B\n"
+                                            "create participant B as Worker\n A->>B: Create\n"
+                                            "destroy B\n B->>B: Finish\n"))
+                 .image.isNull());
+    const auto active = render::mermaid(
+        QStringLiteral("sequenceDiagram\n A->>+B: Start\n activate B\n destroy B\n A-xB: Stop\n"
+                       " A->>A: After\n"));
+    QVERIFY(!active.image.isNull());
+    const auto ratio = active.image.devicePixelRatio();
+    for (int y = active.image.height() - qRound(45 * ratio); y < active.image.height(); ++y)
+      for (int x = qRound(350 * ratio); x <= qRound(370 * ratio); ++x)
+        QVERIFY(active.image.pixelColor(x, y) != QColor("#d8e7ff"));
+    const auto solid = render::mermaid(QStringLiteral("sequenceDiagram\n A-xB: Lost\n B->>A: OK"));
+    const auto dashed =
+        render::mermaid(QStringLiteral("sequenceDiagram\n A--xB: Lost\n B->>A: OK"));
+    QVERIFY(!solid.image.isNull() && !dashed.image.isNull());
+    QCOMPARE(solid.image.size(), dashed.image.size());
+    QVERIFY(solid.image != dashed.image);
+    for (const auto& invalid : {
+             QStringLiteral("create participant B"),
+             QStringLiteral("create actor B\n B->>A: Wrong sender"),
+             QStringLiteral("create participant B\n B->>B: Self creation"),
+             QStringLiteral("A->>B: Used\n create participant B\n A->>B: Duplicate"),
+             QStringLiteral("create participant B\n Note over B: Before creation\n A->>B: Create"),
+             QStringLiteral("destroy B\n A->>B: Unknown"),
+             QStringLiteral("participant B\n destroy B"),
+             QStringLiteral("participant B\n destroy B\n A->>C: Unrelated"),
+             QStringLiteral("A->>B: Hi\n destroy B\n A-xB: Bye\n B->>A: Late"),
+             QStringLiteral("A->>B: Hi\n destroy B\n A-xB: Bye\n A->>B: Late"),
+             QStringLiteral("A->>B: Hi\n destroy B\n A-xB: Bye\n Note over B: Late"),
+             QStringLiteral("A->>B: Hi\n destroy B\n A-xB: Bye\n activate B"),
+             QStringLiteral("A->>B: Hi\n destroy B\n A-xB: Bye\n participant B"),
+             QStringLiteral("A->>B: Hi\n destroy B\n A-xB: Bye\n destroy B\n A-xB: Again"),
+         }) {
+      const auto result = render::mermaid(QStringLiteral("sequenceDiagram\n") + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/lifecycle-light.png"));
+      QVERIFY(dark.image.save(retained + "/lifecycle-dark.png"));
     }
   }
 
@@ -1184,6 +1270,14 @@ class AdvancedContentTests : public QObject {
                                        " Editor-->>-Editor: Valid\n end\n"
                                        " Editor-->>-Author: Saved\n")
                                 << QStringLiteral("sequenceDiagram\n A->>B: Call\n deactivate B\n");
+    QTest::newRow("lifecycle")
+        << QStringLiteral(
+               "sequenceDiagram\n actor Author\n participant Editor\n"
+               " Author->>Editor: Save\n create participant Task as Worker\n"
+               " Editor->>+Task: Create\n create actor Reviewer\n"
+               " Task->>Reviewer: Review\n destroy Task\n"
+               " Task-->>-Editor: Done\n destroy Reviewer\n Editor-xReviewer: Stop\n")
+        << QStringLiteral("sequenceDiagram\n create actor B\n B->>A: Wrong\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {

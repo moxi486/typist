@@ -15,7 +15,7 @@ flowchart LR
 
 `sequenceDiagram` 支持 `participant` 参与者、`actor` 人物符号、显示别名、实线和虚线消息、自调用、`autonumber` 以及 `Note over` 注释。可用 `alt / else` 表示条件分支、`opt` 表示可选操作、`loop` 表示循环、`par / and` 表示并行操作，每个片段以 `end` 结束。片段可嵌套，编号会延续到各分支内的消息。
 
-标签可用 `<br>` 换行，排版会为消息和注释留出空间。长标签最多显示四行，完整内容保留在源码。支持最多 8 个参与者、60 条消息或注释、24 个控制片段与 6 层嵌套。创建和销毁参与者、其他控制指令与配置保留为可编辑源码。 [Mermaid 时序图语法](https://mermaid.js.org/syntax/sequenceDiagram.html)
+标签可用 `<br>` 换行，排版会为消息和注释留出空间。长标签最多显示四行，完整内容保留在源码。支持最多 8 个参与者、60 条消息或注释、24 个控制片段与 6 层嵌套。其他控制指令与配置保留为可编辑源码。 [Mermaid 时序图语法](https://mermaid.js.org/syntax/sequenceDiagram.html)
 
 ```mermaid
 sequenceDiagram
@@ -57,6 +57,28 @@ sequenceDiagram
     Editor->>+Disk: 写入正文
     Disk-->>-Editor: 写入完成
     Editor-->>-User: 保存完成
+```
+
+用 `create participant 名称` 或 `create actor 名称 as 别名` 创建参与者，其后的消息必须发给新参与者。创建消息连接新出现的标题，生命线从标题下方开始。用 `destroy 名称` 标记下一条发送或接收消息为销毁消息，在消息处绘制叉号并结束生命线，同时收回仍未关闭的激活条。`-x` 和 `--x` 分别表示实线和虚线叉号消息；单独使用叉号消息不会销毁参与者。 [Mermaid 创建与销毁语法](https://mermaid.js.org/syntax/sequenceDiagram.html#actor-creation-and-destruction-v1030)
+
+每个标识符只支持一个生命周期。创建前可声明显示顺序，但不能已参与消息、注释或激活。创建或销毁指令与关联消息之间仅允许空行和注释；重复创建、未关联消息、销毁后继续引用等情况会保留为可编辑源码。
+
+```mermaid
+sequenceDiagram
+    participant Editor as 编辑器
+    actor User as 作者
+    User->>Editor: 保存文档
+    create participant Task as 保存任务
+    Editor->>+Task: 创建任务
+    Task->>Task: 写入 Markdown
+    create actor Reviewer as 审核员
+    Task->>Reviewer: 请求复核
+    Reviewer-->>Task: 已通过
+    destroy Task
+    Task-->>-Editor: 保存完成
+    destroy Reviewer
+    Editor--xReviewer: 结束审核
+    Editor-->>User: 已保存
 ```
 
 `pie` 绘制饼图。用双引号包围名称，每行写一个数值。扇区按源码顺序顺时针排列，图例可通过 `showData` 显示数值。标题可写在 `pie` 同一行或单独一行。支持整数和小数，最多 64 项，并要求总值大于零。零值留在图例中。 [Mermaid 饼图语法](https://mermaid.js.org/syntax/pie.html)
