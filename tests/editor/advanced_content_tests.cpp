@@ -1202,6 +1202,128 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void sequenceNotesRespectPlacementAndCanvasEdges() {
+    const QString source = QStringLiteral(
+        "sequenceDiagram\n actor User as 作者\n participant Editor as 编辑器\n autonumber\n"
+        " Note left of User: 先整理思路<br>再开始写作\n User->>+Editor: 保存文档\n"
+        " loop 核对\n Note left of Editor: 保留原文\n Note right of Editor: 检查格式\n end\n"
+        " create participant Task as 保存任务\n Editor->>+Task: 写入正文\n"
+        " Note right of Task: 正在保存<br>请稍候\n destroy Task\n Task-->>-Editor: 已保存\n"
+        " Note over Editor,User: 内容完整\n Editor-->>-User: 完成\n");
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const auto boxes = [](const QImage& image) {
+      QList<QRect> result;
+      QRect current;
+      for (int y = 0; y < image.height(); ++y) {
+        int first = -1, last = -1;
+        for (int x = 0; x < image.width(); ++x) {
+          if (image.pixelColor(x, y) != QColor("#fff5d0")) continue;
+          if (first < 0) first = x;
+          last = x;
+        }
+        if (first >= 0)
+          current = current.united(QRect(first, y, last - first + 1, 1));
+        else if (!current.isNull()) {
+          result.append(current);
+          current = {};
+        }
+      }
+      if (!current.isNull()) result.append(current);
+      return result;
+    };
+    const auto headerCenters = [](const QImage& image) {
+      QList<int> centers;
+      int first = -1;
+      const int y = qRound(21 * image.devicePixelRatio());
+      for (int x = 0; x <= image.width(); ++x) {
+        const bool panel = x < image.width() && image.pixelColor(x, y) == QColor("#edf3fc");
+        if (panel && first < 0) first = x;
+        if (!panel && first >= 0) {
+          centers.append((first + x - 1) / 2);
+          first = -1;
+        }
+      }
+      return centers;
+    };
+    const QString simple = QStringLiteral(
+        "sequenceDiagram\n participant A\n participant B\n Note left of A: Left\n"
+        " Note right of B: Right\n Note over B,A: Shared\n");
+    const auto image = render::mermaid(simple).image;
+    const auto notes = boxes(image);
+    const auto centers = headerCenters(image);
+    QCOMPARE(notes.size(), 3);
+    QCOMPARE(centers.size(), 2);
+    QVERIFY(notes[0].right() < centers[0]);
+    QVERIFY(notes[1].left() > centers[1]);
+    QVERIFY(notes[2].left() < centers[0] && notes[2].right() > centers[1]);
+    for (const auto& rect : notes) QVERIFY(rect.left() >= 16 && rect.right() < image.width() - 16);
+    auto reversed = simple;
+    reversed.replace("over B,A", "over A,B");
+    QCOMPARE(image, render::mermaid(reversed).image);
+    auto variedCase = simple;
+    variedCase.replace("Note left of", "nOtE LEFT   OF").replace("Note right of", "note RIGHT of");
+    QCOMPARE(image, render::mermaid(variedCase).image);
+    const auto active =
+        render::mermaid(QStringLiteral("sequenceDiagram\n participant A\n participant B\n") +
+                        QStringLiteral("activate A\n").repeated(8) +
+                        "Note right of A: Active\nNote left of B: Waiting\n");
+    const auto activeNotes = boxes(active.image);
+    const auto activeCenters = headerCenters(active.image);
+    QCOMPARE(activeNotes.size(), 2);
+    QCOMPARE(activeCenters.size(), 2);
+    for (const auto& rect : activeNotes)
+      QVERIFY(rect.left() > activeCenters[0] && rect.right() < activeCenters[1]);
+    const auto single = render::mermaid(QStringLiteral(
+        "sequenceDiagram\n Note left of A: L\n Note right of A: R\n Note over A: Center\n"));
+    const auto singleNotes = boxes(single.image);
+    const auto singleCenters = headerCenters(single.image);
+    QCOMPARE(singleNotes.size(), 3);
+    QCOMPARE(singleCenters.size(), 1);
+    QVERIFY(qAbs(singleNotes[2].center().x() - singleCenters[0]) <= 2);
+    for (const auto& rect : boxes(single.image))
+      QVERIFY(rect.left() >= 16 && rect.right() < single.image.width() - 16);
+    const auto note = QStringLiteral("Note right of A: Details\n");
+    QVERIFY(
+        !render::mermaid(QStringLiteral("sequenceDiagram\n") + note.repeated(60)).image.isNull());
+    QVERIFY(
+        render::mermaid(QStringLiteral("sequenceDiagram\n") + note.repeated(61)).image.isNull());
+    for (const auto& invalid : {
+             QStringLiteral("Note left of A,B: Two actors"),
+             QStringLiteral("Note right of A,B: Two actors"),
+             QStringLiteral("Note right A: Missing of"),
+             QStringLiteral("Note below A: Unknown position"),
+             QStringLiteral("Note left of A Missing colon"),
+             QStringLiteral("A->>B: Start\n destroy B\n A-xB: Stop\n Note right of B: Late"),
+         }) {
+      const auto result = render::mermaid(QStringLiteral("sequenceDiagram\n") + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const auto markdown = QStringLiteral("```mermaid\n") + source + "```\n";
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/notes-light.png"));
+      QVERIFY(dark.image.save(retained + "/notes-dark.png"));
+      QVERIFY(active.image.save(retained + "/notes-activations.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -1278,6 +1400,12 @@ class AdvancedContentTests : public QObject {
                " Task->>Reviewer: Review\n destroy Task\n"
                " Task-->>-Editor: Done\n destroy Reviewer\n Editor-xReviewer: Stop\n")
         << QStringLiteral("sequenceDiagram\n create actor B\n B->>A: Wrong\n");
+    QTest::newRow("sequence-note")
+        << QStringLiteral(
+               "sequenceDiagram\n participant A\n participant B\n"
+               " Note left of A: Prepare<br>the document\n A->>+B: Save\n"
+               " Note right of B: Writing\n Note over B,A: Keep the source\n B-->>-A: Done\n")
+        << QStringLiteral("sequenceDiagram\n Note right of A,B: Invalid\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {

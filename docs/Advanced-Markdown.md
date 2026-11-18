@@ -41,6 +41,22 @@ sequenceDiagram
     end
 ```
 
+`Note left of 名称` 和 `Note right of 名称` 把注释放在单个参与者左侧或右侧；`Note over 名称` 沿参与者生命线居中，`Note over A,B` 跨越两位参与者，交换顺序不影响位置。关键字不区分大小写，内容可用 `<br>` 换行。旁注会为激活条、相邻生命线和画布边缘留出空间。侧向注释仅支持一个参与者，多个参与者请用 `over`；无效位置或销毁后的引用保留为可编辑源码。 [Mermaid 注释语法](https://mermaid.js.org/syntax/sequenceDiagram.html#notes)
+
+```mermaid
+sequenceDiagram
+    actor User as 作者
+    participant Editor as 编辑器
+    Note left of User: 先整理思路<br>再开始写作
+    User->>+Editor: 保存文档
+    loop 逐项核对
+        Note left of Editor: 保留 Markdown 原文
+        Note right of Editor: 检查格式与引用
+    end
+    Note over Editor,User: 内容完整
+    Editor-->>-User: 已保存
+```
+
 时序图可用 `activate 名称` 和 `deactivate 名称` 显示参与者的执行区间。消息箭头后的 `+` 激活接收方，`-` 停用发送方。激活同一参与者时会叠加激活条，停用时按后进先出的顺序收回；未结束的激活条会延伸到图底部。支持最多 64 段激活、每位参与者最多 8 层。停用未激活参与者的图表会保留为可编辑源码。 [Mermaid 激活条语法](https://mermaid.js.org/syntax/sequenceDiagram.html#activations)
 
 ```mermaid
