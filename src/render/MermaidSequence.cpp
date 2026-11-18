@@ -19,6 +19,7 @@ constexpr qreal sideNoteWidth = 170, sideNoteGap = 18;
 struct Participant {
   QString name;
   bool actor = false;
+  int group = -1;
   bool used = false, created = false, destroyed = false;
   qreal headTop = 18, lineTop = 0, lineBottom = 0;
 };
@@ -49,11 +50,20 @@ struct Activation {
   qreal top = 0, bottom = 0;
 };
 
+struct Group {
+  QString title;
+  QColor color = QColor(0, 0, 0, 0);
+  int first = -1, last = -1;
+  QRectF rect;
+  QStringList titleLines;
+};
+
 struct Sequence {
   QList<Participant> participants;
   QList<Event> events;
   QList<Frame> frames;
   QList<Activation> activations;
+  QList<Group> groups;
 };
 
 QColor highlightColor(const QString& text) {
@@ -75,10 +85,37 @@ QColor highlightColor(const QString& text) {
   return result;
 }
 
+bool parseGroupHeader(const QString& text, Group& group) {
+  static const QRegularExpression functional(R"(^((?:rgb|rgba)\([^)]*\))(?:\s+(.*))?$)",
+                                             QRegularExpression::CaseInsensitiveOption);
+  const auto match = functional.match(text);
+  if (match.hasMatch()) {
+    group.color = highlightColor(match.captured(1));
+    group.title = label(match.captured(2));
+    return group.color.isValid();
+  }
+  if (text.startsWith('#') || text.startsWith("rgb(", Qt::CaseInsensitive) ||
+      text.startsWith("rgba(", Qt::CaseInsensitive) ||
+      text.startsWith("hsl(", Qt::CaseInsensitive) || text.startsWith("hsla(", Qt::CaseInsensitive))
+    return false;
+  const auto separator = text.indexOf(QRegularExpression(R"(\s)"));
+  const auto token = separator < 0 ? text : text.left(separator);
+  static const QStringList names = QColor::colorNames();
+  if (token.compare("transparent", Qt::CaseInsensitive) == 0 ||
+      names.contains(token, Qt::CaseInsensitive)) {
+    group.color = QColor(token);
+    group.title = separator < 0 ? QString() : label(text.mid(separator + 1));
+  } else {
+    group.title = label(text);
+  }
+  return true;
+}
+
 bool parseSequence(const QStringList& lines, Sequence& sequence) {
   static const QString id = QStringLiteral(R"([\p{L}\p{N}_]+)");
   static const QRegularExpression declaration(
       QStringLiteral(R"(^(participant|actor)\s+(%1)(?:\s+as\s+(.+))?$)").arg(id));
+  static const QRegularExpression box(R"(^box(?:\s+(.*))?$)");
   static const QRegularExpression message(
       QStringLiteral(
           R"(^(%1)\s*(<<-->>|<<->>|-->>|->>|-->|->|--x|-x|--\)|-\))\s*([+-])?\s*(%1)\s*:\s*(.*)$)")
@@ -99,6 +136,7 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
   QList<QList<int>> active;
   int count = 0, number = 0;
   int pendingCreate = -1, pendingDestroy = -1;
+  int activeGroup = -1;
   bool numbered = false;
   const auto participant = [&](const QString& token) {
     const auto found = ids.constFind(token);
@@ -136,7 +174,19 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
     if (line.isEmpty() || line.startsWith("%%")) continue;
     const auto m = message.match(line);
     if ((pendingCreate >= 0 || pendingDestroy >= 0) && !m.hasMatch()) return false;
-    if (line == "autonumber") {
+    if (activeGroup >= 0 && line == "end") {
+      if (sequence.groups.at(activeGroup).first < 0) return false;
+      activeGroup = -1;
+      continue;
+    }
+    if (activeGroup >= 0 && !declaration.match(line).hasMatch()) return false;
+    if (const auto grouped = box.match(line); grouped.hasMatch()) {
+      if (!stack.isEmpty() || sequence.groups.size() >= 8) return false;
+      Group group;
+      if (!parseGroupHeader(grouped.captured(1).trimmed(), group)) return false;
+      activeGroup = int(sequence.groups.size());
+      sequence.groups.append(group);
+    } else if (line == "autonumber") {
       numbered = true;
     } else if (const auto created = creation.match(line); created.hasMatch()) {
       const int index = participant(created.captured(2));
@@ -154,6 +204,13 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
       const int index = participant(declared.captured(2));
       auto& entry = sequence.participants[index];
       if (entry.destroyed) return false;
+      if (activeGroup >= 0) {
+        if (entry.group >= 0 && entry.group != activeGroup) return false;
+        entry.group = activeGroup;
+        auto& group = sequence.groups[activeGroup];
+        group.first = group.first < 0 ? index : qMin(group.first, index);
+        group.last = qMax(group.last, index);
+      }
       entry.actor = declared.captured(1) == "actor";
       if (declared.capturedStart(3) >= 0) entry.name = label(declared.captured(3));
     } else if (const auto bar = activation.match(line); bar.hasMatch()) {
@@ -244,7 +301,12 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
     if (sequence.participants.size() > 8 || count > 60 || sequence.events.size() > 360)
       return false;
   }
-  return stack.isEmpty() && pendingCreate < 0 && pendingDestroy < 0 &&
+  for (int i = 0; i < sequence.groups.size(); ++i) {
+    const auto& group = sequence.groups.at(i);
+    for (int member = group.first; member <= group.last; ++member)
+      if (member < 0 || sequence.participants.at(member).group != i) return false;
+  }
+  return stack.isEmpty() && activeGroup < 0 && pendingCreate < 0 && pendingDestroy < 0 &&
          !sequence.participants.isEmpty();
 }
 
@@ -367,6 +429,16 @@ Layout arrange(Sequence& sequence, const QFontMetricsF& metrics, const QFont& fo
   }
   layout.width += left + right;
   for (auto& x : layout.centers) x += left;
+  qreal groupHeader = sequence.groups.isEmpty() ? 0 : 16;
+  for (auto& group : sequence.groups) {
+    const qreal first = layout.centers.at(group.first), last = layout.centers.at(group.last);
+    group.rect = QRectF(first - 94, 8, last - first + 188, 0);
+    if (!group.title.isEmpty())
+      group.titleLines = frameLines(group.title, font, group.rect.width() - 16);
+    groupHeader = qMax(groupHeader, group.titleLines.size() * qMax(20., metrics.height()) + 16);
+  }
+  layout.header += groupHeader;
+  for (auto& entry : sequence.participants) entry.headTop += groupHeader;
   qreal y = layout.header + 18;
   qreal anchor = layout.header + 6;
   for (auto& entry : sequence.participants) entry.lineTop = layout.header;
@@ -430,6 +502,7 @@ Layout arrange(Sequence& sequence, const QFontMetricsF& metrics, const QFont& fo
     }
   }
   layout.height = y + 16;
+  for (auto& group : sequence.groups) group.rect.setBottom(layout.height - 8);
   for (auto& entry : sequence.participants)
     if (!entry.lineBottom) entry.lineBottom = layout.height - 20;
   for (auto& bar : sequence.activations)
@@ -493,6 +566,7 @@ QImage drawSequence(Sequence& sequence, bool dark) {
   painter.setFont(font);
   const QColor ink(dark ? "#e4ebf5" : "#34455e"), stroke(dark ? "#8ba4c5" : "#7e9cc3"),
       panel(dark ? "#344359" : "#edf3fc"), note(dark ? "#574e32" : "#fff5d0");
+  for (const auto& group : sequence.groups) painter.fillRect(group.rect, group.color);
   for (const auto& frame : sequence.frames) {
     if (frame.highlight.isValid()) {
       painter.fillRect(frame.rect, frame.highlight);
@@ -501,6 +575,17 @@ QImage drawSequence(Sequence& sequence, bool dark) {
     auto tint = panel;
     tint.setAlpha(dark ? 30 : 55);
     painter.fillRect(frame.rect, tint);
+  }
+  for (const auto& group : sequence.groups) {
+    painter.setPen(QPen(stroke, 1.2));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRect(group.rect);
+    painter.setPen(ink);
+    const qreal row = qMax(20., metrics.height());
+    for (int i = 0; i < group.titleLines.size(); ++i)
+      painter.drawText(QRectF(group.rect.left() + 8, group.rect.top() + 8 + i * row,
+                              group.rect.width() - 16, row),
+                       Qt::AlignHCenter | Qt::AlignVCenter, group.titleLines.at(i));
   }
   for (int i = 0; i < sequence.participants.size(); ++i) {
     const auto& entry = sequence.participants.at(i);

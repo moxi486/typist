@@ -41,6 +41,25 @@ sequenceDiagram
     end
 ```
 
+`box 名称 ... end` 把参与者组织为纵向分组。颜色可放在名称之前，支持 SVG 命名色（如 `Aqua`、`Purple`）、`rgb(...)` 和 `rgba(...)`；省略颜色时为透明背景。若名称本身是颜色词，可写 `box transparent Aqua`。分组标题自动换行并留出顶部空间，最多显示四行，余下内容以省略号提示，完整名称保留在源码。 [Mermaid 参与者分组](https://mermaid.js.org/syntax/sequenceDiagram.html#grouping--box)
+
+分组块内填写 `participant` / `actor` 声明，消息写在组块结束之后。每位参与者只能属于一个组，成员列必须连续；最多支持 8 个非嵌套分组和总共 8 位参与者。空组、嵌套组、组内消息、无效 RGB/RGBA 颜色及 HSL / 十六进制颜色保留为可编辑源码。
+
+```mermaid
+sequenceDiagram
+    box rgba(80,160,240,.12) 写作端
+        actor User as 作者
+        participant Editor as 编辑器
+    end
+    box transparent 存储服务
+        participant Disk as 磁盘
+    end
+    User->>+Editor: 保存文档
+    Editor->>+Disk: 写入正文
+    Disk-->>-Editor: 写入完成
+    Editor-->>-User: 已保存
+```
+
 `critical` 图示关键操作，可以省略 `option`，也可以用多个 `option 条件` 描述异常处理。`break 条件` 图示指定条件下中断当前交互。它们可与条件、循环和并行片段嵌套；`option` 必须直接属于当前 `critical`，不能跨越尚未结束的内层片段。缺少 `end` 或分支归属错误时保留为可编辑源码。 [Mermaid 关键操作](https://mermaid.js.org/syntax/sequenceDiagram.html#critical-region)、[中断片段](https://mermaid.js.org/syntax/sequenceDiagram.html#break)
 
 片段标题按可用宽度自动换行，也可用 `<br>` 手动换行，最多显示四行；超出的内容以省略号提示，完整条件保留在源码与保存文件中。

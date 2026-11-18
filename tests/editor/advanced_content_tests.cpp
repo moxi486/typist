@@ -1635,6 +1635,127 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void sequenceGroupsLabelParticipantsAndKeepBoundaries() {
+    const QString source = QStringLiteral(
+        "sequenceDiagram\n box rgba(80,160,240,.12) 写作端\n actor User as 作者\n"
+        " participant App as 编辑器\n end\n box rgba(180,100,220,.14) 持久化\n"
+        " participant Disk as 磁盘\n participant Task as 保存任务\n end\n autonumber\n"
+        " User->>+App: 保存文档\n rect rgba(60,160,180,.1)\n critical 写入正文\n"
+        " App->>+Disk: 写入文件\n Disk-->>-App: 完成写入\n end\n end\n"
+        " create participant Task\n App-)+Task: 创建任务\n destroy Task\n"
+        " Task--)-App: 任务结束\n App-->>-User: 已保存\n");
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    auto numbered = source;
+    numbered.remove("autonumber\n");
+    const QStringList labels = {"保存文档", "写入文件", "完成写入",
+                                "创建任务", "任务结束", "已保存"};
+    for (int i = 0; i < labels.size(); ++i)
+      numbered.replace(": " + labels.at(i) + '\n',
+                       ": " + QString::number(i + 1) + ". " + labels.at(i) + '\n');
+    QCOMPARE(light.image, render::mermaid(numbered).image);
+    const auto prefix = QStringLiteral("sequenceDiagram\n");
+    const auto diagram = [&](const QString& header) {
+      return render::mermaid(prefix + "box " + header +
+                             "\n participant A\n participant B\n end\n A->>B: Work\n")
+          .image;
+    };
+    const auto transparent = diagram("Team");
+    QVERIFY(!transparent.isNull());
+    QCOMPARE(transparent, diagram("transparent Team"));
+    QCOMPARE(diagram("Aqua Team"), diagram("rgb(0,255,255) Team"));
+    QCOMPARE(diagram("rgb(20,40,60) Team"), diagram("rgba(20,40,60,1) Team"));
+    QVERIFY(!diagram("transparent Aqua").isNull());
+    QVERIFY(diagram("transparent Aqua") != diagram("Aqua"));
+    QVERIFY(!diagram(QString()).isNull());
+    const auto longTitle = QStringLiteral("写作与文档资源的分组说明 ").repeated(15);
+    const auto wrapped = diagram("transparent " + longTitle);
+    QVERIFY(!wrapped.isNull());
+    QVERIFY(wrapped.height() > transparent.height());
+    const auto adjacent =
+        render::mermaid(prefix +
+                        "box rgb(210,230,250) Left\n participant A\n end\n"
+                        "box rgba(240,200,220,.5) Right\n participant B\n end\n A->>B: Work\n");
+    QVERIFY(!adjacent.image.isNull());
+    const auto colorBounds = [](const QImage& image, QColor color, int tolerance = 0) {
+      QRect bounds;
+      int count = 0;
+      for (int y = 0; y < image.height(); ++y)
+        for (int x = 0; x < image.width(); ++x) {
+          const auto pixel = image.pixelColor(x, y);
+          if (qAbs(pixel.red() - color.red()) > tolerance ||
+              qAbs(pixel.green() - color.green()) > tolerance ||
+              qAbs(pixel.blue() - color.blue()) > tolerance)
+            continue;
+          bounds = bounds.united(QRect(x, y, 1, 1));
+          ++count;
+        }
+      return qMakePair(bounds, count);
+    };
+    const auto left = colorBounds(adjacent.image, QColor(210, 230, 250));
+    const auto right = colorBounds(adjacent.image, QColor(248, 228, 238), 2);
+    QVERIFY(left.second > 1000 && right.second > 1000);
+    QVERIFY(left.first.right() < right.first.left());
+    QVERIFY(left.first.left() > 0 && right.first.right() < adjacent.image.width() - 1);
+    int lifeline = 0;
+    for (int y = left.first.center().y(); y < left.first.bottom() - 20; ++y)
+      lifeline += adjacent.image.pixelColor(qRound(147 * adjacent.image.devicePixelRatio()), y) ==
+                  QColor("#7e9cc3");
+    QVERIFY(lifeline > 10);
+    QVERIFY(!render::mermaid(prefix + "participant A\nparticipant B\nbox Team\n"
+                                      "participant B\nparticipant A\nend\nA->>B: Work\n")
+                 .image.isNull());
+    auto groups = prefix;
+    for (int i = 0; i < 8; ++i) groups += "box\nparticipant P" + QString::number(i) + "\nend\n";
+    QVERIFY(!render::mermaid(groups + "P0->>P7: Work\n").image.isNull());
+    QVERIFY(render::mermaid(groups + "box\nparticipant P8\nend\nP0->>P8: Work\n").image.isNull());
+    for (const auto& invalid : {
+             QStringLiteral("box Empty\nend\nA->>B: Work"),
+             QStringLiteral("box Missing end\nparticipant A"),
+             QStringLiteral("box Outer\nbox Inner\nparticipant A\nend\nend"),
+             QStringLiteral("box Team\nparticipant A\nA->>B: Message inside\nend"),
+             QStringLiteral("box One\nparticipant A\nend\nbox Two\nparticipant A\nend"),
+             QStringLiteral(
+                 "participant A\nparticipant Gap\nbox Team\nparticipant A\nparticipant B\nend"),
+             QStringLiteral("critical Work\nbox Team\nparticipant A\nend\nend"),
+             QStringLiteral("box rgb(256,0,0) Team\nparticipant A\nend"),
+             QStringLiteral("box hsl(120,40%,50%) Team\nparticipant A\nend"),
+             QStringLiteral("box #abcdef Team\nparticipant A\nend"),
+         }) {
+      const auto result = render::mermaid(prefix + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const auto markdown = QStringLiteral("```mermaid\n") + source + "```\n";
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    QTextDocument longDocument;
+    const auto longSource = "```mermaid\n" + prefix + "box transparent " + longTitle +
+                            "\n participant A\n end\n A->>A: Work\n```\n";
+    QVERIFY(editor::loadMarkdown(longSource, &longDocument, nullptr));
+    QVERIFY(same(longSource, editor::serializeDocument(&longDocument)));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/groups-light.png"));
+      QVERIFY(dark.image.save(retained + "/groups-dark.png"));
+      QVERIFY(wrapped.save(retained + "/groups-long.png"));
+      QVERIFY(adjacent.image.save(retained + "/groups-adjacent.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -1738,6 +1859,12 @@ class AdvancedContentTests : public QObject {
                " rect rgb(210,230,250)\n A->>+B: Save\n"
                " rect rgba(180,100,220,.2)\n B-->>-A: Done\n end\n end\n")
         << QStringLiteral("sequenceDiagram\n rect rgb(256,0,0)\n A->>B: Invalid color\n end\n");
+    QTest::newRow("sequence-groups")
+        << QStringLiteral(
+               "sequenceDiagram\n box rgba(80,160,240,.15) Writing\n actor A\n"
+               " participant B\n end\n box transparent Storage\n participant Disk\n end\n"
+               " A->>+B: Save\n critical Write\n B->>Disk: Write\n end\n B-->>-A: Done\n")
+        << QStringLiteral("sequenceDiagram\n box Empty\n end\n A->>B: Work\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {
