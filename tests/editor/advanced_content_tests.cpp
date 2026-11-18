@@ -765,6 +765,83 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void sankeyDiagramsKeepProportionsAcrossSplitsAndMerges() {
+    const QString source = QStringLiteral(
+        "sankey\n"
+        "%% 来源、去向和数值\n"
+        "写作计划,整理素材,12\n"
+        "写作计划,直接起草,8\n"
+        "\n"
+        "整理素材,撰写正文,9\n"
+        "整理素材,参考归档,3\n"
+        "直接起草,撰写正文,8\n"
+        "撰写正文,\"复核, \"\"校对\"\"\",17\n");
+    const auto light = render::mermaid(source);
+    const auto dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+
+    auto alias = source;
+    alias.replace("sankey\n", "sankey-beta\r\n");
+    alias.replace("写作计划,整理素材,12\n",
+                  "  写作计划, \"整理素材\", \"5\"\r\n  写作计划, 整理素材, 7\r\n");
+    alias += QStringLiteral("Ignored source,Ignored target,0\n");
+    QCOMPARE(light.image, render::mermaid(alias).image);
+
+    const auto multiline = render::mermaid(QStringLiteral("sankey\nIn,\"First\r\nSecond\",0.25"));
+    QVERIFY(!multiline.image.isNull());
+    QCOMPARE(multiline.image, render::mermaid(QStringLiteral("sankey\nIn,First Second,.25")).image);
+
+    const auto matchingPixels = [](const QImage& diagram, QColor color) {
+      int count = 0;
+      for (int y = 0; y < diagram.height(); ++y)
+        for (int x = 0; x < diagram.width(); ++x) count += diagram.pixelColor(x, y) == color;
+      return count;
+    };
+    const auto split = render::mermaid(QStringLiteral("sankey\nInput,Heavy,3\nInput,Light,1"));
+    QVERIFY(!split.image.isNull());
+    const int heavy = matchingPixels(split.image, QColor("#398667"));
+    const int small = matchingPixels(split.image, QColor("#8061b3"));
+    QVERIFY(small > 50);
+    QVERIFY(qAbs(heavy - small * 3) <= small / 10);
+    QVERIFY(light.image.width() > split.image.width());
+    QVERIFY(!render::mermaid(QStringLiteral("sankey\nIn,A,1e308\nOther,B,6e307\n")).image.isNull());
+    const QString repeated = QStringLiteral("sankey\n") + QStringLiteral("A,B,1\n").repeated(128);
+    QVERIFY(!render::mermaid(repeated).image.isNull());
+    QVERIFY(render::mermaid(repeated + QStringLiteral("A,B,1")).image.isNull());
+    QString nodes = QStringLiteral("sankey\n");
+    for (int i = 0; i < 32; ++i) nodes += QStringLiteral("A%1,B%1,1\n").arg(i);
+    QVERIFY(!render::mermaid(nodes).image.isNull());
+    QVERIFY(render::mermaid(nodes + QStringLiteral("A0,Extra,1")).image.isNull());
+
+    for (const auto& invalid : {
+             QStringLiteral("sankey"),
+             QStringLiteral("sankey\nIn,Out"),
+             QStringLiteral("sankey\nIn,Out,1,extra"),
+             QStringLiteral("sankey\nIn,\"unterminated,2"),
+             QStringLiteral("sankey\nIn,\"Quoted\" trailing,2"),
+             QStringLiteral("sankey\n,Out,1"),
+             QStringLiteral("sankey\nIn,Out,0"),
+             QStringLiteral("sankey\nIn,Out,-0.2"),
+             QStringLiteral("sankey\nIn,Out,NaN"),
+             QStringLiteral("sankey\nIn,Out,1e308\nIn,Out,1e308"),
+             QStringLiteral("sankey\nA,A,1"),
+             QStringLiteral("sankey\nA,B,1\nB,C,1\nC,A,1"),
+             QStringLiteral("sankey\nA,B,1\n%%{custom,b,c\n"),
+             QStringLiteral("%%{init: {}}%%\nsankey\nA,B,1"),
+         }) {
+      const auto result = render::mermaid(invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/sankey-light.png"));
+      QVERIFY(dark.image.save(retained + "/sankey-dark.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -810,6 +887,10 @@ class AdvancedContentTests : public QObject {
                                     "    ::icon(fa fa-book)\n      Review<br>examples\n"
                                     "    Drafting(写作)\n      Chapter 1\n")
                              << QStringLiteral("mindmap\n  Root\n    Child\n    :::custom\n");
+    QTest::newRow("sankey") << QStringLiteral(
+                                   "sankey-beta\nPlan,Prepare,12\nPlan,Draft,8\n"
+                                   "Prepare,\"Review, edit\",12\nDraft,\"Review, edit\",8\n")
+                            << QStringLiteral("sankey\nA,B,1\nB,A,1\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {
