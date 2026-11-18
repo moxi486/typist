@@ -13,7 +13,7 @@ flowchart LR
     B -->|否| A
 ```
 
-`sequenceDiagram` 支持 `participant` 参与者、`actor` 人物符号、显示别名、实线和虚线消息、自调用、`autonumber` 以及 `Note over` 注释。可用 `alt / else` 表示条件分支、`opt` 表示可选操作、`loop` 表示循环、`par / and` 表示并行操作，每个片段以 `end` 结束。片段可嵌套，编号会延续到各分支内的消息。
+`sequenceDiagram` 支持 `participant` 参与者、`actor` 人物符号、显示别名、实线和虚线消息、自调用、`autonumber` 以及 `Note over` 注释。可用 `alt / else` 表示条件分支、`opt` 表示可选操作、`loop` 表示循环、`par / and` 表示并行操作、`critical / option` 表示关键操作与异常分支、`break` 表示中断片段。各片段以 `end` 结束，可以嵌套，编号会延续到各分支内的消息。
 
 标签可用 `<br>` 换行，排版会为消息和注释留出空间。长标签最多显示四行，完整内容保留在源码。支持最多 8 个参与者、60 条消息或注释、24 个控制片段与 6 层嵌套。其他控制指令与配置保留为可编辑源码。 [Mermaid 时序图语法](https://mermaid.js.org/syntax/sequenceDiagram.html)
 
@@ -39,6 +39,29 @@ sequenceDiagram
     opt 显示结果
         Note over User,Editor: 保存完成
     end
+```
+
+`critical` 图示关键操作，可以省略 `option`，也可以用多个 `option 条件` 描述异常处理。`break 条件` 图示指定条件下中断当前交互。它们可与条件、循环和并行片段嵌套；`option` 必须直接属于当前 `critical`，不能跨越尚未结束的内层片段。缺少 `end` 或分支归属错误时保留为可编辑源码。 [Mermaid 关键操作](https://mermaid.js.org/syntax/sequenceDiagram.html#critical-region)、[中断片段](https://mermaid.js.org/syntax/sequenceDiagram.html#break)
+
+片段标题按可用宽度自动换行，也可用 `<br>` 手动换行，最多显示四行；超出的内容以省略号提示，完整条件保留在源码与保存文件中。
+
+```mermaid
+sequenceDiagram
+    actor User as 作者
+    participant Editor as 编辑器
+    participant Disk as 磁盘
+    autonumber
+    User->>+Editor: 保存文档
+    critical 完整写入数据
+        Editor->>Disk: 保存正文
+    option 存储空间不足
+        break 停止本次保存
+            Editor-->>User: 显示错误
+        end
+    option 访问被拒绝
+        Editor->>Editor: 保留草稿
+    end
+    Editor-->>-User: 处理完成
 ```
 
 时序图支持以下标准消息线型；实线与虚线都支持自调用及 `+ / -` 激活简写。双向消息在两端绘制箭头，自调用时分别沿出发和返回方向绘制。 [Mermaid 消息语法](https://mermaid.js.org/syntax/sequenceDiagram.html#messages)

@@ -1422,6 +1422,105 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void sequenceCriticalOptionsAndBreaksKeepScope() {
+    const QString source = QStringLiteral(
+        "sequenceDiagram\n actor User as 作者\n participant App as 编辑器\n participant Disk as "
+        "磁盘\n"
+        " autonumber\n User->>+App: 保存文档\n critical 完整写入数据\n"
+        " App->>+Disk: 写入正文\n Disk-->>-App: 完成写入\n option 存储空间不足\n"
+        " break 停止本次保存\n App-->>User: 显示错误\n end\n option 访问被拒绝\n"
+        " critical 刷新访问权限\n App->>Disk: 重新检查\n option 用户取消\n"
+        " Note right of Disk: 保留未保存内容\n end\n end\n App-->>-User: 处理完成\n");
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    auto numbered = source;
+    numbered.remove("autonumber\n");
+    const QStringList labels = {"保存文档", "写入正文", "完成写入",
+                                "显示错误", "重新检查", "处理完成"};
+    for (int i = 0; i < labels.size(); ++i)
+      numbered.replace(": " + labels.at(i) + '\n',
+                       ": " + QString::number(i + 1) + ". " + labels.at(i) + '\n');
+    QCOMPARE(light.image, render::mermaid(numbered).image);
+
+    const auto body = QStringLiteral("A->>B: Write\n B-->>A: Done\n");
+    const auto prefix = QStringLiteral("sequenceDiagram\n");
+    const auto plain = render::mermaid(prefix + body);
+    const auto critical = render::mermaid(prefix + "critical Write\n" + body + "end\n");
+    const auto stopped = render::mermaid(prefix + "break Failure\n" + body + "end\n");
+    QVERIFY(!critical.image.isNull() && !stopped.image.isNull());
+    QVERIFY(critical.image.height() > plain.image.height());
+    QVERIFY(stopped.image.height() > plain.image.height());
+    QVERIFY(critical.image != stopped.image);
+    const auto option = prefix + "critical Write\n" + body + "option Retry\n A->>B: Retry\nend\n";
+    const auto withOption = render::mermaid(option);
+    QVERIFY(!withOption.image.isNull());
+    QVERIFY(withOption.image.height() > critical.image.height());
+    auto longOption = option;
+    longOption.replace("option Retry",
+                       "option " + QStringLiteral("核对访问权限与磁盘剩余空间 ").repeated(12));
+    const auto wrapped = render::mermaid(longOption);
+    QVERIFY(!wrapped.image.isNull());
+    QVERIFY(wrapped.image.height() > withOption.image.height());
+    const auto explicitBreak =
+        render::mermaid(prefix + "critical Write<br>atomically\n" + body + "end\n");
+    QVERIFY(!explicitBreak.image.isNull());
+    QVERIFY(explicitBreak.image.height() > critical.image.height());
+    QVERIFY(!render::mermaid(prefix + "critical\n" + body + "option\n A->>B: Retry\nend\n")
+                 .image.isNull());
+    const auto deep = prefix + QStringLiteral("critical Nested\n").repeated(6) + body +
+                      QStringLiteral("end\n").repeated(6);
+    QVERIFY(!render::mermaid(deep).image.isNull());
+    QVERIFY(render::mermaid(prefix + "break Extra\n" + deep.mid(prefix.size()) + "end\n")
+                .image.isNull());
+    const auto frame =
+        QStringLiteral("critical Write\n A->>B: Write\n option Retry\n A->>B: Retry\n end\n");
+    QVERIFY(!render::mermaid(prefix + frame.repeated(24)).image.isNull());
+    QVERIFY(render::mermaid(prefix + frame.repeated(25)).image.isNull());
+    for (const auto& invalid : {
+             QStringLiteral("option Orphan\n A->>B: Retry"),
+             QStringLiteral("critical Missing end\n A->>B: Write"),
+             QStringLiteral("break Missing end\n A->>B: Stop"),
+             QStringLiteral("critical Work\n A->>B: Write\n else Wrong\n B->>A: Reply\nend"),
+             QStringLiteral("critical Work\n A->>B: Write\n and Wrong\n B->>A: Reply\nend"),
+             QStringLiteral("break Work\n A->>B: Write\n option Wrong\n B->>A: Reply\nend"),
+             QStringLiteral("loop Work\n A->>B: Write\n option Wrong\n B->>A: Reply\nend"),
+             QStringLiteral(
+                 "critical Work\n alt Nested\n A->>B: Write\n option Crossed scope\nend\nend"),
+             QStringLiteral("critical Work\n A->>B: Write\nend\noption Too late\nB->>A: Reply"),
+             QStringLiteral("break Work\n A->>B: Write\nend\nend"),
+         }) {
+      const auto result = render::mermaid(prefix + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const auto markdown = QStringLiteral("```mermaid\n") + source + "```\n";
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    const auto longMarkdown = QStringLiteral("```mermaid\n") + longOption + "```\n";
+    QTextDocument longDocument;
+    QVERIFY(editor::loadMarkdown(longMarkdown, &longDocument, nullptr));
+    QVERIFY(same(longMarkdown, editor::serializeDocument(&longDocument)));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/critical-break-light.png"));
+      QVERIFY(dark.image.save(retained + "/critical-break-dark.png"));
+      QVERIFY(wrapped.image.save(retained + "/critical-break-long.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -1511,6 +1610,14 @@ class AdvancedContentTests : public QObject {
                " B<<-->>B: Self call\n B--)-A: Async result\n"
                " create participant W\n A-)W: Create\n destroy W\n A--xW: Stop\n")
         << QStringLiteral("sequenceDiagram\n A-)++B: Invalid\n");
+    QTest::newRow("sequence-critical-break")
+        << QStringLiteral(
+               "sequenceDiagram\n participant App\n participant Disk\n"
+               " critical Write\n App->>+Disk: Save\n Disk-->>-App: Done\n"
+               " option Full disk\n break Stop saving\n App->>App: Retain draft\n end\n"
+               " option Retry\n App-)Disk: Retry\n end\n")
+        << QStringLiteral(
+               "sequenceDiagram\n critical Write\n App->>Disk: Save\n else Invalid\n end\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {
