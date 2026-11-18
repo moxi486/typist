@@ -9,7 +9,9 @@
 namespace typist::render::mermaid_detail {
 namespace {
 enum class EventType { Message, Note, Open, Divide, Close, Activate, Deactivate };
+enum class NotePlacement { Over, Left, Right };
 constexpr qreal activationWidth = 12, activationStep = 6;
+constexpr qreal sideNoteWidth = 170, sideNoteGap = 18;
 
 struct Participant {
   QString name;
@@ -25,6 +27,7 @@ struct Event {
   int fromDepth = 0, toDepth = 0;
   int created = -1, destroyed = -1;
   bool dashed = false, cross = false;
+  NotePlacement placement = NotePlacement::Over;
   QRectF rect{};
 };
 
@@ -59,7 +62,8 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
   static const QRegularExpression activation(
       QStringLiteral(R"(^(activate|deactivate)\s+(%1)$)").arg(id));
   static const QRegularExpression note(
-      QStringLiteral(R"(^Note\s+over\s+(%1)(?:\s*,\s*(%1))?\s*:\s*(.*)$)").arg(id),
+      QStringLiteral(R"(^Note\s+(over|left\s+of|right\s+of)\s+(%1)(?:\s*,\s*(%1))?\s*:\s*(.*)$)")
+          .arg(id),
       QRegularExpression::CaseInsensitiveOption);
   static const QRegularExpression control(R"(^(alt|opt|loop|par|else|and)(?:\s+(.*))?$)");
   QHash<QString, int> ids;
@@ -155,9 +159,15 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
       pendingCreate = pendingDestroy = -1;
       ++count;
     } else if (const auto n = note.match(line); n.hasMatch()) {
-      Event event{EventType::Note, label(n.captured(3))};
-      event.from = participant(n.captured(1));
-      event.to = n.capturedStart(2) < 0 ? event.from : participant(n.captured(2));
+      Event event{EventType::Note, label(n.captured(4))};
+      const auto position = n.captured(1).toLower();
+      event.placement = position.startsWith("left")    ? NotePlacement::Left
+                        : position.startsWith("right") ? NotePlacement::Right
+                                                       : NotePlacement::Over;
+      if (event.placement != NotePlacement::Over && n.capturedStart(3) >= 0) return false;
+      event.from = participant(n.captured(2));
+      event.to = n.capturedStart(3) < 0 ? event.from : participant(n.captured(3));
+      event.fromDepth = int(active.at(event.from).size());
       if (sequence.participants.at(event.from).destroyed ||
           sequence.participants.at(event.to).destroyed)
         return false;
@@ -214,6 +224,20 @@ struct Layout {
   QList<qreal> centers;
 };
 
+QRectF noteBounds(const Event& event, const Layout& layout) {
+  const qreal a = layout.centers.at(event.from), b = layout.centers.at(event.to);
+  if (event.placement == NotePlacement::Left)
+    return {a - sideNoteGap - (event.fromDepth ? activationWidth / 2 : 0) - sideNoteWidth, 0,
+            sideNoteWidth, 0};
+  if (event.placement == NotePlacement::Right)
+    return {
+        a + sideNoteGap +
+            (event.fromDepth ? (event.fromDepth - 1) * activationStep + activationWidth / 2 : 0),
+        0, sideNoteWidth, 0};
+  const qreal width = qMax(150., qAbs(a - b) + 140);
+  return {(a + b - width) / 2, 0, width, 0};
+}
+
 QPair<qreal, qreal> messageEndpoints(const Event& event, const Layout& layout,
                                      const Sequence& sequence) {
   const qreal a = layout.centers.at(event.from), b = layout.centers.at(event.to);
@@ -236,14 +260,33 @@ Layout arrange(Sequence& sequence, const QFontMetricsF& metrics) {
   qreal extra = 0;
   for (const auto& bar : sequence.activations)
     extra = qMax(extra, bar.depth * activationStep + activationWidth / 2);
-  Layout layout{
-      qMax(360., sequence.participants.size() * column + margin * 2 + 32 + extra), 0, 78, {}};
+  Layout layout{0, 0, 78, {}};
+  QList<qreal> gaps(sequence.participants.size(), column);
+  for (const auto& event : sequence.events) {
+    if (event.type != EventType::Note || event.placement == NotePlacement::Over) continue;
+    const int gap = event.from - (event.placement == NotePlacement::Left ? 1 : 0);
+    // Reserve space for the note, its padding and up to eight activation levels on either side.
+    if (gap >= 0 && gap + 1 < gaps.size()) gaps[gap] = 260;
+  }
+  qreal center = margin + column / 2;
   for (int i = 0; i < sequence.participants.size(); ++i) {
     const auto& entry = sequence.participants.at(i);
-    layout.centers.append(margin + column * (i + .5));
+    layout.centers.append(center);
+    center += gaps.at(i);
     layout.header =
         qMax(layout.header, textHeight(metrics, entry.name, 158) + (entry.actor ? 75 : 36));
   }
+  layout.width = qMax(360., layout.centers.last() + column / 2 + margin + 32 + extra);
+  qreal edge = 24, left = 0, right = 0;
+  for (const auto& frame : sequence.frames) edge = qMax(edge, 24. + frame.depth * 10);
+  for (const auto& event : sequence.events) {
+    if (event.type != EventType::Note) continue;
+    const auto bounds = noteBounds(event, layout);
+    left = qMax(left, edge - bounds.left());
+    right = qMax(right, bounds.right() + edge - layout.width);
+  }
+  layout.width += left + right;
+  for (auto& x : layout.centers) x += left;
   qreal y = layout.header + 18;
   qreal anchor = layout.header + 6;
   for (auto& entry : sequence.participants) entry.lineTop = layout.header;
@@ -273,7 +316,8 @@ Layout arrange(Sequence& sequence, const QFontMetricsF& metrics) {
           note ? QPair<qreal, qreal>(layout.centers.at(event.from), layout.centers.at(event.to))
                : messageEndpoints(event, layout, sequence);
       const auto [a, b] = endpoints;
-      const qreal width = note ? qMax(150., qAbs(a - b) + 140) : self ? 150 : qAbs(a - b) - 18;
+      const auto bounds = note ? noteBounds(event, layout) : QRectF();
+      const qreal width = note ? bounds.width() : self ? 150 : qAbs(a - b) - 18;
       const QString text =
           event.number ? QString::number(event.number) + ". " + event.text : event.text;
       const qreal height = textHeight(metrics, text, width - (note ? 14 : 0)) + (note ? 16 : 5);
@@ -282,7 +326,7 @@ Layout arrange(Sequence& sequence, const QFontMetricsF& metrics) {
         const qreal before = entry.actor ? 22 : (textHeight(metrics, entry.name, 158) + 14) / 2;
         y += qMax(0., before + 10 - height - 6);
       }
-      event.rect = QRectF(note   ? qMin(a, b) - 70
+      event.rect = QRectF(note   ? bounds.left()
                           : self ? qMax(a, b) + 18
                                  : qMin(a, b) + 9,
                           y, width, height);
