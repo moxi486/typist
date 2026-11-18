@@ -64,6 +64,25 @@ sequenceDiagram
     Editor-->>-User: 处理完成
 ```
 
+`rect rgb(R,G,B)` 或 `rect rgba(R,G,B,A)` 为一段交互添加背景高亮，以 `end` 结束，可嵌套并包含其他控制片段。RGB 通道取 0–255 的整数，RGBA 的透明度取 0–1；RGB 使用不透明色，RGBA 从外到内与底层颜色合成。高亮绘制在生命线、消息和注释下方，并与其他片段共用 24 个片段、6 层嵌套的上限。命名色、十六进制色、无效颜色和分支错配保留为可编辑源码。 [Mermaid 背景高亮](https://mermaid.js.org/syntax/sequenceDiagram.html#background-highlighting)
+
+```mermaid
+sequenceDiagram
+    actor User as 作者
+    participant Editor as 编辑器
+    participant Disk as 磁盘
+    autonumber
+    rect rgba(80,160,240,.18)
+        Note left of User: 核对内容
+        User->>+Editor: 保存文档
+        rect rgba(180,100,220,.2)
+            Editor->>+Disk: 写入正文
+            Disk-->>-Editor: 写入完成
+        end
+        Editor-->>-User: 保存完成
+    end
+```
+
 时序图支持以下标准消息线型；实线与虚线都支持自调用及 `+ / -` 激活简写。双向消息在两端绘制箭头，自调用时分别沿出发和返回方向绘制。 [Mermaid 消息语法](https://mermaid.js.org/syntax/sequenceDiagram.html#messages)
 
 | 实线 | 虚线 | 显示 |
