@@ -5,6 +5,7 @@
 #include <QLineF>
 #include <QPainter>
 #include <QRegularExpression>
+#include <QTextLayout>
 #include <QtMath>
 
 namespace typist::render::mermaid_detail {
@@ -32,6 +33,7 @@ struct Event {
   MessageHead head = MessageHead::Filled;
   NotePlacement placement = NotePlacement::Over;
   QRectF rect{};
+  QStringList headerLines;
 };
 
 struct Frame {
@@ -70,7 +72,8 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
       QStringLiteral(R"(^Note\s+(over|left\s+of|right\s+of)\s+(%1)(?:\s*,\s*(%1))?\s*:\s*(.*)$)")
           .arg(id),
       QRegularExpression::CaseInsensitiveOption);
-  static const QRegularExpression control(R"(^(alt|opt|loop|par|else|and)(?:\s+(.*))?$)");
+  static const QRegularExpression control(
+      R"(^(alt|opt|loop|par|critical|break|else|and|option)(?:\s+(.*))?$)");
   QHash<QString, int> ids;
   QList<int> stack;
   QList<QList<int>> active;
@@ -186,12 +189,13 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
       ++count;
     } else if (const auto block = control.match(line); block.hasMatch()) {
       const auto kind = block.captured(1), text = label(block.captured(2));
-      const bool divider = kind == "else" || kind == "and";
+      const bool divider = kind == "else" || kind == "and" || kind == "option";
       if (divider) {
         if (stack.isEmpty()) return false;
         auto& frame = sequence.frames[stack.last()];
         if ((kind == "else" && (frame.kind != "alt" || frame.hasElse)) ||
-            (kind == "and" && frame.kind != "par"))
+            (kind == "and" && frame.kind != "par") ||
+            (kind == "option" && frame.kind != "critical"))
           return false;
         frame.hasElse = kind == "else";
         Event event{EventType::Divide, text};
@@ -265,7 +269,50 @@ QPair<qreal, qreal> messageEndpoints(const Event& event, const Layout& layout,
   return {from, to};
 }
 
-Layout arrange(Sequence& sequence, const QFontMetricsF& metrics) {
+qreal frameTextInset(const Frame& frame, const QFontMetricsF& metrics) {
+  return qMax(65., metrics.horizontalAdvance(frame.kind) + 32);
+}
+
+QString frameLabel(const Frame& frame, const Event& event) {
+  const bool option = event.type == EventType::Divide && frame.kind == "critical";
+  const auto condition = event.text.isEmpty() ? QString() : QStringLiteral("[") + event.text + ']';
+  return option ? QStringLiteral("option") + (condition.isEmpty() ? QString() : ' ' + condition)
+                : condition;
+}
+
+QStringList frameLines(const QString& text, const QFont& font, qreal width) {
+  QStringList lines;
+  bool truncated = false;
+  for (const auto& paragraph : text.split('\n')) {
+    if (lines.size() == 4) {
+      truncated = true;
+      break;
+    }
+    QTextLayout layout(paragraph.isEmpty() ? QStringLiteral(" ") : paragraph, font);
+    QTextOption option;
+    option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    layout.setTextOption(option);
+    layout.beginLayout();
+    while (true) {
+      auto line = layout.createLine();
+      if (!line.isValid()) break;
+      line.setLineWidth(width);
+      if (lines.size() == 4) {
+        truncated = true;
+        break;
+      }
+      lines.append(paragraph.mid(line.textStart(), line.textLength()).trimmed());
+    }
+    layout.endLayout();
+    if (truncated) break;
+  }
+  if (truncated)
+    lines.last() =
+        QFontMetricsF(font).elidedText(lines.last() + QChar(0x2026), Qt::ElideRight, width);
+  return lines;
+}
+
+Layout arrange(Sequence& sequence, const QFontMetricsF& metrics, const QFont& font) {
   constexpr qreal column = 210, margin = 42;
   qreal extra = 0;
   for (const auto& bar : sequence.activations)
@@ -311,7 +358,9 @@ Layout arrange(Sequence& sequence, const QFontMetricsF& metrics) {
       if (event.type == EventType::Open) {
         frame.rect = QRectF(inset, y, layout.width - inset * 2, 0);
       }
-      const qreal height = textHeight(metrics, event.text, frame.rect.width() - 94) + 14;
+      event.headerLines = frameLines(frameLabel(frame, event), font,
+                                     frame.rect.width() - frameTextInset(frame, metrics) - 10);
+      const qreal height = qMax(20., metrics.height()) * event.headerLines.size() + 14;
       event.rect = QRectF(frame.rect.left(), y, frame.rect.width(), height);
       anchor = event.rect.bottom();
       y += height + 5;
@@ -366,9 +415,9 @@ void frameHeader(QPainter& painter, const Frame& frame, const Event& event, cons
   painter.fillRect(rect.adjusted(1, 1, -1, 0), panel);
   painter.setPen(QPen(stroke, 1.2, event.type == EventType::Divide ? Qt::DashLine : Qt::SolidLine));
   painter.drawLine(rect.topLeft(), rect.topRight());
+  const qreal inset = frameTextInset(frame, QFontMetricsF(painter.font()));
   if (event.type == EventType::Open) {
-    const qreal tabWidth =
-        qMax(51., QFontMetricsF(painter.font()).horizontalAdvance(frame.kind) + 18);
+    const qreal tabWidth = inset - 14;
     const QRectF tab(rect.topLeft(), QSizeF(tabWidth, rect.height()));
     painter.setPen(QPen(stroke, 1));
     painter.drawPolyline(
@@ -377,9 +426,11 @@ void frameHeader(QPainter& painter, const Frame& frame, const Event& event, cons
     painter.drawText(tab.adjusted(3, 0, -8, 0), Qt::AlignCenter, frame.kind);
   }
   painter.setPen(ink);
-  painter.drawText(rect.adjusted(65, 5, -10, -5),
-                   Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap | Qt::TextWrapAnywhere,
-                   event.text.isEmpty() ? QString() : QStringLiteral("[") + event.text + ']');
+  const qreal row = (rect.height() - 14) / event.headerLines.size();
+  for (int i = 0; i < event.headerLines.size(); ++i)
+    painter.drawText(
+        QRectF(rect.left() + inset, rect.top() + 7 + i * row, rect.width() - inset - 10, row),
+        Qt::AlignLeft | Qt::AlignVCenter, event.headerLines.at(i));
 }
 
 void messageHead(QPainter& painter, QPointF tail, QPointF tip, MessageHead head) {
@@ -404,7 +455,7 @@ void messageHead(QPainter& painter, QPointF tail, QPointF tip, MessageHead head)
 QImage drawSequence(Sequence& sequence, bool dark) {
   const auto font = diagramFont();
   const QFontMetricsF metrics(font);
-  const auto layout = arrange(sequence, metrics);
+  const auto layout = arrange(sequence, metrics, font);
   const qreal scale = qMin(1., qMin(940. / layout.width, 1400. / layout.height));
   auto image = canvas(qCeil(layout.width * scale), qCeil(layout.height * scale), dark);
   if (image.isNull()) return image;
