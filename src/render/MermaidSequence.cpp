@@ -2,8 +2,11 @@
 
 #include <QFontMetricsF>
 #include <QHash>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLineF>
 #include <QPainter>
+#include <QPainterPath>
 #include <QRegularExpression>
 #include <QTextLayout>
 #include <QtMath>
@@ -13,12 +16,13 @@ namespace {
 enum class EventType { Message, Note, Open, Divide, Close, Activate, Deactivate };
 enum class NotePlacement { Over, Left, Right };
 enum class MessageHead { None, Filled, Open, Cross };
+enum class ParticipantShape { Box, Actor, Boundary, Control, Entity, Database, Collections, Queue };
 constexpr qreal activationWidth = 12, activationStep = 6;
 constexpr qreal sideNoteWidth = 170, sideNoteGap = 18;
 
 struct Participant {
   QString name;
-  bool actor = false;
+  ParticipantShape shape = ParticipantShape::Box;
   int group = -1;
   bool used = false, created = false, destroyed = false;
   qreal headTop = 18, lineTop = 0, lineBottom = 0;
@@ -66,6 +70,50 @@ struct Sequence {
   QList<Activation> activations;
   QList<Group> groups;
 };
+
+bool configureParticipant(const QRegularExpressionMatch& match, Participant& entry) {
+  entry.shape = match.captured(1) == "actor" ? ParticipantShape::Actor : ParticipantShape::Box;
+  if (match.capturedStart(3) >= 0) {
+    const auto document = QJsonDocument::fromJson(match.captured(3).toUtf8());
+    if (!document.isObject()) return false;
+    const auto object = document.object();
+    for (auto it = object.begin(); it != object.end(); ++it)
+      if ((it.key() != "type" && it.key() != "alias") || !it.value().isString()) return false;
+    if (object.contains("type")) {
+      static const QHash<QString, ParticipantShape> shapes = {
+          {"participant", ParticipantShape::Box},         {"actor", ParticipantShape::Actor},
+          {"boundary", ParticipantShape::Boundary},       {"control", ParticipantShape::Control},
+          {"entity", ParticipantShape::Entity},           {"database", ParticipantShape::Database},
+          {"collections", ParticipantShape::Collections}, {"queue", ParticipantShape::Queue}};
+      const auto shape = shapes.constFind(object.value("type").toString());
+      if (shape == shapes.cend()) return false;
+      entry.shape = *shape;
+    }
+    if (object.contains("alias")) entry.name = label(object.value("alias").toString());
+  }
+  if (match.capturedStart(4) >= 0) entry.name = label(match.captured(4));
+  return true;
+}
+
+qreal participantHalfWidth(ParticipantShape shape) {
+  switch (shape) {
+    case ParticipantShape::Box:
+      return 82;
+    case ParticipantShape::Actor:
+      return 16;
+    case ParticipantShape::Boundary:
+    case ParticipantShape::Collections:
+      return 28;
+    case ParticipantShape::Control:
+    case ParticipantShape::Entity:
+      return 18;
+    case ParticipantShape::Database:
+      return 26;
+    case ParticipantShape::Queue:
+      return 30;
+  }
+  return 82;
+}
 
 QColor highlightColor(const QString& text) {
   static const QRegularExpression color(
@@ -128,8 +176,11 @@ QString sequenceNumberText(qint64 value) {
 
 bool parseSequence(const QStringList& lines, Sequence& sequence) {
   static const QString id = QStringLiteral(R"([\p{L}\p{N}_]+)");
-  static const QRegularExpression declaration(
-      QStringLiteral(R"(^(participant|actor)\s+(%1)(?:\s+as\s+(.+))?$)").arg(id));
+  static const QString metadata = QStringLiteral(R"rx(\{(?:[^{}"]|"(?:\\.|[^"\\])*")*\})rx");
+  static const QString definition =
+      QStringLiteral(R"((participant|actor)\s+(%1)(?:\s*@\s*(%2))?(?:\s+as\s+(.+))?)")
+          .arg(id, metadata);
+  static const QRegularExpression declaration(QStringLiteral("^%1$").arg(definition));
   static const QRegularExpression box(R"(^box(?:\s+(.*))?$)");
   static const QRegularExpression numbering(
       R"(^autonumber(?:\s+(off|[0-9]{1,9}(?:\.[0-9]{1,2})?|\.[0-9]{1,2})(?:\s+([0-9]{1,9}(?:\.[0-9]{1,2})?|\.[0-9]{1,2}))?)?$)");
@@ -137,8 +188,7 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
       QStringLiteral(
           R"(^(%1)\s*(<<-->>|<<->>|-->>|->>|-->|->|--x|-x|--\)|-\))\s*([+-])?\s*(%1)\s*:\s*(.*)$)")
           .arg(id));
-  static const QRegularExpression creation(
-      QStringLiteral(R"(^create\s+(participant|actor)\s+(%1)(?:\s+as\s+(.+))?$)").arg(id));
+  static const QRegularExpression creation(QStringLiteral(R"(^create\s+%1$)").arg(definition));
   static const QRegularExpression destruction(QStringLiteral(R"(^destroy\s+(%1)$)").arg(id));
   static const QRegularExpression activation(
       QStringLiteral(R"(^(activate|deactivate)\s+(%1)$)").arg(id));
@@ -160,7 +210,7 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
     const auto found = ids.constFind(token);
     if (found != ids.cend()) return *found;
     const int index = int(sequence.participants.size());
-    sequence.participants.append({token, false});
+    sequence.participants.append({token});
     active.append(QList<int>());
     ids.insert(token, index);
     return index;
@@ -217,9 +267,8 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
       const int index = participant(created.captured(2));
       auto& entry = sequence.participants[index];
       if (entry.used || entry.created || entry.destroyed) return false;
+      if (!configureParticipant(created, entry)) return false;
       entry.created = true;
-      entry.actor = created.captured(1) == "actor";
-      if (created.capturedStart(3) >= 0) entry.name = label(created.captured(3));
       pendingCreate = index;
     } else if (const auto destroyed = destruction.match(line); destroyed.hasMatch()) {
       const auto found = ids.constFind(destroyed.captured(1));
@@ -236,8 +285,7 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
         group.first = group.first < 0 ? index : qMin(group.first, index);
         group.last = qMax(group.last, index);
       }
-      entry.actor = declared.captured(1) == "actor";
-      if (declared.capturedStart(3) >= 0) entry.name = label(declared.captured(3));
+      if (!configureParticipant(declared, entry)) return false;
     } else if (const auto bar = activation.match(line); bar.hasMatch()) {
       const int index = participant(bar.captured(2));
       if (!activate(index, bar.captured(1) == "activate")) return false;
@@ -374,7 +422,7 @@ QPair<qreal, qreal> messageEndpoints(const Event& event, const Layout& layout,
   const qreal from = event.destroyed == event.from ? a : port(a, event.fromDepth, self || forward);
   const qreal to =
       event.created == event.to
-          ? b + (forward ? -1 : 1) * (sequence.participants.at(event.to).actor ? 16 : 82)
+          ? b + (forward ? -1 : 1) * participantHalfWidth(sequence.participants.at(event.to).shape)
       : event.destroyed == event.to ? b
                                     : port(b, event.toDepth, self || !forward);
   return {from, to};
@@ -441,8 +489,8 @@ Layout arrange(Sequence& sequence, const QFontMetricsF& metrics, const QFont& fo
     const auto& entry = sequence.participants.at(i);
     layout.centers.append(center);
     center += gaps.at(i);
-    layout.header =
-        qMax(layout.header, textHeight(metrics, entry.name, 158) + (entry.actor ? 75 : 36));
+    layout.header = qMax(layout.header, textHeight(metrics, entry.name, 158) +
+                                            (entry.shape == ParticipantShape::Box ? 36 : 75));
   }
   layout.width = qMax(360., layout.centers.last() + column / 2 + margin + 32 + extra);
   qreal edge = 24, left = 0, right = 0;
@@ -507,7 +555,9 @@ Layout arrange(Sequence& sequence, const QFontMetricsF& metrics, const QFont& fo
       const qreal height = textHeight(metrics, text, width - (note ? 14 : 0)) + (note ? 16 : 5);
       if (event.created >= 0) {
         const auto& entry = sequence.participants.at(event.created);
-        const qreal before = entry.actor ? 22 : (textHeight(metrics, entry.name, 158) + 14) / 2;
+        const qreal before = entry.shape == ParticipantShape::Box
+                                 ? (textHeight(metrics, entry.name, 158) + 14) / 2
+                                 : 22;
         y += qMax(0., before + 10 - height - 6);
       }
       event.rect = QRectF(note   ? bounds.left()
@@ -519,8 +569,10 @@ Layout arrange(Sequence& sequence, const QFontMetricsF& metrics, const QFont& fo
       if (event.created >= 0) {
         auto& entry = sequence.participants[event.created];
         const qreal nameHeight = textHeight(metrics, entry.name, 158);
-        entry.headTop = anchor - (entry.actor ? 22 : (nameHeight + 14) / 2);
-        entry.lineTop = entry.headTop + (entry.actor ? 53 : 14) + nameHeight;
+        entry.headTop =
+            anchor - (entry.shape == ParticipantShape::Box ? (nameHeight + 14) / 2 : 22);
+        entry.lineTop =
+            entry.headTop + (entry.shape == ParticipantShape::Box ? 14 : 53) + nameHeight;
         y = qMax(y, entry.lineTop + 18);
       }
       if (event.destroyed >= 0) sequence.participants[event.destroyed].lineBottom = anchor;
@@ -578,6 +630,60 @@ void messageHead(QPainter& painter, QPointF tail, QPointF tip, MessageHead head)
   }
 }
 
+void participantSymbol(QPainter& painter, ParticipantShape shape, qreal x, qreal top) {
+  switch (shape) {
+    case ParticipantShape::Box:
+      break;
+    case ParticipantShape::Actor:
+      painter.drawEllipse(QPointF(x, top + 8), 8, 8);
+      painter.drawLine(QPointF(x, top + 16), QPointF(x, top + 33));
+      painter.drawLine(QPointF(x - 14, top + 22), QPointF(x + 14, top + 22));
+      painter.drawLine(QPointF(x, top + 33), QPointF(x - 12, top + 47));
+      painter.drawLine(QPointF(x, top + 33), QPointF(x + 12, top + 47));
+      break;
+    case ParticipantShape::Boundary:
+      painter.drawLine(QPointF(x - 25, top + 3), QPointF(x - 25, top + 41));
+      painter.drawLine(QPointF(x - 25, top + 22), QPointF(x - 7, top + 22));
+      painter.drawEllipse(QPointF(x + 8, top + 22), 15, 15);
+      break;
+    case ParticipantShape::Control:
+      painter.drawEllipse(QPointF(x, top + 25), 16, 16);
+      painter.drawPolyline(
+          QPolygonF({QPointF(x - 7, top + 3), QPointF(x, top + 9), QPointF(x - 7, top + 15)}));
+      break;
+    case ParticipantShape::Entity:
+      painter.drawEllipse(QPointF(x, top + 20), 16, 16);
+      painter.drawLine(QPointF(x - 21, top + 42), QPointF(x + 21, top + 42));
+      break;
+    case ParticipantShape::Database: {
+      QPainterPath body;
+      body.moveTo(x - 24, top + 8);
+      body.lineTo(x - 24, top + 36);
+      body.cubicTo(x - 24, top + 44, x + 24, top + 44, x + 24, top + 36);
+      body.lineTo(x + 24, top + 8);
+      body.closeSubpath();
+      painter.drawPath(body);
+      painter.drawEllipse(QRectF(x - 24, top + 2, 48, 12));
+      break;
+    }
+    case ParticipantShape::Collections:
+      for (int i = 0; i < 3; ++i) painter.drawRect(QRectF(x - 18 - 4 * i, top + 3 + 5 * i, 44, 30));
+      break;
+    case ParticipantShape::Queue: {
+      QPainterPath body;
+      body.moveTo(x + 20, top + 6);
+      body.lineTo(x - 20, top + 6);
+      body.cubicTo(x - 30, top + 6, x - 30, top + 38, x - 20, top + 38);
+      body.lineTo(x + 20, top + 38);
+      body.cubicTo(x + 30, top + 38, x + 30, top + 6, x + 20, top + 6);
+      body.closeSubpath();
+      painter.drawPath(body);
+      painter.drawEllipse(QRectF(x + 12, top + 6, 16, 32));
+      break;
+    }
+  }
+}
+
 QImage drawSequence(Sequence& sequence, bool dark) {
   const auto font = diagramFont();
   const QFontMetricsF metrics(font);
@@ -621,18 +727,15 @@ QImage drawSequence(Sequence& sequence, bool dark) {
     painter.setPen(QPen(stroke, 1.4));
     painter.setBrush(panel);
     const qreal top = entry.headTop;
-    if (entry.actor) {
-      painter.drawEllipse(QPointF(x, top + 8), 8, 8);
-      painter.drawLine(QPointF(x, top + 16), QPointF(x, top + 33));
-      painter.drawLine(QPointF(x - 14, top + 22), QPointF(x + 14, top + 22));
-      painter.drawLine(QPointF(x, top + 33), QPointF(x - 12, top + 47));
-      painter.drawLine(QPointF(x, top + 33), QPointF(x + 12, top + 47));
-    } else {
+    if (entry.shape == ParticipantShape::Box) {
       painter.drawRoundedRect(QRectF(x - 82, top, 164, height + 14), 6, 6);
+    } else {
+      participantSymbol(painter, entry.shape, x, top);
     }
     painter.setPen(ink);
-    painter.drawText(QRectF(x - 79, top + (entry.actor ? 53 : 7), 158, height),
-                     Qt::AlignCenter | Qt::TextWordWrap | Qt::TextWrapAnywhere, entry.name);
+    painter.drawText(
+        QRectF(x - 79, top + (entry.shape == ParticipantShape::Box ? 7 : 53), 158, height),
+        Qt::AlignCenter | Qt::TextWordWrap | Qt::TextWrapAnywhere, entry.name);
   }
   for (const auto& frame : sequence.frames) {
     if (frame.highlight.isValid()) continue;
