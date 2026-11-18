@@ -941,6 +941,97 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void sequenceFragmentsNestAndKeepBranchRules() {
+    const QString source = QStringLiteral(
+        "sequenceDiagram\n actor User as 作者\n participant App as 编辑器\n"
+        " participant Disk as 磁盘\n autonumber\n"
+        " User->>App: 保存文档\n"
+        " alt 有修改\n"
+        "   loop 逐项校验\n App->>App: 核对格式\n end\n"
+        "   par 保存正文\n App->>Disk: 写入 Markdown\n"
+        "   and 保留草稿\n App->>Disk: 更新恢复文件\n end\n"
+        " else 相同内容\n App-->>User: 已是最新版本\n end\n"
+        " opt 显示结果\n Note over User,App: 保存完成<br>可继续写作\n end\n");
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    auto equivalent = source;
+    equivalent.replace("autonumber\n", "%% Messages have explicit numbers\n");
+    equivalent.replace("保存文档\n", "1. 保存文档\n").replace("核对格式\n", "2. 核对格式\n");
+    equivalent.replace("写入 Markdown\n", "3. 写入 Markdown\n");
+    equivalent.replace("更新恢复文件\n", "4. 更新恢复文件\n");
+    equivalent.replace("已是最新版本\n", "5. 已是最新版本\n");
+    QCOMPARE(light.image, render::mermaid(equivalent).image);
+
+    const auto simple = QStringLiteral(
+        "sequenceDiagram\n participant A\n participant B\n A->>B: Hello\n B-->>A: Reply\n");
+    const auto plain = render::mermaid(simple);
+    QVERIFY(!plain.image.isNull());
+    auto opt = simple;
+    opt.replace("A->>B: Hello\n", "opt Available\n A->>B: Hello\n end\n");
+    const auto fragment = render::mermaid(opt);
+    QVERIFY(!fragment.image.isNull());
+    QVERIFY(fragment.image.height() > plain.image.height());
+    auto loop = opt;
+    loop.replace("opt Available", "loop Available");
+    QCOMPARE(fragment.image.size(), render::mermaid(loop).image.size());
+    QVERIFY(fragment.image != render::mermaid(loop).image);
+    auto actor = simple;
+    actor.replace("participant A", "actor A");
+    QVERIFY(!render::mermaid(actor).image.isNull());
+    QVERIFY(plain.image != render::mermaid(actor).image);
+    const auto shortMessage = render::mermaid(QStringLiteral("sequenceDiagram\n A->>B: I"));
+    const auto multiline = render::mermaid(QStringLiteral("sequenceDiagram\n A->>B: I<br>I"));
+    QVERIFY(multiline.image.height() > shortMessage.image.height());
+    QVERIFY(!render::mermaid(QStringLiteral("sequenceDiagram\n par One\n A->>B: A\n and Two\n"
+                                            " par Nested\n A->>C: B\n and Other\n C-->>A: C\n"
+                                            " end\n and Three\n B->>A: D\n end\n"))
+                 .image.isNull());
+
+    const auto message = QStringLiteral(" A->>B: Message\n");
+    const auto maxMessages = QStringLiteral("sequenceDiagram\n") + message.repeated(60);
+    QVERIFY(!render::mermaid(maxMessages).image.isNull());
+    QVERIFY(render::mermaid(maxMessages + message).image.isNull());
+    const auto maxFrames = QStringLiteral("sequenceDiagram\n") +
+                           (QStringLiteral("loop Work\n") + message + "end\n").repeated(24);
+    QVERIFY(!render::mermaid(maxFrames).image.isNull());
+    QVERIFY(render::mermaid(maxFrames + QStringLiteral("opt Extra\n") + message + "end\n")
+                .image.isNull());
+    const auto maxDepth = QStringLiteral("sequenceDiagram\n") +
+                          QStringLiteral("opt Condition\n").repeated(6) + message +
+                          QStringLiteral("end\n").repeated(6);
+    QVERIFY(!render::mermaid(maxDepth).image.isNull());
+    QVERIFY(render::mermaid(QStringLiteral("sequenceDiagram\nopt Extra\n") +
+                            maxDepth.mid(QStringLiteral("sequenceDiagram\n").size()) + "end\n")
+                .image.isNull());
+    for (const auto& invalid : {
+             QStringLiteral("sequenceDiagram\n alt Missing end\n A->>B: Hello"),
+             QStringLiteral("sequenceDiagram\n A->>B: Hello\nend"),
+             QStringLiteral("sequenceDiagram\n else Wrong\n A->>B: Hello"),
+             QStringLiteral("sequenceDiagram\n loop Work\n A->>B: Hello\n else Wrong\n end"),
+             QStringLiteral("sequenceDiagram\n opt Work\n A->>B: Hello\n and Wrong\n end"),
+             QStringLiteral("sequenceDiagram\n alt Work\n A->>B: Hello\nelse First\n"
+                            "B->>A: Reply\nelse Second\nB->>A: Another\nend"),
+             QStringLiteral("sequenceDiagram\n par Work\n A->>B: Hello\n else Wrong\n end"),
+             QStringLiteral("sequenceDiagram\n A->>B: Hello\n activate B"),
+             QStringLiteral("sequenceDiagram\n A->>+B: Hello"),
+             QStringLiteral("sequenceDiagram\nparticipant A\nparticipant B\nparticipant C\n"
+                            "participant D\nparticipant E\nparticipant F\nparticipant G\n"
+                            "participant H\nparticipant I\n"),
+             QStringLiteral("%%{init: {}}%%\nsequenceDiagram\n A->>B: Hello"),
+         }) {
+      const auto result = render::mermaid(invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/sequence-light.png"));
+      QVERIFY(dark.image.save(retained + "/sequence-dark.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -995,6 +1086,13 @@ class AdvancedContentTests : public QObject {
                                      "commit id:\"Draft\"\ncheckout main\n"
                                      "merge writing id:\"Release\" tag:\"v1.0\"\n")
                               << QStringLiteral("gitGraph\ncommit\ncheckout missing\n");
+    QTest::newRow("sequence") << QStringLiteral(
+                                     "sequenceDiagram\n actor Author as 作者\n"
+                                     " participant Editor\n autonumber\n"
+                                     " alt Modified\n loop Blocks\n Author->>Editor: Save\n end\n"
+                                     " else Ready\n Editor-->>Author: Saved\n end\n"
+                                     " opt Finish\n Note over Author,Editor: Done\n end\n")
+                              << QStringLiteral("sequenceDiagram\n alt Condition\n A->>B: Hello\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {

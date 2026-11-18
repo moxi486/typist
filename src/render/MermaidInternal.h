@@ -23,6 +23,7 @@ RenderResult gitGraph(const QStringList& lines, bool dark);
 RenderResult mindmap(const QStringList& lines, bool dark);
 RenderResult quadrantChart(const QStringList& lines, bool dark);
 RenderResult sankey(const QStringList& lines, bool dark);
+RenderResult sequenceDiagram(const QStringList& lines, bool dark);
 RenderResult stateDiagram(QStringList lines, bool dark);
 RenderResult xyChart(const QStringList& lines, bool dark);
 }  // namespace typist::render::mermaid_detail

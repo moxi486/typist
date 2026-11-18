@@ -4,13 +4,41 @@
 
 行内公式写作 `$E=mc^2$`。输入闭合的 `$` 后自动渲染；独立公式使用单独成行的 `$$` 包围。公式支持分数、根式、上下标、求和、积分、矩阵等 LaTeX 数学排版。双击已渲染公式可打开源码与预览，修改后可撤销。未能渲染的公式保留原文，可切到源码模式修改。
 
-Mermaid 使用带 `mermaid` 语言标记的代码围栏。目前支持 `flowchart / graph` 的 TD、TB、BT、LR、RL 方向，矩形、圆角、圆形、菱形节点，普通与虚线连接、边标签、分支和环；支持 `sequenceDiagram` 的 participant / actor、消息、返回消息、autonumber、Note over。subgraph、样式指令和复杂时序控制等保留为源码，避免显示不完整图形。actor 当前使用统一参与者标题框。
+Mermaid 使用带 `mermaid` 语言标记的代码围栏。目前支持 `flowchart / graph` 的 TD、TB、BT、LR、RL 方向，矩形、圆角、圆形、菱形节点，普通与虚线连接、边标签、分支和环。subgraph 和自定义样式等保留为源码，避免显示不完整图形。
 
 ```mermaid
 flowchart LR
     A[写下想法] --> B{准备好?}
     B -->|是| C[继续写作]
     B -->|否| A
+```
+
+`sequenceDiagram` 支持 `participant` 参与者、`actor` 人物符号、显示别名、实线和虚线消息、自调用、`autonumber` 以及 `Note over` 注释。可用 `alt / else` 表示条件分支、`opt` 表示可选操作、`loop` 表示循环、`par / and` 表示并行操作，每个片段以 `end` 结束。片段可嵌套，编号会延续到各分支内的消息。
+
+标签可用 `<br>` 换行，排版会为消息和注释留出空间。长标签最多显示四行，完整内容保留在源码。支持最多 8 个参与者、60 条消息或注释、24 个控制片段与 6 层嵌套。激活条、创建和销毁参与者、其他控制指令与配置保留为可编辑源码。 [Mermaid 时序图语法](https://mermaid.js.org/syntax/sequenceDiagram.html)
+
+```mermaid
+sequenceDiagram
+    actor User as 作者
+    participant Editor as 编辑器
+    participant Disk as 磁盘
+    autonumber
+    User->>Editor: 保存文档
+    alt 内容有修改
+        loop 逐项校验
+            Editor->>Editor: 核对格式
+        end
+        par 保存正文
+            Editor->>Disk: 写入 Markdown
+        and 保留草稿
+            Editor->>Disk: 更新恢复文件
+        end
+    else 内容相同
+        Editor-->>User: 已是最新版本
+    end
+    opt 显示结果
+        Note over User,Editor: 保存完成
+    end
 ```
 
 `pie` 绘制饼图。用双引号包围名称，每行写一个数值。扇区按源码顺序顺时针排列，图例可通过 `showData` 显示数值。标题可写在 `pie` 同一行或单独一行。支持整数和小数，最多 64 项，并要求总值大于零。零值留在图例中。 [Mermaid 饼图语法](https://mermaid.js.org/syntax/pie.html)

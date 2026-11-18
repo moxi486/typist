@@ -1,7 +1,6 @@
 #include "MermaidInternal.h"
 
 #include <QFontMetricsF>
-#include <QHash>
 #include <QPainter>
 #include <QPair>
 #include <QPicture>
@@ -356,104 +355,6 @@ RenderResult timeline(const QStringList& lines, bool dark) {
   return {image, {}};
 }
 
-struct Message {
-  QString from, to, text;
-  bool dashed = false, note = false;
-};
-RenderResult sequence(QStringList lines, bool dark) {
-  lines.removeFirst();
-  QStringList ids;
-  QHash<QString, QString> names;
-  QList<Message> messages;
-  bool numbered = false;
-  auto participant = [&](const QString& id) {
-    if (!ids.contains(id)) {
-      ids.append(id);
-      names[id] = id;
-    }
-  };
-  static const QRegularExpression declaration(
-      R"(^\s*(?:participant|actor)\s+(\w+)(?:\s+as\s+(.+))?\s*$)");
-  static const QRegularExpression message(R"(^\s*(\w+)\s*(-->>|->>|-->|->)\s*(\w+)\s*:\s*(.*)$)");
-  static const QRegularExpression note(R"(^\s*Note\s+over\s+(\w+)(?:\s*,\s*(\w+))?\s*:\s*(.*)$)",
-                                       QRegularExpression::CaseInsensitiveOption);
-  for (const auto& line : lines) {
-    if (line.trimmed().isEmpty() || line.trimmed().startsWith("%%")) continue;
-    if (line.trimmed() == "autonumber") {
-      numbered = true;
-      continue;
-    }
-    auto match = declaration.match(line);
-    if (match.hasMatch()) {
-      participant(match.captured(1));
-      if (!match.captured(2).isEmpty()) names[match.captured(1)] = label(match.captured(2));
-      continue;
-    }
-    match = message.match(line);
-    if (match.hasMatch()) {
-      participant(match.captured(1));
-      participant(match.captured(3));
-      messages.append({match.captured(1), match.captured(3), label(match.captured(4)),
-                       match.captured(2).startsWith("--"), false});
-    } else {
-      match = note.match(line);
-      if (!match.hasMatch()) return {{}, unsupported};
-      participant(match.captured(1));
-      const auto to = match.captured(2).isEmpty() ? match.captured(1) : match.captured(2);
-      participant(to);
-      messages.append({match.captured(1), to, label(match.captured(3)), false, true});
-    }
-    if (ids.size() > 8 || messages.size() > 60)
-      return {{}, QStringLiteral("Sequence diagram exceeds 8 participants or 60 messages")};
-  }
-  if (ids.isEmpty()) return {{}, unsupported};
-  const int width = qMax(340, static_cast<int>(ids.size()) * 200),
-            height = 130 + messages.size() * 74;
-  const qreal scale = qMin(1., qMin(820. / width, 1400. / height));
-  QImage image = canvas(qCeil(width * scale), qCeil(height * scale), dark);
-  QPainter painter(&image);
-  painter.setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing);
-  painter.scale(scale, scale);
-  painter.setFont(diagramFont());
-  const QColor foreground(dark ? "#dde3ec" : "#445269");
-  QHash<QString, qreal> x;
-  for (int i = 0; i < ids.size(); ++i) {
-    const qreal center = width * (i + .5) / ids.size();
-    x[ids[i]] = center;
-    painter.setPen(QPen(foreground, 1, Qt::DashLine));
-    painter.drawLine(QPointF(center, 62), QPointF(center, height - 30));
-    painter.setPen(QPen(foreground, 1));
-    painter.setBrush(dark ? QColor("#344359") : QColor("#edf3fc"));
-    painter.drawRoundedRect(QRectF(center - 75, 18, 150, 44), 5, 5);
-    painter.drawText(QRectF(center - 71, 18, 142, 44), Qt::AlignCenter | Qt::TextWordWrap,
-                     names.value(ids[i]));
-  }
-  int number = 0;
-  for (int i = 0; i < messages.size(); ++i) {
-    const auto& m = messages[i];
-    const qreal a = x.value(m.from), b = x.value(m.to), y = 108 + i * 74;
-    painter.setPen(foreground);
-    if (m.note) {
-      const QRectF rect(qMin(a, b) - 65, y - 23, qMax(130., qAbs(a - b) + 130), 48);
-      painter.setBrush(dark ? QColor("#625c36") : QColor("#fff7cf"));
-      painter.drawRect(rect);
-      painter.drawText(rect.adjusted(6, 2, -6, -2), Qt::AlignCenter | Qt::TextWordWrap, m.text);
-    } else {
-      const QString text = (numbered ? QString::number(++number) + ". " : QString()) + m.text;
-      if (a == b) {
-        painter.drawLine(QPointF(a, y), QPointF(a + 42, y));
-        painter.drawLine(QPointF(a + 42, y), QPointF(a + 42, y + 25));
-        arrow(painter, {a + 42, y + 25}, {a, y + 25}, m.dashed);
-        painter.drawText(QRectF(a + 10, y - 28, 170, 28), Qt::AlignLeft | Qt::AlignVCenter, text);
-      } else {
-        arrow(painter, {a, y}, {b, y}, m.dashed);
-        painter.drawText(QRectF(qMin(a, b) + 5, y - 48, qAbs(a - b) - 10, 44),
-                         Qt::AlignCenter | Qt::TextWordWrap, text);
-      }
-    }
-  }
-  return {image, {}};
-}
 }  // namespace
 RenderResult mermaid(const QString& source, bool dark) {
   if (source.size() > 32768) return {{}, QStringLiteral("Diagram exceeds 32768 characters")};
@@ -466,7 +367,8 @@ RenderResult mermaid(const QString& source, bool dark) {
   }
   if (lines.isEmpty()) return {{}, unsupported};
   const auto header = lines.first().trimmed();
-  if (header == "sequenceDiagram") return sequence(lines, dark);
+  if (header == "sequenceDiagram" && !hasConfig)
+    return mermaid_detail::sequenceDiagram(lines, dark);
   if (header == "stateDiagram" || header == "stateDiagram-v2")
     return mermaid_detail::stateDiagram(lines, dark);
   if (header == "classDiagram" && !hasConfig) return mermaid_detail::classDiagram(lines, dark);
