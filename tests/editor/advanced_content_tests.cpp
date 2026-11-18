@@ -1094,6 +1094,10 @@ class AdvancedContentTests : public QObject {
                             QStringLiteral("activate A\n").repeated(9) + "A->>A: Work\n")
                 .image.isNull());
     const auto interval = QStringLiteral("activate A\ndeactivate A\n");
+    QVERIFY(matchingPixels(render::mermaid(QStringLiteral("sequenceDiagram\n participant A\n") +
+                                           interval + "A->>A: Continue\n")
+                               .image,
+                           QColor("#d8e7ff")) > 0);
     QVERIFY(!render::mermaid(QStringLiteral("sequenceDiagram\n") + interval.repeated(64))
                  .image.isNull());
     QVERIFY(render::mermaid(QStringLiteral("sequenceDiagram\n") + interval.repeated(65))

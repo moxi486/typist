@@ -374,7 +374,7 @@ QImage drawSequence(Sequence& sequence, bool dark) {
     painter.drawRect(frame.rect);
   }
   for (const auto& bar : sequence.activations) {
-    if (bar.bottom <= bar.top) continue;
+    if (bar.top >= sequence.participants.at(bar.participant).lineBottom) continue;
     const qreal x = layout.centers.at(bar.participant) + bar.depth * activationStep;
     painter.setPen(QPen(stroke, 1.2));
     painter.setBrush(dark ? QColor("#56759d") : QColor("#d8e7ff"));
