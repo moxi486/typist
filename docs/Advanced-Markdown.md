@@ -41,6 +41,33 @@ sequenceDiagram
     end
 ```
 
+时序图支持以下标准消息线型；实线与虚线都支持自调用及 `+ / -` 激活简写。双向消息在两端绘制箭头，自调用时分别沿出发和返回方向绘制。 [Mermaid 消息语法](https://mermaid.js.org/syntax/sequenceDiagram.html#messages)
+
+| 实线 | 虚线 | 显示 |
+| --- | --- | --- |
+| `->` | `-->` | 无箭头线段 |
+| `->>` | `-->>` | 实心箭头 |
+| `<<->>` | `<<-->>` | 两端实心箭头 |
+| `-x` | `--x` | 末端叉号 |
+| `-)` | `--)` | 异步开放箭头 |
+
+```mermaid
+sequenceDiagram
+    actor User as 作者
+    participant Editor as 编辑器
+    participant Worker as 工作进程
+    User->Editor: 无箭头消息
+    Editor-->User: 虚线消息
+    User->>+Editor: 保存文档
+    Editor-)+Worker: 异步写入
+    Worker--)-Editor: 写入完成
+    Editor<<->>Editor: 双向自调用
+    Editor<<-->>User: 核对结果
+    Editor-->>-User: 已保存
+```
+
+半箭头和 `()` 中心连接等其他箭头语法保留为可编辑源码。
+
 `Note left of 名称` 和 `Note right of 名称` 把注释放在单个参与者左侧或右侧；`Note over 名称` 沿参与者生命线居中，`Note over A,B` 跨越两位参与者，交换顺序不影响位置。关键字不区分大小写，内容可用 `<br>` 换行。旁注会为激活条、相邻生命线和画布边缘留出空间。侧向注释仅支持一个参与者，多个参与者请用 `over`；无效位置或销毁后的引用保留为可编辑源码。 [Mermaid 注释语法](https://mermaid.js.org/syntax/sequenceDiagram.html#notes)
 
 ```mermaid

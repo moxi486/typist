@@ -1324,6 +1324,104 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void sequenceMessagesDistinguishArrowheadsAndDirections() {
+    const QString source = QStringLiteral(
+        "sequenceDiagram\n actor User as 作者\n participant App as 编辑器\n"
+        " participant Worker as 工作进程\n autonumber\n"
+        " User->App: 无箭头线段\n App-->User: 虚线线段\n"
+        " User->>+App: 同步调用\n App-->>-User: 返回结果\n"
+        " User<<->>App: 双向通信\n App<<-->>User: 虚线双向通信\n"
+        " App-)+Worker: 异步请求\n Worker--)-App: 异步完成\n"
+        " User-xApp: 取消请求\n App--xUser: 丢弃响应\n App<<->>App: 双向自调用\n");
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const auto diagram = [](const QString& token, const QString& from = QStringLiteral("A"),
+                            const QString& to = QStringLiteral("B")) {
+      return render::mermaid(QStringLiteral("sequenceDiagram\n participant A\n participant B\n ") +
+                             from + token + to + ": Message\n")
+          .image;
+    };
+    for (const auto& token :
+         {"->", "-->", "->>", "-->>", "<<->>", "<<-->>", "-x", "--x", "-)", "--)"}) {
+      QVERIFY2(!diagram(token).isNull(), token);
+      QVERIFY2(!diagram(token, "B", "A").isNull(), token);
+      QVERIFY2(!diagram(token, "A", "A").isNull(), token);
+    }
+    const auto difference = [](const QImage& a, const QImage& b) {
+      QRect result;
+      for (int y = 0; y < a.height(); ++y)
+        for (int x = 0; x < a.width(); ++x)
+          if (a.pixel(x, y) != b.pixel(x, y)) result = result.united(QRect(x, y, 1, 1));
+      return result;
+    };
+    const auto ink = [](const QImage& image) {
+      int count = 0;
+      for (int y = 0; y < image.height(); ++y)
+        for (int x = 0; x < image.width(); ++x)
+          count += image.pixelColor(x, y) == QColor("#34455e");
+      return count;
+    };
+    const auto none = diagram("->"), filled = diagram("->>"), open = diagram("-)");
+    const auto both = diagram("<<->>"), crossed = diagram("-x");
+    for (const auto& image : {filled, open, both, crossed}) QCOMPARE(image.size(), none.size());
+    QVERIFY(ink(filled) > ink(open) && ink(open) > ink(none));
+    const auto receiver = difference(none, filled), sender = difference(filled, both);
+    QVERIFY(!receiver.isEmpty() && receiver.left() > none.width() / 2);
+    QVERIFY(!sender.isEmpty() && sender.right() < none.width() / 2);
+    QVERIFY(crossed != none && crossed != open);
+    const auto reverse = diagram("->>", "B", "A");
+    const auto reversedReceiver = difference(diagram("->", "B", "A"), reverse);
+    QVERIFY(!reversedReceiver.isEmpty() && reversedReceiver.right() < reverse.width() / 2);
+    const auto dotted = diagram("-->"), dottedBoth = diagram("<<-->>");
+    QVERIFY(dottedBoth != both && dotted != none);
+    const auto ratio = dotted.devicePixelRatio();
+    const QRect middle(qRound(240 * ratio), 0, qRound(30 * ratio), dotted.height());
+    QCOMPARE(dotted.copy(middle), dottedBoth.copy(middle));
+    const auto self = diagram("<<->>", "A", "A");
+    const auto selfHeads = difference(diagram("->", "A", "A"), self);
+    QVERIFY(selfHeads.height() > 20 * self.devicePixelRatio());
+    QVERIFY(!render::mermaid(
+                 QStringLiteral(
+                     "sequenceDiagram\n create participant W\n A-)+W: Create\n W<<->>W: Work\n"
+                     " destroy W\n W--)-A: Done\n"))
+                 .image.isNull());
+    for (const auto& invalid : {
+             QStringLiteral("A<<->B: Missing arrowhead"),
+             QStringLiteral("A-)++B: Invalid activation"),
+             QStringLiteral("A--))B: Invalid arrow"),
+             QStringLiteral("A<-B: Unsupported arrow"),
+             QStringLiteral("A()->>B: Central connection"),
+             QStringLiteral("A->>()B: Central connection"),
+             QStringLiteral("A-)B: Start\n B--)-A: Not active"),
+         }) {
+      const auto result = render::mermaid(QStringLiteral("sequenceDiagram\n") + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const auto markdown = QStringLiteral("```mermaid\n") + source + "```\n";
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/arrows-light.png"));
+      QVERIFY(dark.image.save(retained + "/arrows-dark.png"));
+      QVERIFY(self.save(retained + "/arrows-self.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -1406,6 +1504,13 @@ class AdvancedContentTests : public QObject {
                " Note left of A: Prepare<br>the document\n A->>+B: Save\n"
                " Note right of B: Writing\n Note over B,A: Keep the source\n B-->>-A: Done\n")
         << QStringLiteral("sequenceDiagram\n Note right of A,B: Invalid\n");
+    QTest::newRow("sequence-arrows")
+        << QStringLiteral(
+               "sequenceDiagram\n participant A\n participant B\n"
+               " A->B: No arrowhead\n A<<->>+B: Bidirectional\n"
+               " B<<-->>B: Self call\n B--)-A: Async result\n"
+               " create participant W\n A-)W: Create\n destroy W\n A--xW: Stop\n")
+        << QStringLiteral("sequenceDiagram\n A-)++B: Invalid\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {
