@@ -1,5 +1,5 @@
 add_library(typist_render STATIC DocumentProperties.h SpecialContent.h SpecialContent.cpp Mermaid.cpp
-  MermaidClass.cpp MermaidGantt.cpp MermaidGraph.cpp MermaidInternal.h MermaidMindmap.cpp
+  MermaidClass.cpp MermaidGantt.cpp MermaidGit.cpp MermaidGraph.cpp MermaidInternal.h MermaidMindmap.cpp
   MermaidQuadrant.cpp MermaidSankey.cpp MermaidXY.cpp
   SyntaxHighlighter.h SyntaxHighlighter.cpp ImageResources.h ImageResources.cpp
   HeadingLinks.h HeadingLinks.cpp)

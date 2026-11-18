@@ -842,6 +842,105 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void gitGraphsTrackBranchesMergesTypesAndDirections() {
+    const QString history = QStringLiteral(
+        "gitGraph\n"
+        "commit id: \"起点\"\n"
+        "branch writing\ncommit id: \"完成初稿\"\n"
+        "checkout main\ncommit id: \"修复问题\" type: REVERSE\n"
+        "checkout writing\ncommit id: \"复核\" type: HIGHLIGHT\n"
+        "checkout main\nmerge writing id: \"合并写作\" tag: \"v1.0\"\n"
+        "commit id: \"发布\"\n");
+    const auto light = render::mermaid(history);
+    const auto dark = render::mermaid(history, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    auto equivalent = history;
+    equivalent.replace("gitGraph\n", "gitGraph LR:\n");
+    equivalent.replace("checkout", "switch");
+    equivalent.replace("commit id: \"起点\"\n", "commit id: \"起点\"; %% starting point\n");
+    equivalent.replace("branch writing\n", "branch \"writing\"\ncheckout writing\n");
+    QCOMPARE(light.image, render::mermaid(equivalent).image);
+
+    auto topDown = history;
+    topDown.replace("gitGraph\n", "gitGraph TB:\n");
+    auto bottomUp = history;
+    bottomUp.replace("gitGraph\n", "gitGraph BT:\n");
+    const auto vertical = render::mermaid(topDown), upward = render::mermaid(bottomUp);
+    QVERIFY(!vertical.image.isNull() && !upward.image.isNull());
+    QCOMPARE(vertical.image.size(), upward.image.size());
+    QVERIFY(vertical.image != upward.image);
+    QVERIFY(vertical.image.width() < light.image.width());
+    QVERIFY(vertical.image.height() > light.image.height());
+    auto normal = history;
+    normal.remove(" type: REVERSE").remove(" type: HIGHLIGHT");
+    QVERIFY(light.image != render::mermaid(normal).image);
+    auto unmerged = history;
+    unmerged.replace("merge writing", "commit");
+    const auto withoutMerge = render::mermaid(unmerged);
+    QCOMPARE(light.image.size(), withoutMerge.image.size());
+    QVERIFY(light.image != withoutMerge.image);
+    auto fromMain = history;
+    fromMain.replace("checkout writing\ncommit id: \"复核\"", "checkout main\ncommit id: \"复核\"");
+    QVERIFY(light.image != render::mermaid(fromMain).image);
+
+    const auto generated = render::mermaid(QStringLiteral("gitGraph\ncommit\ncommit\n"));
+    QCOMPARE(
+        generated.image,
+        render::mermaid(QStringLiteral("gitGraph:\ncommit id:\"c1\"\ncommit id:\"c2\"\n")).image);
+    const auto tags = render::mermaid(
+        QStringLiteral("gitGraph\ncommit id: \"root; %\" tag: \"a;b\" tag: \"v2\"\n"));
+    QVERIFY(!tags.image.isNull());
+    const auto ordered = render::mermaid(
+        QStringLiteral("gitGraph\ncommit\nbranch a order: 2\ncommit\ncheckout main\n"
+                       "branch b order: 1\ncommit\n"));
+    const auto creationOrder = render::mermaid(
+        QStringLiteral("gitGraph\ncommit\nbranch a\ncommit\ncheckout main\nbranch b\ncommit\n"));
+    QCOMPARE(ordered.image.size(), creationOrder.image.size());
+    QVERIFY(ordered.image != creationOrder.image);
+    const auto inherited = render::mermaid(
+        QStringLiteral("gitGraph\ncommit\nbranch a\nbranch b\ncommit\ncheckout main\nmerge b\n"));
+    QVERIFY(!inherited.image.isNull());
+    const QString maxCommits =
+        QStringLiteral("gitGraph\n") + QStringLiteral("commit\n").repeated(32);
+    QVERIFY(!render::mermaid(maxCommits).image.isNull());
+    QVERIFY(render::mermaid(maxCommits + QStringLiteral("commit")).image.isNull());
+    QString maxBranches = QStringLiteral("gitGraph\ncommit\n");
+    for (int i = 0; i < 7; ++i) maxBranches += QStringLiteral("branch branch%1\ncommit\n").arg(i);
+    QVERIFY(!render::mermaid(maxBranches).image.isNull());
+    QVERIFY(render::mermaid(maxBranches + QStringLiteral("branch extra")).image.isNull());
+
+    for (const auto& invalid : {
+             QStringLiteral("gitGraph"),
+             QStringLiteral("gitGraph RL:\ncommit"),
+             QStringLiteral("gitGraph\ncommit id: \"unfinished"),
+             QStringLiteral("gitGraph\ncommit id:\"same\"\ncommit id:\"same\""),
+             QStringLiteral("gitGraph\nbranch main\ncommit"),
+             QStringLiteral("gitGraph\ncheckout missing\ncommit"),
+             QStringLiteral("gitGraph\ncommit\nmerge main"),
+             QStringLiteral("gitGraph\ncommit\nmerge missing"),
+             QStringLiteral("gitGraph\ncommit\nbranch a\nmerge main"),
+             QStringLiteral("gitGraph\nbranch a\ncommit\ncheckout main\nmerge a"),
+             QStringLiteral("gitGraph\ncommit type: UNKNOWN"),
+             QStringLiteral("gitGraph\ncommit id:\"x\" id:\"y\""),
+             QStringLiteral("gitGraph\ncommit\nbranch a order: 9999999999999"),
+             QStringLiteral("gitGraph\ncommit\ncherry-pick id:\"c1\""),
+             QStringLiteral("%%{init: {}}%%\ngitGraph\ncommit"),
+         }) {
+      const auto result = render::mermaid(invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/gitgraph-light.png"));
+      QVERIFY(dark.image.save(retained + "/gitgraph-dark.png"));
+      QVERIFY(vertical.image.save(retained + "/gitgraph-tb.png"));
+      QVERIFY(upward.image.save(retained + "/gitgraph-bt.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -891,6 +990,11 @@ class AdvancedContentTests : public QObject {
                                    "sankey-beta\nPlan,Prepare,12\nPlan,Draft,8\n"
                                    "Prepare,\"Review, edit\",12\nDraft,\"Review, edit\",8\n")
                             << QStringLiteral("sankey\nA,B,1\nB,A,1\n");
+    QTest::newRow("gitgraph") << QStringLiteral(
+                                     "gitGraph\ncommit id:\"Start\"\nbranch writing\n"
+                                     "commit id:\"Draft\"\ncheckout main\n"
+                                     "merge writing id:\"Release\" tag:\"v1.0\"\n")
+                              << QStringLiteral("gitGraph\ncommit\ncheckout missing\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {

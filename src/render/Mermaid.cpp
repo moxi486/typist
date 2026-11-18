@@ -29,7 +29,7 @@ QImage canvas(int width, int height, bool dark) {
 const QString unsupported = QStringLiteral(
     "This Mermaid syntax is not supported by the native renderer. Edit the source to use "
     "flowchart, sequenceDiagram, stateDiagram, classDiagram, gantt, pie, timeline, mindmap, "
-    "quadrantChart, sankey or xychart.");
+    "quadrantChart, sankey, gitGraph or xychart.");
 QString label(QString text) {
   text = text.trimmed();
   if (text.startsWith('"') && text.endsWith('"')) text = text.mid(1, text.size() - 2);
@@ -475,6 +475,8 @@ RenderResult mermaid(const QString& source, bool dark) {
   if (header == "quadrantChart" && !hasConfig) return mermaid_detail::quadrantChart(lines, dark);
   if ((header == "sankey" || header == "sankey-beta") && !hasConfig)
     return mermaid_detail::sankey(lines, dark);
+  if (header.startsWith(QLatin1String("gitGraph"), Qt::CaseInsensitive) && !hasConfig)
+    return mermaid_detail::gitGraph(lines, dark);
   if (header.compare(QStringLiteral("mindmap"), Qt::CaseInsensitive) == 0 && !hasConfig)
     return mermaid_detail::mindmap(lines, dark);
   if (header.compare(QStringLiteral("timeline"), Qt::CaseInsensitive) == 0)
