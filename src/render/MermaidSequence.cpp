@@ -2,6 +2,7 @@
 
 #include <QFontMetricsF>
 #include <QHash>
+#include <QLineF>
 #include <QPainter>
 #include <QRegularExpression>
 #include <QtMath>
@@ -10,6 +11,7 @@ namespace typist::render::mermaid_detail {
 namespace {
 enum class EventType { Message, Note, Open, Divide, Close, Activate, Deactivate };
 enum class NotePlacement { Over, Left, Right };
+enum class MessageHead { None, Filled, Open, Cross };
 constexpr qreal activationWidth = 12, activationStep = 6;
 constexpr qreal sideNoteWidth = 170, sideNoteGap = 18;
 
@@ -26,7 +28,8 @@ struct Event {
   int from = -1, to = -1, frame = -1, number = 0, activation = -1;
   int fromDepth = 0, toDepth = 0;
   int created = -1, destroyed = -1;
-  bool dashed = false, cross = false;
+  bool dashed = false, bidirectional = false;
+  MessageHead head = MessageHead::Filled;
   NotePlacement placement = NotePlacement::Over;
   QRectF rect{};
 };
@@ -55,7 +58,9 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
   static const QRegularExpression declaration(
       QStringLiteral(R"(^(participant|actor)\s+(%1)(?:\s+as\s+(.+))?$)").arg(id));
   static const QRegularExpression message(
-      QStringLiteral(R"(^(%1)\s*(-->>|->>|-->|->|--x|-x)\s*([+-])?\s*(%1)\s*:\s*(.*)$)").arg(id));
+      QStringLiteral(
+          R"(^(%1)\s*(<<-->>|<<->>|-->>|->>|-->|->|--x|-x|--\)|-\))\s*([+-])?\s*(%1)\s*:\s*(.*)$)")
+          .arg(id));
   static const QRegularExpression creation(
       QStringLiteral(R"(^create\s+(participant|actor)\s+(%1)(?:\s+as\s+(.+))?$)").arg(id));
   static const QRegularExpression destruction(QStringLiteral(R"(^destroy\s+(%1)$)").arg(id));
@@ -142,8 +147,13 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
       event.to = to;
       event.fromDepth = int(active.at(from).size());
       event.toDepth = int(active.at(to).size()) + (m.captured(3) == "+" ? 1 : 0);
-      event.dashed = m.captured(2).startsWith("--");
-      event.cross = m.captured(2).endsWith('x');
+      const auto arrowType = m.captured(2);
+      event.dashed = arrowType.contains("--");
+      event.bidirectional = arrowType.startsWith("<<");
+      event.head = arrowType.endsWith('x')    ? MessageHead::Cross
+                   : arrowType.endsWith(')')  ? MessageHead::Open
+                   : arrowType.endsWith(">>") ? MessageHead::Filled
+                                              : MessageHead::None;
       event.created = pendingCreate;
       event.destroyed = pendingDestroy;
       event.number = numbered ? ++number : 0;
@@ -372,6 +382,25 @@ void frameHeader(QPainter& painter, const Frame& frame, const Event& event, cons
                    event.text.isEmpty() ? QString() : QStringLiteral("[") + event.text + ']');
 }
 
+void messageHead(QPainter& painter, QPointF tail, QPointF tip, MessageHead head) {
+  if (head == MessageHead::None || head == MessageHead::Cross) return;
+  const qreal length = QLineF(tail, tip).length();
+  if (qFuzzyIsNull(length)) return;
+  const auto direction = (tip - tail) / length;
+  const QPointF normal(-direction.y(), direction.x());
+  const auto left = tip - direction * 8 + normal * 4;
+  const auto right = tip - direction * 8 - normal * 4;
+  const auto color = painter.pen().color();
+  painter.setPen(QPen(color, 1.6));
+  if (head == MessageHead::Open) {
+    painter.setBrush(Qt::NoBrush);
+    painter.drawPolyline(QPolygonF({left, tip, right}));
+  } else {
+    painter.setBrush(color);
+    painter.drawPolygon(QPolygonF({tip, left, right}));
+  }
+}
+
 QImage drawSequence(Sequence& sequence, bool dark) {
   const auto font = diagramFont();
   const QFontMetricsF metrics(font);
@@ -455,11 +484,15 @@ QImage drawSequence(Sequence& sequence, bool dark) {
         const qreal turn = qMax(a, b) + 56;
         painter.setPen(QPen(ink, 1.5, event.dashed ? Qt::DashLine : Qt::SolidLine));
         painter.drawPolyline(QPolygonF({{a, y}, {turn, y}, {turn, y + 24}}));
-        arrow(painter, {turn, y + 24}, end, event.dashed, !event.cross);
+        arrow(painter, {turn, y + 24}, end, event.dashed, false);
+        messageHead(painter, {turn, y + 24}, end, event.head);
+        if (event.bidirectional) messageHead(painter, {turn, y}, {a, y}, event.head);
       } else {
-        arrow(painter, {a, y}, end, event.dashed, !event.cross);
+        arrow(painter, {a, y}, end, event.dashed, false);
+        messageHead(painter, {a, y}, end, event.head);
+        if (event.bidirectional) messageHead(painter, end, {a, y}, event.head);
       }
-      if (event.cross && event.destroyed != event.to) cross(end);
+      if (event.head == MessageHead::Cross && event.destroyed != event.to) cross(end);
       const auto text =
           event.number ? QString::number(event.number) + ". " + event.text : event.text;
       painter.setPen(ink);
