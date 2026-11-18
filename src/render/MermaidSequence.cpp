@@ -14,6 +14,8 @@ constexpr qreal activationWidth = 12, activationStep = 6;
 struct Participant {
   QString name;
   bool actor = false;
+  bool used = false, created = false, destroyed = false;
+  qreal headTop = 18, lineTop = 0, lineBottom = 0;
 };
 
 struct Event {
@@ -21,7 +23,8 @@ struct Event {
   QString text;
   int from = -1, to = -1, frame = -1, number = 0, activation = -1;
   int fromDepth = 0, toDepth = 0;
-  bool dashed = false;
+  int created = -1, destroyed = -1;
+  bool dashed = false, cross = false;
   QRectF rect{};
 };
 
@@ -49,7 +52,10 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
   static const QRegularExpression declaration(
       QStringLiteral(R"(^(participant|actor)\s+(%1)(?:\s+as\s+(.+))?$)").arg(id));
   static const QRegularExpression message(
-      QStringLiteral(R"(^(%1)\s*(-->>|->>|-->|->)\s*([+-])?\s*(%1)\s*:\s*(.*)$)").arg(id));
+      QStringLiteral(R"(^(%1)\s*(-->>|->>|-->|->|--x|-x)\s*([+-])?\s*(%1)\s*:\s*(.*)$)").arg(id));
+  static const QRegularExpression creation(
+      QStringLiteral(R"(^create\s+(participant|actor)\s+(%1)(?:\s+as\s+(.+))?$)").arg(id));
+  static const QRegularExpression destruction(QStringLiteral(R"(^destroy\s+(%1)$)").arg(id));
   static const QRegularExpression activation(
       QStringLiteral(R"(^(activate|deactivate)\s+(%1)$)").arg(id));
   static const QRegularExpression note(
@@ -60,6 +66,7 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
   QList<int> stack;
   QList<QList<int>> active;
   int count = 0, number = 0;
+  int pendingCreate = -1, pendingDestroy = -1;
   bool numbered = false;
   const auto participant = [&](const QString& token) {
     const auto found = ids.constFind(token);
@@ -71,6 +78,8 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
     return index;
   };
   const auto activate = [&](int index, bool start) {
+    if (sequence.participants.at(index).destroyed) return false;
+    sequence.participants[index].used = true;
     auto& levels = active[index];
     if ((start && (levels.size() >= 8 || sequence.activations.size() >= 64)) ||
         (!start && levels.isEmpty()))
@@ -93,34 +102,66 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
     const auto line = lines.at(i).trimmed();
     if (line.startsWith("%%{")) return false;
     if (line.isEmpty() || line.startsWith("%%")) continue;
+    const auto m = message.match(line);
+    if ((pendingCreate >= 0 || pendingDestroy >= 0) && !m.hasMatch()) return false;
     if (line == "autonumber") {
       numbered = true;
+    } else if (const auto created = creation.match(line); created.hasMatch()) {
+      const int index = participant(created.captured(2));
+      auto& entry = sequence.participants[index];
+      if (entry.used || entry.created || entry.destroyed) return false;
+      entry.created = true;
+      entry.actor = created.captured(1) == "actor";
+      if (created.capturedStart(3) >= 0) entry.name = label(created.captured(3));
+      pendingCreate = index;
+    } else if (const auto destroyed = destruction.match(line); destroyed.hasMatch()) {
+      const auto found = ids.constFind(destroyed.captured(1));
+      if (found == ids.cend() || sequence.participants.at(*found).destroyed) return false;
+      pendingDestroy = *found;
     } else if (const auto declared = declaration.match(line); declared.hasMatch()) {
       const int index = participant(declared.captured(2));
       auto& entry = sequence.participants[index];
+      if (entry.destroyed) return false;
       entry.actor = declared.captured(1) == "actor";
       if (declared.capturedStart(3) >= 0) entry.name = label(declared.captured(3));
     } else if (const auto bar = activation.match(line); bar.hasMatch()) {
       const int index = participant(bar.captured(2));
       if (!activate(index, bar.captured(1) == "activate")) return false;
-    } else if (const auto m = message.match(line); m.hasMatch()) {
+    } else if (m.hasMatch()) {
       const int from = participant(m.captured(1)), to = participant(m.captured(4));
+      if (sequence.participants.at(from).destroyed || sequence.participants.at(to).destroyed ||
+          (pendingCreate >= 0 && (pendingCreate != to || from == to)) ||
+          (pendingDestroy >= 0 && pendingDestroy != from && pendingDestroy != to))
+        return false;
       Event event{EventType::Message, label(m.captured(5))};
       event.from = from;
       event.to = to;
       event.fromDepth = int(active.at(from).size());
       event.toDepth = int(active.at(to).size()) + (m.captured(3) == "+" ? 1 : 0);
       event.dashed = m.captured(2).startsWith("--");
+      event.cross = m.captured(2).endsWith('x');
+      event.created = pendingCreate;
+      event.destroyed = pendingDestroy;
       event.number = numbered ? ++number : 0;
       sequence.events.append(event);
+      sequence.participants[from].used = sequence.participants[to].used = true;
       if ((m.captured(3) == "+" && !activate(to, true)) ||
           (m.captured(3) == "-" && !activate(from, false)))
         return false;
+      if (pendingDestroy >= 0) {
+        while (!active.at(pendingDestroy).isEmpty()) activate(pendingDestroy, false);
+        sequence.participants[pendingDestroy].destroyed = true;
+      }
+      pendingCreate = pendingDestroy = -1;
       ++count;
     } else if (const auto n = note.match(line); n.hasMatch()) {
       Event event{EventType::Note, label(n.captured(3))};
       event.from = participant(n.captured(1));
       event.to = n.capturedStart(2) < 0 ? event.from : participant(n.captured(2));
+      if (sequence.participants.at(event.from).destroyed ||
+          sequence.participants.at(event.to).destroyed)
+        return false;
+      sequence.participants[event.from].used = sequence.participants[event.to].used = true;
       sequence.events.append(event);
       ++count;
     } else if (const auto block = control.match(line); block.hasMatch()) {
@@ -156,7 +197,8 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
     if (sequence.participants.size() > 8 || count > 60 || sequence.events.size() > 360)
       return false;
   }
-  return stack.isEmpty() && !sequence.participants.isEmpty();
+  return stack.isEmpty() && pendingCreate < 0 && pendingDestroy < 0 &&
+         !sequence.participants.isEmpty();
 }
 
 qreal textHeight(const QFontMetricsF& metrics, const QString& text, qreal width) {
@@ -172,14 +214,21 @@ struct Layout {
   QList<qreal> centers;
 };
 
-QPair<qreal, qreal> messageEndpoints(const Event& event, const Layout& layout) {
+QPair<qreal, qreal> messageEndpoints(const Event& event, const Layout& layout,
+                                     const Sequence& sequence) {
   const qreal a = layout.centers.at(event.from), b = layout.centers.at(event.to);
   const bool self = event.from == event.to, forward = a < b;
   const auto port = [](qreal center, int depth, bool right) {
     if (!depth) return center;
     return center + (depth - 1) * activationStep + (right ? 1 : -1) * activationWidth / 2;
   };
-  return {port(a, event.fromDepth, self || forward), port(b, event.toDepth, self || !forward)};
+  const qreal from = event.destroyed == event.from ? a : port(a, event.fromDepth, self || forward);
+  const qreal to =
+      event.created == event.to
+          ? b + (forward ? -1 : 1) * (sequence.participants.at(event.to).actor ? 16 : 82)
+      : event.destroyed == event.to ? b
+                                    : port(b, event.toDepth, self || !forward);
+  return {from, to};
 }
 
 Layout arrange(Sequence& sequence, const QFontMetricsF& metrics) {
@@ -197,10 +246,12 @@ Layout arrange(Sequence& sequence, const QFontMetricsF& metrics) {
   }
   qreal y = layout.header + 18;
   qreal anchor = layout.header + 6;
+  for (auto& entry : sequence.participants) entry.lineTop = layout.header;
   for (auto& event : sequence.events) {
     if (event.type == EventType::Activate || event.type == EventType::Deactivate) {
       auto& bar = sequence.activations[event.activation];
-      (event.type == EventType::Activate ? bar.top : bar.bottom) = anchor;
+      (event.type == EventType::Activate ? bar.top : bar.bottom) =
+          qMax(anchor, sequence.participants.at(bar.participant).lineTop);
     } else if (event.type == EventType::Open || event.type == EventType::Divide) {
       auto& frame = sequence.frames[event.frame];
       const qreal inset = 14 + frame.depth * 10;
@@ -220,23 +271,38 @@ Layout arrange(Sequence& sequence, const QFontMetricsF& metrics) {
       const bool note = event.type == EventType::Note, self = event.from == event.to;
       const auto endpoints =
           note ? QPair<qreal, qreal>(layout.centers.at(event.from), layout.centers.at(event.to))
-               : messageEndpoints(event, layout);
+               : messageEndpoints(event, layout, sequence);
       const auto [a, b] = endpoints;
       const qreal width = note ? qMax(150., qAbs(a - b) + 140) : self ? 150 : qAbs(a - b) - 18;
       const QString text =
           event.number ? QString::number(event.number) + ". " + event.text : event.text;
       const qreal height = textHeight(metrics, text, width - (note ? 14 : 0)) + (note ? 16 : 5);
+      if (event.created >= 0) {
+        const auto& entry = sequence.participants.at(event.created);
+        const qreal before = entry.actor ? 22 : (textHeight(metrics, entry.name, 158) + 14) / 2;
+        y += qMax(0., before + 10 - height - 6);
+      }
       event.rect = QRectF(note   ? qMin(a, b) - 70
                           : self ? qMax(a, b) + 18
                                  : qMin(a, b) + 9,
                           y, width, height);
       anchor = event.rect.bottom() + (note ? 0 : self ? 30 : 6);
       y += height + (note ? 17 : self ? 44 : 28);
+      if (event.created >= 0) {
+        auto& entry = sequence.participants[event.created];
+        const qreal nameHeight = textHeight(metrics, entry.name, 158);
+        entry.headTop = anchor - (entry.actor ? 22 : (nameHeight + 14) / 2);
+        entry.lineTop = entry.headTop + (entry.actor ? 53 : 14) + nameHeight;
+        y = qMax(y, entry.lineTop + 18);
+      }
+      if (event.destroyed >= 0) sequence.participants[event.destroyed].lineBottom = anchor;
     }
   }
   layout.height = y + 16;
+  for (auto& entry : sequence.participants)
+    if (!entry.lineBottom) entry.lineBottom = layout.height - 20;
   for (auto& bar : sequence.activations)
-    if (!bar.bottom) bar.bottom = layout.height - 20;
+    if (!bar.bottom) bar.bottom = sequence.participants.at(bar.participant).lineBottom;
   return layout;
 }
 
@@ -284,21 +350,22 @@ QImage drawSequence(Sequence& sequence, bool dark) {
     const auto& entry = sequence.participants.at(i);
     const qreal x = layout.centers.at(i);
     painter.setPen(QPen(stroke, 1, Qt::DashLine));
-    painter.drawLine(QPointF(x, layout.header), QPointF(x, layout.height - 20));
+    painter.drawLine(QPointF(x, entry.lineTop), QPointF(x, entry.lineBottom));
     const qreal height = textHeight(metrics, entry.name, 158);
     painter.setPen(QPen(stroke, 1.4));
     painter.setBrush(panel);
+    const qreal top = entry.headTop;
     if (entry.actor) {
-      painter.drawEllipse(QPointF(x, 26), 8, 8);
-      painter.drawLine(QPointF(x, 34), QPointF(x, 51));
-      painter.drawLine(QPointF(x - 14, 40), QPointF(x + 14, 40));
-      painter.drawLine(QPointF(x, 51), QPointF(x - 12, 65));
-      painter.drawLine(QPointF(x, 51), QPointF(x + 12, 65));
+      painter.drawEllipse(QPointF(x, top + 8), 8, 8);
+      painter.drawLine(QPointF(x, top + 16), QPointF(x, top + 33));
+      painter.drawLine(QPointF(x - 14, top + 22), QPointF(x + 14, top + 22));
+      painter.drawLine(QPointF(x, top + 33), QPointF(x - 12, top + 47));
+      painter.drawLine(QPointF(x, top + 33), QPointF(x + 12, top + 47));
     } else {
-      painter.drawRoundedRect(QRectF(x - 82, 18, 164, height + 14), 6, 6);
+      painter.drawRoundedRect(QRectF(x - 82, top, 164, height + 14), 6, 6);
     }
     painter.setPen(ink);
-    painter.drawText(QRectF(x - 79, entry.actor ? 71 : 25, 158, height),
+    painter.drawText(QRectF(x - 79, top + (entry.actor ? 53 : 7), 158, height),
                      Qt::AlignCenter | Qt::TextWordWrap | Qt::TextWrapAnywhere, entry.name);
   }
   for (const auto& frame : sequence.frames) {
@@ -307,12 +374,19 @@ QImage drawSequence(Sequence& sequence, bool dark) {
     painter.drawRect(frame.rect);
   }
   for (const auto& bar : sequence.activations) {
+    if (bar.bottom <= bar.top) continue;
     const qreal x = layout.centers.at(bar.participant) + bar.depth * activationStep;
     painter.setPen(QPen(stroke, 1.2));
     painter.setBrush(dark ? QColor("#56759d") : QColor("#d8e7ff"));
-    painter.drawRect(
-        QRectF(x - activationWidth / 2, bar.top, activationWidth, qMax(10., bar.bottom - bar.top)));
+    painter.drawRect(QRectF(x - activationWidth / 2, bar.top, activationWidth,
+                            qMin(qMax(10., bar.bottom - bar.top),
+                                 sequence.participants.at(bar.participant).lineBottom - bar.top)));
   }
+  const auto cross = [&](QPointF center) {
+    painter.setPen(QPen(ink, 1.7));
+    painter.drawLine(center - QPointF(7, 7), center + QPointF(7, 7));
+    painter.drawLine(center - QPointF(7, -7), center + QPointF(7, -7));
+  };
   for (const auto& event : sequence.events) {
     if (event.type == EventType::Close || event.type == EventType::Activate ||
         event.type == EventType::Deactivate)
@@ -330,22 +404,27 @@ QImage drawSequence(Sequence& sequence, bool dark) {
       painter.drawText(event.rect.adjusted(7, 5, -7, -5),
                        Qt::AlignCenter | Qt::TextWordWrap | Qt::TextWrapAnywhere, event.text);
     } else {
-      const auto [a, b] = messageEndpoints(event, layout);
+      const auto [a, b] = messageEndpoints(event, layout, sequence);
       const qreal y = event.rect.bottom() + 6;
+      const QPointF end(b, y + (event.from == event.to ? 24 : 0));
       if (event.from == event.to) {
         const qreal turn = qMax(a, b) + 56;
         painter.setPen(QPen(ink, 1.5, event.dashed ? Qt::DashLine : Qt::SolidLine));
         painter.drawPolyline(QPolygonF({{a, y}, {turn, y}, {turn, y + 24}}));
-        arrow(painter, {turn, y + 24}, {b, y + 24}, event.dashed);
+        arrow(painter, {turn, y + 24}, end, event.dashed, !event.cross);
       } else {
-        arrow(painter, {a, y}, {b, y}, event.dashed);
+        arrow(painter, {a, y}, end, event.dashed, !event.cross);
       }
+      if (event.cross && event.destroyed != event.to) cross(end);
       const auto text =
           event.number ? QString::number(event.number) + ". " + event.text : event.text;
       painter.setPen(ink);
       painter.drawText(event.rect, Qt::AlignCenter | Qt::TextWordWrap | Qt::TextWrapAnywhere, text);
     }
   }
+  for (int i = 0; i < sequence.participants.size(); ++i)
+    if (sequence.participants.at(i).destroyed)
+      cross({layout.centers.at(i), sequence.participants.at(i).lineBottom});
   return image;
 }
 }  // namespace
