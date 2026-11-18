@@ -15,7 +15,7 @@ flowchart LR
 
 `sequenceDiagram` 支持 `participant` 参与者、`actor` 人物符号、显示别名、实线和虚线消息、自调用、`autonumber` 以及 `Note over` 注释。可用 `alt / else` 表示条件分支、`opt` 表示可选操作、`loop` 表示循环、`par / and` 表示并行操作，每个片段以 `end` 结束。片段可嵌套，编号会延续到各分支内的消息。
 
-标签可用 `<br>` 换行，排版会为消息和注释留出空间。长标签最多显示四行，完整内容保留在源码。支持最多 8 个参与者、60 条消息或注释、24 个控制片段与 6 层嵌套。激活条、创建和销毁参与者、其他控制指令与配置保留为可编辑源码。 [Mermaid 时序图语法](https://mermaid.js.org/syntax/sequenceDiagram.html)
+标签可用 `<br>` 换行，排版会为消息和注释留出空间。长标签最多显示四行，完整内容保留在源码。支持最多 8 个参与者、60 条消息或注释、24 个控制片段与 6 层嵌套。创建和销毁参与者、其他控制指令与配置保留为可编辑源码。 [Mermaid 时序图语法](https://mermaid.js.org/syntax/sequenceDiagram.html)
 
 ```mermaid
 sequenceDiagram
@@ -39,6 +39,24 @@ sequenceDiagram
     opt 显示结果
         Note over User,Editor: 保存完成
     end
+```
+
+时序图可用 `activate 名称` 和 `deactivate 名称` 显示参与者的执行区间。消息箭头后的 `+` 激活接收方，`-` 停用发送方。激活同一参与者时会叠加激活条，停用时按后进先出的顺序收回；未结束的激活条会延伸到图底部。支持最多 64 段激活、每位参与者最多 8 层。停用未激活参与者的图表会保留为可编辑源码。 [Mermaid 激活条语法](https://mermaid.js.org/syntax/sequenceDiagram.html#activations)
+
+```mermaid
+sequenceDiagram
+    actor User as 作者
+    participant Editor as 编辑器
+    participant Disk as 磁盘
+    autonumber
+    User->>+Editor: 保存文档
+    loop 核对内容
+        Editor->>+Editor: 递归检查
+        Editor-->>-Editor: 检查完成
+    end
+    Editor->>+Disk: 写入正文
+    Disk-->>-Editor: 写入完成
+    Editor-->>-User: 保存完成
 ```
 
 `pie` 绘制饼图。用双引号包围名称，每行写一个数值。扇区按源码顺序顺时针排列，图例可通过 `showData` 显示数值。标题可写在 `pie` 同一行或单独一行。支持整数和小数，最多 64 项，并要求总值大于零。零值留在图例中。 [Mermaid 饼图语法](https://mermaid.js.org/syntax/pie.html)
