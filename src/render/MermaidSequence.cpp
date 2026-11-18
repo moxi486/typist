@@ -41,6 +41,7 @@ struct Frame {
   int depth;
   bool hasElse = false;
   QRectF rect;
+  QColor highlight;
 };
 
 struct Activation {
@@ -54,6 +55,25 @@ struct Sequence {
   QList<Frame> frames;
   QList<Activation> activations;
 };
+
+QColor highlightColor(const QString& text) {
+  static const QRegularExpression color(
+      R"(^(rgb|rgba)\(\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*(?:,\s*([0-9]+(?:\.[0-9]*)?|\.[0-9]+)\s*)?\)$)",
+      QRegularExpression::CaseInsensitiveOption);
+  const auto match = color.match(text);
+  if (!match.hasMatch() || (match.captured(1).compare("rgba", Qt::CaseInsensitive) == 0) !=
+                               (match.capturedStart(5) >= 0))
+    return {};
+  const int red = match.captured(2).toInt(), green = match.captured(3).toInt(),
+            blue = match.captured(4).toInt();
+  if (red > 255 || green > 255 || blue > 255) return {};
+  bool ok = true;
+  const qreal alpha = match.capturedStart(5) < 0 ? 1 : match.captured(5).toDouble(&ok);
+  if (!ok || alpha < 0 || alpha > 1) return {};
+  QColor result(red, green, blue);
+  result.setAlphaF(alpha);
+  return result;
+}
 
 bool parseSequence(const QStringList& lines, Sequence& sequence) {
   static const QString id = QStringLiteral(R"([\p{L}\p{N}_]+)");
@@ -73,7 +93,7 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
           .arg(id),
       QRegularExpression::CaseInsensitiveOption);
   static const QRegularExpression control(
-      R"(^(alt|opt|loop|par|critical|break|else|and|option)(?:\s+(.*))?$)");
+      R"(^(alt|opt|loop|par|critical|break|rect|else|and|option)(?:\s+(.*))?$)");
   QHash<QString, int> ids;
   QList<int> stack;
   QList<QList<int>> active;
@@ -203,8 +223,11 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
         sequence.events.append(event);
       } else {
         if (stack.size() >= 6 || sequence.frames.size() >= 24) return false;
+        const auto highlight =
+            kind == "rect" ? highlightColor(block.captured(2).trimmed()) : QColor();
+        if (kind == "rect" && !highlight.isValid()) return false;
         const int frame = int(sequence.frames.size());
-        sequence.frames.append({kind, int(stack.size()), false, {}});
+        sequence.frames.append({kind, int(stack.size()), false, {}, highlight});
         stack.append(frame);
         Event event{EventType::Open, text};
         event.frame = frame;
@@ -358,6 +381,11 @@ Layout arrange(Sequence& sequence, const QFontMetricsF& metrics, const QFont& fo
       if (event.type == EventType::Open) {
         frame.rect = QRectF(inset, y, layout.width - inset * 2, 0);
       }
+      if (frame.highlight.isValid()) {
+        y += 12;
+        anchor = y;
+        continue;
+      }
       event.headerLines = frameLines(frameLabel(frame, event), font,
                                      frame.rect.width() - frameTextInset(frame, metrics) - 10);
       const qreal height = qMax(20., metrics.height()) * event.headerLines.size() + 14;
@@ -466,6 +494,10 @@ QImage drawSequence(Sequence& sequence, bool dark) {
   const QColor ink(dark ? "#e4ebf5" : "#34455e"), stroke(dark ? "#8ba4c5" : "#7e9cc3"),
       panel(dark ? "#344359" : "#edf3fc"), note(dark ? "#574e32" : "#fff5d0");
   for (const auto& frame : sequence.frames) {
+    if (frame.highlight.isValid()) {
+      painter.fillRect(frame.rect, frame.highlight);
+      continue;
+    }
     auto tint = panel;
     tint.setAlpha(dark ? 30 : 55);
     painter.fillRect(frame.rect, tint);
@@ -493,6 +525,7 @@ QImage drawSequence(Sequence& sequence, bool dark) {
                      Qt::AlignCenter | Qt::TextWordWrap | Qt::TextWrapAnywhere, entry.name);
   }
   for (const auto& frame : sequence.frames) {
+    if (frame.highlight.isValid()) continue;
     painter.setPen(QPen(stroke, 1.2));
     painter.setBrush(Qt::NoBrush);
     painter.drawRect(frame.rect);
@@ -516,7 +549,8 @@ QImage drawSequence(Sequence& sequence, bool dark) {
         event.type == EventType::Deactivate)
       continue;
     if (event.type == EventType::Open || event.type == EventType::Divide) {
-      frameHeader(painter, sequence.frames.at(event.frame), event, ink, stroke, panel);
+      const auto& frame = sequence.frames.at(event.frame);
+      if (!frame.highlight.isValid()) frameHeader(painter, frame, event, ink, stroke, panel);
       continue;
     }
     painter.setPen(QPen(ink, 1.5));

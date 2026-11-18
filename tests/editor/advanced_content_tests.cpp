@@ -1521,6 +1521,120 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void sequenceHighlightsBlendAndKeepScope() {
+    const QString source = QStringLiteral(
+        "sequenceDiagram\n actor User as 作者\n participant App as 编辑器\n participant Disk as "
+        "磁盘\n"
+        " autonumber\n User->>+App: 保存文档\n rect rgba(80,160,240,.18)\n"
+        " Note left of User: 核对内容\n critical 完整写入\n App->>+Disk: 写入正文\n"
+        " rect rgba(180,100,220,.2)\n Disk-->>-App: 写入完成\n end\n"
+        " option 空间不足\n Note right of Disk: 保留草稿\n end\n end\n"
+        " App-->>-User: 保存完成\n");
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    auto numbered = source;
+    numbered.remove("autonumber\n");
+    const QStringList labels = {"保存文档", "写入正文", "写入完成", "保存完成"};
+    for (int i = 0; i < labels.size(); ++i)
+      numbered.replace(": " + labels.at(i) + '\n',
+                       ": " + QString::number(i + 1) + ". " + labels.at(i) + '\n');
+    QCOMPARE(light.image, render::mermaid(numbered).image);
+
+    const auto prefix = QStringLiteral("sequenceDiagram\n participant A\n participant B\n");
+    const auto diagram = [&](const QString& color, bool dark = false) {
+      return render::mermaid(prefix + "A->>B: Before\n rect " + color +
+                                 "\n A->>B: Highlight\n end\n A->>B: After\n",
+                             dark)
+          .image;
+    };
+    const auto colorBounds = [](const QImage& image, QColor color, int tolerance = 0) {
+      QRect bounds;
+      int count = 0;
+      for (int y = 0; y < image.height(); ++y)
+        for (int x = 0; x < image.width(); ++x) {
+          const auto pixel = image.pixelColor(x, y);
+          if (qAbs(pixel.red() - color.red()) > tolerance ||
+              qAbs(pixel.green() - color.green()) > tolerance ||
+              qAbs(pixel.blue() - color.blue()) > tolerance)
+            continue;
+          bounds = bounds.united(QRect(x, y, 1, 1));
+          ++count;
+        }
+      return qMakePair(bounds, count);
+    };
+    const auto opaque = diagram("rgb(12,34,56)");
+    QVERIFY(!opaque.isNull());
+    QCOMPARE(opaque, diagram("rgba(12,34,56,1)"));
+    QCOMPARE(opaque, diagram("RGB( 12 , 34 , 56 )"));
+    QCOMPARE(diagram("rgba(12,34,56,0)"), diagram("rgba(90,100,110,0)"));
+    const auto [bounds, count] = colorBounds(opaque, QColor(12, 34, 56));
+    QVERIFY(count > 1000);
+    QVERIFY(bounds.top() > opaque.height() / 4 && bounds.bottom() < opaque.height() * .8);
+    int lifeline = 0;
+    for (int y = bounds.top(); y <= bounds.bottom(); ++y)
+      lifeline +=
+          opaque.pixelColor(qRound(147 * opaque.devicePixelRatio()), y) == QColor("#7e9cc3");
+    QVERIFY(lifeline > 10);
+    const auto inside = opaque.copy(bounds);
+    QVERIFY(colorBounds(inside, QColor("#34455e")).second > 100);
+    const auto translucent = diagram("rgba(255,0,0,.5)");
+    const auto translucentDark = diagram("rgba(255,0,0,.5)", true);
+    QVERIFY(colorBounds(translucent, QColor(255, 128, 128), 2).second > 1000);
+    QVERIFY(colorBounds(translucentDark, QColor(147, 22, 25), 2).second > 1000);
+    const auto nested = render::mermaid(prefix +
+                                        "rect rgb(0,0,255)\n A->>B: Outer\n"
+                                        "rect rgba(255,0,0,.5)\n A->>B: Inner\n end\n end\n");
+    QVERIFY(!nested.image.isNull());
+    QVERIFY(colorBounds(nested.image, QColor(0, 0, 255)).second > 1000);
+    QVERIFY(colorBounds(nested.image, QColor(128, 0, 128), 2).second > 1000);
+    const auto frame = QStringLiteral("rect rgba(80,160,240,.1)\n A->>B: Work\n end\n");
+    QVERIFY(!render::mermaid(prefix + frame.repeated(24)).image.isNull());
+    QVERIFY(render::mermaid(prefix + frame.repeated(25)).image.isNull());
+    const auto deep = QStringLiteral("rect rgb(100,150,200)\n").repeated(6) + "A->>B: Work\n" +
+                      QStringLiteral("end\n").repeated(6);
+    QVERIFY(!render::mermaid(prefix + deep).image.isNull());
+    QVERIFY(render::mermaid(prefix + "rect rgb(100,150,200)\n" + deep + "end\n").image.isNull());
+    for (const auto& color :
+         {"red", "#aabbcc", "rgb(256,0,0)", "rgb(-1,0,0)", "rgb(1.5,0,0)", "rgb(1,2,3,.5)",
+          "rgba(1,2,3)", "rgba(1,2,3,1.1)", "rgba(1,2,3,-.1)", "rgba(1,2,3,nan)"})
+      QVERIFY2(diagram(color).isNull(), color);
+    for (const auto& invalid : {
+             QStringLiteral("rect\n A->>B: Missing color\nend"),
+             QStringLiteral("rect rgb(1,2,3)\n A->>B: Missing end"),
+             QStringLiteral("rect rgb(1,2,3)\n A->>B: Work\n else Wrong\nend"),
+             QStringLiteral("rect rgb(1,2,3)\n A->>B: Work\n and Wrong\nend"),
+             QStringLiteral("rect rgb(1,2,3)\n A->>B: Work\n option Wrong\nend"),
+             QStringLiteral(
+                 "alt Work\nrect rgb(1,2,3)\n A->>B: Work\n else Crossed scope\nend\nend"),
+         }) {
+      const auto result = render::mermaid(prefix + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const auto markdown = QStringLiteral("```mermaid\n") + source + "```\n";
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/highlights-light.png"));
+      QVERIFY(dark.image.save(retained + "/highlights-dark.png"));
+      QVERIFY(nested.image.save(retained + "/highlights-nested.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -1618,6 +1732,12 @@ class AdvancedContentTests : public QObject {
                " option Retry\n App-)Disk: Retry\n end\n")
         << QStringLiteral(
                "sequenceDiagram\n critical Write\n App->>Disk: Save\n else Invalid\n end\n");
+    QTest::newRow("sequence-highlights")
+        << QStringLiteral(
+               "sequenceDiagram\n participant A\n participant B\n"
+               " rect rgb(210,230,250)\n A->>+B: Save\n"
+               " rect rgba(180,100,220,.2)\n B-->>-A: Done\n end\n end\n")
+        << QStringLiteral("sequenceDiagram\n rect rgb(256,0,0)\n A->>B: Invalid color\n end\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {
