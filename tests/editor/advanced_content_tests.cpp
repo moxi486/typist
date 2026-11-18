@@ -1015,8 +1015,8 @@ class AdvancedContentTests : public QObject {
              QStringLiteral("sequenceDiagram\n alt Work\n A->>B: Hello\nelse First\n"
                             "B->>A: Reply\nelse Second\nB->>A: Another\nend"),
              QStringLiteral("sequenceDiagram\n par Work\n A->>B: Hello\n else Wrong\n end"),
-             QStringLiteral("sequenceDiagram\n A->>B: Hello\n activate B"),
-             QStringLiteral("sequenceDiagram\n A->>+B: Hello"),
+             QStringLiteral("sequenceDiagram\n A->>B: Hello\n deactivate B"),
+             QStringLiteral("sequenceDiagram\n A->>+-B: Hello"),
              QStringLiteral("sequenceDiagram\nparticipant A\nparticipant B\nparticipant C\n"
                             "participant D\nparticipant E\nparticipant F\nparticipant G\n"
                             "participant H\nparticipant I\n"),
@@ -1029,6 +1029,90 @@ class AdvancedContentTests : public QObject {
     if (!retained.isEmpty()) {
       QVERIFY(light.image.save(retained + "/sequence-light.png"));
       QVERIFY(dark.image.save(retained + "/sequence-dark.png"));
+    }
+  }
+
+  void sequenceActivationsFollowCallsAndNestedReturns() {
+    const QString source = QStringLiteral(
+        "sequenceDiagram\n actor User as 作者\n participant App as 编辑器\n"
+        " participant Disk as 磁盘\n autonumber\n"
+        " User->>+App: 保存文档\n"
+        " loop 校验\n App->>+App: 递归校验\n"
+        " App-->>-App: 完成校验\n end\n"
+        " App->>+Disk: 写入正文\n Disk-->>-App: 写入完成\n"
+        " App-->>-User: 已保存\n");
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    auto explicitBars = source;
+    explicitBars.replace("User->>+App: 保存文档", "User->>App: 保存文档\n activate App");
+    explicitBars.replace("App->>+App: 递归校验", "App->>App: 递归校验\n activate App");
+    explicitBars.replace("App-->>-App: 完成校验", "App-->>App: 完成校验\n deactivate App");
+    explicitBars.replace("App->>+Disk: 写入正文", "App->>Disk: 写入正文\n activate Disk");
+    explicitBars.replace("Disk-->>-App: 写入完成", "Disk-->>App: 写入完成\n deactivate Disk");
+    explicitBars.replace("App-->>-User: 已保存", "App-->>User: 已保存\n deactivate App");
+    QCOMPARE(light.image, render::mermaid(explicitBars).image);
+
+    const auto matchingPixels = [](const QImage& diagram, QColor color) {
+      int count = 0;
+      for (int y = 0; y < diagram.height(); ++y)
+        for (int x = 0; x < diagram.width(); ++x) count += diagram.pixelColor(x, y) == color;
+      return count;
+    };
+    auto plain = source;
+    plain.replace("->>+", "->>").replace("-->>-", "-->>");
+    const auto inactive = render::mermaid(plain);
+    QVERIFY(!inactive.image.isNull());
+    QVERIFY(matchingPixels(light.image, QColor("#d8e7ff")) > 1000);
+    QCOMPARE(matchingPixels(inactive.image, QColor("#d8e7ff")), 0);
+    const QString flatSource =
+        QStringLiteral("sequenceDiagram\n A->>+B: Call\n B->>B: Work\n B-->>-A: Return\n");
+    const auto flat = render::mermaid(flatSource);
+    const auto stacked =
+        render::mermaid(QStringLiteral("sequenceDiagram\n A->>+B: Call\n activate B\n B->>B: Work\n"
+                                       " deactivate B\n B-->>-A: Return\n"));
+    QVERIFY(!flat.image.isNull() && !stacked.image.isNull());
+    QVERIFY(matchingPixels(stacked.image, QColor("#d8e7ff")) >
+            matchingPixels(flat.image, QColor("#d8e7ff")));
+
+    const auto open = render::mermaid(QStringLiteral("sequenceDiagram\n A->>+B: Call\n"));
+    const auto closed =
+        render::mermaid(QStringLiteral("sequenceDiagram\n A->>+B: Call\n deactivate B\n"));
+    QVERIFY(!open.image.isNull() && !closed.image.isNull());
+    QVERIFY(open.image != closed.image);
+    QVERIFY(!render::mermaid(QStringLiteral("sequenceDiagram\n participant A\n activate A\n"
+                                            " A->>+B: Call\n B-->>-A: Return\n deactivate A\n"))
+                 .image.isNull());
+    const auto maxDepth = QStringLiteral("sequenceDiagram\n participant A\n") +
+                          QStringLiteral("activate A\n").repeated(8) +
+                          QStringLiteral("A->>A: Work\n") +
+                          QStringLiteral("deactivate A\n").repeated(8);
+    QVERIFY(!render::mermaid(maxDepth).image.isNull());
+    QVERIFY(render::mermaid(QStringLiteral("sequenceDiagram\n") +
+                            QStringLiteral("activate A\n").repeated(9) + "A->>A: Work\n")
+                .image.isNull());
+    const auto interval = QStringLiteral("activate A\ndeactivate A\n");
+    QVERIFY(!render::mermaid(QStringLiteral("sequenceDiagram\n") + interval.repeated(64))
+                 .image.isNull());
+    QVERIFY(render::mermaid(QStringLiteral("sequenceDiagram\n") + interval.repeated(65))
+                .image.isNull());
+    for (const auto& invalid : {
+             QStringLiteral("sequenceDiagram\n deactivate A"),
+             QStringLiteral("sequenceDiagram\n A->>B: Call\n B-->>-A: Return"),
+             QStringLiteral("sequenceDiagram\n A->>+B: Call\n A-->>-B: Wrong sender"),
+             QStringLiteral("sequenceDiagram\n activate A\n deactivate A\n deactivate A"),
+             QStringLiteral("sequenceDiagram\n A->>++B: Call"),
+             QStringLiteral("sequenceDiagram\n A->>+B: Call\n alt Missing end"),
+         }) {
+      const auto result = render::mermaid(invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/activation-light.png"));
+      QVERIFY(dark.image.save(retained + "/activation-dark.png"));
     }
   }
 
@@ -1093,6 +1177,13 @@ class AdvancedContentTests : public QObject {
                                      " else Ready\n Editor-->>Author: Saved\n end\n"
                                      " opt Finish\n Note over Author,Editor: Done\n end\n")
                               << QStringLiteral("sequenceDiagram\n alt Condition\n A->>B: Hello\n");
+    QTest::newRow("activation") << QStringLiteral(
+                                       "sequenceDiagram\n actor Author\n participant Editor\n"
+                                       " Author->>+Editor: Save\n"
+                                       " loop Blocks\n Editor->>+Editor: Validate\n"
+                                       " Editor-->>-Editor: Valid\n end\n"
+                                       " Editor-->>-Author: Saved\n")
+                                << QStringLiteral("sequenceDiagram\n A->>B: Call\n deactivate B\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {
