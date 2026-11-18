@@ -27,7 +27,8 @@ struct Participant {
 struct Event {
   EventType type;
   QString text;
-  int from = -1, to = -1, frame = -1, number = 0, activation = -1;
+  QString number{};
+  int from = -1, to = -1, frame = -1, activation = -1;
   int fromDepth = 0, toDepth = 0;
   int created = -1, destroyed = -1;
   bool dashed = false, bidirectional = false;
@@ -111,11 +112,27 @@ bool parseGroupHeader(const QString& text, Group& group) {
   return true;
 }
 
+qint64 sequenceNumberValue(const QString& text) {
+  return text.section('.', 0, 0).toLongLong() * 100 +
+         text.section('.', 1, 1).leftJustified(2, '0').toLongLong();
+}
+
+QString sequenceNumberText(qint64 value) {
+  auto text = QString::number(value / 100);
+  if (const auto fraction = value % 100; fraction) {
+    text += '.' + QString::number(fraction).rightJustified(2, '0');
+    if (text.endsWith('0')) text.chop(1);
+  }
+  return text;
+}
+
 bool parseSequence(const QStringList& lines, Sequence& sequence) {
   static const QString id = QStringLiteral(R"([\p{L}\p{N}_]+)");
   static const QRegularExpression declaration(
       QStringLiteral(R"(^(participant|actor)\s+(%1)(?:\s+as\s+(.+))?$)").arg(id));
   static const QRegularExpression box(R"(^box(?:\s+(.*))?$)");
+  static const QRegularExpression numbering(
+      R"(^autonumber(?:\s+(off|[0-9]{1,9}(?:\.[0-9]{1,2})?|\.[0-9]{1,2})(?:\s+([0-9]{1,9}(?:\.[0-9]{1,2})?|\.[0-9]{1,2}))?)?$)");
   static const QRegularExpression message(
       QStringLiteral(
           R"(^(%1)\s*(<<-->>|<<->>|-->>|->>|-->|->|--x|-x|--\)|-\))\s*([+-])?\s*(%1)\s*:\s*(.*)$)")
@@ -134,7 +151,8 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
   QHash<QString, int> ids;
   QList<int> stack;
   QList<QList<int>> active;
-  int count = 0, number = 0;
+  int count = 0;
+  qint64 number = 100, numberStep = 100;
   int pendingCreate = -1, pendingDestroy = -1;
   int activeGroup = -1;
   bool numbered = false;
@@ -186,8 +204,15 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
       if (!parseGroupHeader(grouped.captured(1).trimmed(), group)) return false;
       activeGroup = int(sequence.groups.size());
       sequence.groups.append(group);
-    } else if (line == "autonumber") {
-      numbered = true;
+    } else if (const auto numberingMatch = numbering.match(line); numberingMatch.hasMatch()) {
+      numbered = numberingMatch.captured(1) != "off";
+      if (!numbered && numberingMatch.capturedStart(2) >= 0) return false;
+      if (numbered && numberingMatch.capturedStart(1) >= 0) {
+        number = sequenceNumberValue(numberingMatch.captured(1));
+        numberStep = numberingMatch.capturedStart(2) < 0
+                         ? 100
+                         : sequenceNumberValue(numberingMatch.captured(2));
+      }
     } else if (const auto created = creation.match(line); created.hasMatch()) {
       const int index = participant(created.captured(2));
       auto& entry = sequence.participants[index];
@@ -236,7 +261,8 @@ bool parseSequence(const QStringList& lines, Sequence& sequence) {
                                               : MessageHead::None;
       event.created = pendingCreate;
       event.destroyed = pendingDestroy;
-      event.number = numbered ? ++number : 0;
+      if (numbered) event.number = sequenceNumberText(number);
+      number += numberStep;
       sequence.events.append(event);
       sequence.participants[from].used = sequence.participants[to].used = true;
       if ((m.captured(3) == "+" && !activate(to, true)) ||
@@ -477,8 +503,7 @@ Layout arrange(Sequence& sequence, const QFontMetricsF& metrics, const QFont& fo
       const auto [a, b] = endpoints;
       const auto bounds = note ? noteBounds(event, layout) : QRectF();
       const qreal width = note ? bounds.width() : self ? 150 : qAbs(a - b) - 18;
-      const QString text =
-          event.number ? QString::number(event.number) + ". " + event.text : event.text;
+      const QString text = event.number.isEmpty() ? event.text : event.number + ". " + event.text;
       const qreal height = textHeight(metrics, text, width - (note ? 14 : 0)) + (note ? 16 : 5);
       if (event.created >= 0) {
         const auto& entry = sequence.participants.at(event.created);
@@ -663,8 +688,7 @@ QImage drawSequence(Sequence& sequence, bool dark) {
         if (event.bidirectional) messageHead(painter, end, {a, y}, event.head);
       }
       if (event.head == MessageHead::Cross && event.destroyed != event.to) cross(end);
-      const auto text =
-          event.number ? QString::number(event.number) + ". " + event.text : event.text;
+      const auto text = event.number.isEmpty() ? event.text : event.number + ". " + event.text;
       painter.setPen(ink);
       painter.drawText(event.rect, Qt::AlignCenter | Qt::TextWordWrap | Qt::TextWrapAnywhere, text);
     }

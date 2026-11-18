@@ -15,6 +15,26 @@ flowchart LR
 
 `sequenceDiagram` 支持 `participant` 参与者、`actor` 人物符号、显示别名、实线和虚线消息、自调用、`autonumber` 以及 `Note over` 注释。可用 `alt / else` 表示条件分支、`opt` 表示可选操作、`loop` 表示循环、`par / and` 表示并行操作、`critical / option` 表示关键操作与异常分支、`break` 表示中断片段。各片段以 `end` 结束，可以嵌套，编号会延续到各分支内的消息。
 
+`autonumber` 显示消息编号；默认从 1 开始，步长为 1。`autonumber 起始值` 重设起始值并使用步长 1，`autonumber 起始值 步长` 同时设置两者。数字可为非负整数或最多两位小数，也可省略小数点前的 0；原生实现允许每个输入值最多 9 位整数，支持 0 起始和 0 步长，并按百分之一精确累加。编号省略无意义的尾零。负数、科学记数、超过精度或范围的值保留为可编辑源码。 [Mermaid 编号语法](https://mermaid.js.org/syntax/sequenceDiagram.html#start-and-increment-values-v11150)
+
+`autonumber off` 隐藏后续消息的编号，单独写 `autonumber` 按当前计数和步长重新显示。每条消息（含隐藏编号的消息和自调用）都会推进计数，注释、分组、激活与控制指令不占编号。编号指令不能写在参与者分组中，也不能插在创建 / 销毁指令与其关联消息之间。
+
+```mermaid
+sequenceDiagram
+    actor User as 作者
+    participant Editor as 编辑器
+    autonumber 1.25 .25
+    User->>+Editor: 保存文档
+    Note over User,Editor: 注释不占编号
+    autonumber off
+    Editor->>Editor: 内部校验
+    autonumber
+    Editor-->>-User: 已保存
+    autonumber 10 5
+    User->>Editor: 再次保存
+    Editor-->>User: 保存完成
+```
+
 标签可用 `<br>` 换行，排版会为消息和注释留出空间。长标签最多显示四行，完整内容保留在源码。支持最多 8 个参与者、60 条消息或注释、24 个控制片段与 6 层嵌套。其他控制指令与配置保留为可编辑源码。 [Mermaid 时序图语法](https://mermaid.js.org/syntax/sequenceDiagram.html)
 
 ```mermaid
