@@ -86,6 +86,17 @@ QString classNotes() {
       " class Resource[\"资源\"]\n Document \"1\" o-- \"*\" Resource : 使用\n"
       " note for Resource \"图片、公式与图表<br>随文档导出\"\n");
 }
+QString classStyles() {
+  return QStringLiteral(
+      "classDiagram\n direction LR\n class Document[\"文档\"]:::primary {\n"
+      " <<interface>>\n +String title\n +save() bool\n }\n class Resource[\"资源\"]\n"
+      " Document \"1\" o-- \"*\" Resource : 使用\n cssClass \"Resource\" asset\n"
+      " note for Document \"Markdown 保存与导出\\n保留完整源码\"\n"
+      " classDef default fill:#edf3fb,stroke:#8ca4ca,color:#243249\n"
+      " classDef primary fill:#e3edff,stroke:#5488c9,stroke-width:3\n"
+      " classDef asset fill:#e0f1e8,stroke:#469875\n"
+      " style Resource stroke-width:2px,stroke-dasharray:5 3\n");
+}
 QString flowchartShapes() {
   return QStringLiteral(
       "flowchart LR\n A([开始]) --> B[[校验]] --> C[(数据库)]\n"
@@ -644,7 +655,7 @@ class AdvancedContentTests : public QObject {
              QStringLiteral("classDiagram\nnamespace Core {\n class A\n}"),
              QStringLiteral("classDiagram\nclass A\nnote over A \"text\""),
              QStringLiteral("classDiagram\nclass A\nA ?-- B"),
-             QStringLiteral("classDiagram\nclass A\nclassDef selected fill:#ccc"),
+             QStringLiteral("classDiagram\nclass A\nclassDef selected font-size:16px"),
              QStringLiteral("%%{init: {}}%%\nclassDiagram\nclass A"),
          }) {
       const auto result = render::mermaid(invalid);
@@ -3161,6 +3172,164 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void classStylesCascadeWithoutMovingClasses() {
+    const auto source = classStyles();
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const auto count = [](const QImage& image, const QColor& color) {
+      int total = 0;
+      for (int y = 0; y < image.height(); ++y)
+        for (int x = 0; x < image.width(); ++x) total += image.pixelColor(x, y) == color;
+      return total;
+    };
+    for (const auto& image : {light.image, dark.image}) {
+      QVERIFY(count(image, QColor("#e3edff")) > 1000);
+      QVERIFY(count(image, QColor("#e0f1e8")) > 1000);
+      QVERIFY(count(image, QColor("#5488c9")) > 100);
+      QVERIFY(count(image, QColor("#469875")) > 100);
+    }
+    const QString base =
+        "classDiagram\nclass A {\n<<interface>>\n+String title$\n+save() bool*\n}\n";
+    const QList<QPair<QString, QString>> equivalent = {
+        {"classDef default fill:#cef\n", "style A fill:#cef\n"},
+        {"classDef default fill:#ccc,stroke:red\nclassDef default fill:#cef\n",
+         "style A fill:#cef,stroke:red\n"},
+        {"classDef default fill:#ccc,color:red\ncssClass \"A\" selected\n"
+         "classDef selected fill:#cef\nstyle A color:blue\n",
+         "style A fill:#cef,color:blue\n"},
+        {"cssClass \"A\" first\ncssClass \"A\" second\nclassDef first fill:#cef,stroke:red\n"
+         "classDef second fill:#dfc\nstyle A stroke:blue\n",
+         "style A fill:#dfc,stroke:blue\n"},
+        {"style A fill:#cef\nclassDef selected fill:red,color:blue\ncssClass \"A\" selected\n",
+         "style A fill:#cef,color:blue\n"},
+        {"style A fill:red,stroke:blue\nstyle A fill:#cef\n", "style A fill:#cef,stroke:blue\n"},
+        {"classDef node fill:red\n", ""},
+        {"classDef node fill:red\ncssClass \"A\" node\n", "style A fill:red\n"},
+        {"style A stroke:none\n", "style A stroke-width:0\n"},
+        {"style A stroke-dasharray:5 3\nstyle A stroke-dasharray:none\n", ""},
+        {"style A fill:rgba(255\\,0\\,0\\,.5)\n", "style A fill:#ff000080\n"},
+        {"style A fill:rgb(255\\,0\\,0)\n", "style A fill:red\n"},
+        {"style A fill:#f008\n", "style A fill:#ff000088\n"},
+        {"style A fill:none\n", "style A fill:transparent\n"},
+        {"style A stroke-dasharray:5\\,3,stroke-width:2px\n",
+         "style A stroke-dasharray:5 3,stroke-width:2\n"},
+        {"style A stroke-dasharray:3\n", "style A stroke-dasharray:3 3\n"},
+        {"class B\ncssClass \"A, B\" selected\nclassDef selected,other fill:#cef\n",
+         "class B\nstyle A fill:#cef\nstyle B fill:#cef\n"},
+    };
+    for (const auto& pair : equivalent)
+      for (const bool theme : {false, true}) {
+        const auto image = render::mermaid(base + pair.first, theme);
+        QVERIFY2(!image.image.isNull(), qPrintable(pair.first));
+        QCOMPARE(image.image, render::mermaid(base + pair.second, theme).image);
+      }
+    const QList<QPair<QString, QString>> fullEquivalent = {
+        {"class A:::selected {\n+save()\n}\nclassDef selected fill:#cef;",
+         "class A {\n+save()\n}\nstyle A fill:#cef"},
+        {"cssClass \"A\" selected\nclassDef selected fill:#cef\nclass A",
+         "class A\nstyle A fill:#cef"},
+        {"style A fill:#cef\nclass A", "class A\nstyle A fill:#cef"},
+        {"class 文档:::selected\nclassDef selected fill:#cef",
+         "class `文档`\nstyle `文档` fill:#cef"},
+        {"class `Doc, Model`\ncssClass \"`Doc, Model`\" selected\nclassDef selected fill:#cef",
+         "class `Doc, Model`\nstyle `Doc, Model` fill:#cef"},
+        {"class A[\"文档\"]:::selected\nclassDef selected fill:#cef",
+         "class A[\"文档\"]\nstyle A fill:#cef"},
+    };
+    for (const auto& pair : fullEquivalent) {
+      const auto image = render::mermaid("classDiagram\n" + pair.first);
+      QVERIFY2(!image.image.isNull(), qPrintable(pair.first));
+      QCOMPARE(image.image, render::mermaid("classDiagram\n" + pair.second).image);
+    }
+    for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"}) {
+      const QString diagram = QString("classDiagram\ndirection ") + direction +
+                              "\nclass A\nA-->A: retry\nnote for A \"Note\"\n";
+      for (const bool theme : {false, true}) {
+        const auto before = render::mermaid(diagram, theme).image;
+        const auto after =
+            render::mermaid(diagram + "style A fill:#def,stroke:red,color:blue,stroke-width:12\n",
+                            theme)
+                .image;
+        QVERIFY(!before.isNull() && !after.isNull());
+        QCOMPARE(before.size(), after.size());
+        QRect bounds;
+        const auto fill = QColor(theme ? "#394d67" : "#e2ecfb").rgb();
+        for (int y = 0; y < before.height(); ++y)
+          for (int x = 0; x < before.width(); ++x)
+            if (before.pixel(x, y) == fill) bounds |= QRect(x, y, 1, 1);
+        QVERIFY(!bounds.isEmpty());
+        bounds.adjust(-14, -14, 14, 14);
+        for (int y = 0; y < before.height(); ++y)
+          for (int x = 0; x < before.width(); ++x)
+            if (!bounds.contains(x, y)) QCOMPARE(before.pixel(x, y), after.pixel(x, y));
+      }
+    }
+    QString classes;
+    for (int i = 0; i < 32; ++i) classes += QString("classDef c%1 fill:#cef\n").arg(i);
+    QVERIFY(!render::mermaid(base + classes).image.isNull());
+    QVERIFY(render::mermaid(base + classes + "classDef extra fill:#cef\n").image.isNull());
+    QString attachments = "classDef selected fill:#cef\n";
+    for (int i = 0; i < 16; ++i) attachments += "cssClass \"A\" selected\n";
+    QVERIFY(!render::mermaid(base + attachments).image.isNull());
+    QVERIFY(render::mermaid(base + attachments + "cssClass \"A\" selected\n").image.isNull());
+    QString properties = QString("fill:#cef,").repeated(31) + "fill:#cef";
+    QVERIFY(!render::mermaid(base + "style A " + properties).image.isNull());
+    QVERIFY(render::mermaid(base + "style A " + properties + ",fill:#cef").image.isNull());
+    for (const auto& invalid : {
+             "style Missing fill:red",
+             "cssClass \"Missing\" selected\nclassDef selected fill:red",
+             "cssClass \"A\" missing",
+             "cssClass \"A,\" selected\nclassDef selected fill:red",
+             "cssClass \"A,,A\" selected\nclassDef selected fill:red",
+             "cssClass A selected",
+             "class A:::missing",
+             "A-->B:::selected\nclassDef selected fill:red",
+             "style A fill:url(example)",
+             "style A fill:no-such-color",
+             "style A fill:#12",
+             "style A fill:rgb(256\\,0\\,0)",
+             "style A fill:rgba(0\\,0\\,0\\,1.1)",
+             "style A stroke-width:-1",
+             "style A stroke-width:13",
+             "style A stroke-width:.05",
+             "style A stroke-dasharray:0 2",
+             "style A stroke-dasharray:65 3",
+             "style A stroke-dasharray:1 2 3 4 5 6 7 8 9",
+             "style A stroke-width:2em",
+             "style A opacity:.5",
+             "classDef selected font-size:16px",
+             "style A fill:red,",
+             "class B {\nstyle A fill:red\n}",
+             "note \"only\"\nstyle Note fill:red",
+         }) {
+      const auto result = render::mermaid(base + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
+    }
+    const auto fence = QString(3, QChar(0x60));
+    const auto markdown = fence + "mermaid\n" + source + fence + '\n';
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/class-styles-light.png"));
+      QVERIFY(dark.image.save(retained + "/class-styles-dark.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -3288,6 +3457,8 @@ class AdvancedContentTests : public QObject {
         << flowchartEdgeIds() << QStringLiteral("flowchart LR\nA e1@-->B; class missing hot\n");
     QTest::newRow("class-notes") << classNotes()
                                  << QStringLiteral("classDiagram\nnote for Missing \"text\"\n");
+    QTest::newRow("class-styles") << classStyles()
+                                  << QStringLiteral("classDiagram\nclass A:::missing\n");
     QTest::newRow("flowchart-shapes")
         << flowchartShapes() << QStringLiteral("flowchart LR\n A[[Missing]\n");
     QTest::newRow("sequence-roles")

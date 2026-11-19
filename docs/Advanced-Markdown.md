@@ -483,7 +483,7 @@ stateDiagram-v2
     Active --> [*] : 退出应用
 ```
 
-`classDiagram` 支持类名、自定义显示名称、类注解、属性和方法。成员可写在类的花括号内，也可写作 `Class : 成员`。保留可见性符号，静态成员加下划线，抽象方法用斜体。支持继承、实现、组合、聚合、关联与依赖，关系可附文字说明和双端多重性。用 `direction` 设置上下或左右布局。单图最多 24 个类、48 条关系，每类最多 18 个成员。命名空间、泛型、交互和样式指令保留为可编辑源码。 [Mermaid 类图语法](https://mermaid.js.org/syntax/classDiagram.html)
+`classDiagram` 支持类名、自定义显示名称、类注解、属性和方法。成员可写在类的花括号内，也可写作 `Class : 成员`。保留可见性符号，静态成员加下划线，抽象方法用斜体。支持继承、实现、组合、聚合、关联与依赖，关系可附文字说明和双端多重性。用 `direction` 设置上下或左右布局。单图最多 24 个类、48 条关系，每类最多 18 个成员。命名空间、泛型和交互指令保留为可编辑源码。 [Mermaid 类图语法](https://mermaid.js.org/syntax/classDiagram.html)
 
 ```mermaid
 classDiagram
@@ -512,6 +512,30 @@ classDiagram
     class Resource["资源"]
     Document "1" o-- "*" Resource : 使用
     note for Resource "图片、公式与图表<br>随文档导出"
+```
+
+类图样式使用 `style 类ID 属性` 单独设置，或通过 `classDef 样式类名 属性` 定义，再用 `cssClass "类ID1,类ID2" 样式类名` 附加。`class 类ID:::样式类名` 是简写，可放在成员花括号之前；带显示名称时可写作 `class Doc["文档"]:::primary`。样式类名由英文字母、数字、下划线和连字符组成，`classDef first,second 属性` 可同时定义多个样式类。类 ID 支持中文和反引号包围的名称；`cssClass` 列表中的反引号内可含空格或逗号。每行一条指令，可在行末加分号。 [Mermaid 类图样式](https://mermaid.js.org/syntax/classDiagram.html#styling)
+
+支持 `fill`、`stroke`、`color`、`stroke-width` 和 `stroke-dasharray`，取值及转义逗号规则与前述流程图样式相同：线宽为 0 或 0.1–12px，虚线最多 8 个 0.1–64px 的值。填充应用于整个类框；文字色应用于名称、类注解、属性与方法；边框样式同时应用于成员分隔线。显式颜色在深浅主题中保留，关系线与注释继续采用主题颜色，类框尺寸及布局保持不变。
+
+样式按「主题默认值 → `default` 样式类 → 按附加顺序的命名样式类 → 类的 `style`」逐属性叠加。重复定义仅覆盖本次指定的属性。`node` 在类图中是普通样式类，需要显式附加。样式与附加指令可以先于类声明，目标须在整图解析结束前存在；目标使用类 ID，不使用显示名称。单图最多 32 个样式类，每个类最多附加 16 次，每条样式声明最多 32 个属性。缺失目标、缺失样式类、无效属性或超限值保留为可编辑源码；字体、外部 CSS 和注释单独配色尚未支持。样式随图像嵌入 HTML、PDF、DOCX 和 EPUB，Markdown 保留原始指令。
+
+```mermaid
+classDiagram
+    direction LR
+    class Document["文档"]:::primary {
+        <<interface>>
+        +String title
+        +save() bool
+    }
+    class Resource["资源"]
+    Document "1" o-- "*" Resource : 使用
+    cssClass "Resource" asset
+    note for Document "Markdown 保存与导出\n保留完整源码"
+    classDef default fill:#edf3fb,stroke:#8ca4ca,color:#243249
+    classDef primary fill:#e3edff,stroke:#5488c9,stroke-width:3
+    classDef asset fill:#e0f1e8,stroke:#469875
+    style Resource stroke-width:2px,stroke-dasharray:5 3
 ```
 
 `gantt` 绘制按日期排列的项目计划。用 `title` 添加标题、`section` 分组。日期采用 `YYYY-MM-DD`，工期支持分钟 `m`、小时 `h`、天 `d` 和周 `w`，精确到分钟。可直接写开始和结束日期，也可指定任务 ID，通过 `after` 接续一个或多个任务；省略开始时间时接续上一项，首项须提供日期或依赖。使用 `done`、`active`、`crit` 和 `milestone` 标记状态。
