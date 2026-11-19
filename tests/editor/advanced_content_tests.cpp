@@ -8,6 +8,7 @@
 #include "ViewSwitch.h"
 #include "markdown.h"
 
+#include <QBitArray>
 #include <QDialog>
 #include <QDir>
 #include <QFile>
@@ -76,6 +77,14 @@ QString flowchartEdgeIds() {
       " classDef success stroke:#469875,color:#469875,stroke-width:4\n"
       " classDef warning stroke:#b88a47,color:#b88a47,stroke-dasharray:7 4\n"
       " classDef accent stroke:#b76f94,color:#b76f94,stroke-width:2\n");
+}
+QString classNotes() {
+  return QStringLiteral(
+      "classDiagram\n direction LR\n note \"文档关系\\n所有说明保留在源码\"\n"
+      " note for Document \"保存与导出\\n在本地完成\"\n"
+      " class Document[\"文档\"] {\n +String title\n +save()\n }\n"
+      " class Resource[\"资源\"]\n Document \"1\" o-- \"*\" Resource : 使用\n"
+      " note for Resource \"图片、公式与图表<br>随文档导出\"\n");
 }
 QString flowchartShapes() {
   return QStringLiteral(
@@ -633,7 +642,7 @@ class AdvancedContentTests : public QObject {
              QStringLiteral("classDiagram\nclass A~int~"),
              QStringLiteral("classDiagram\nclass A\nA : +List~int~ items"),
              QStringLiteral("classDiagram\nnamespace Core {\n class A\n}"),
-             QStringLiteral("classDiagram\nclass A\nnote for A \"text\""),
+             QStringLiteral("classDiagram\nclass A\nnote over A \"text\""),
              QStringLiteral("classDiagram\nclass A\nA ?-- B"),
              QStringLiteral("classDiagram\nclass A\nclassDef selected fill:#ccc"),
              QStringLiteral("%%{init: {}}%%\nclassDiagram\nclass A"),
@@ -2985,6 +2994,173 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void classNotesKeepAssociationsAndBoundText() {
+    const auto source = classNotes();
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const auto panels = [](const QImage& image, const QColor& color) {
+      QList<QRect> boxes;
+      QBitArray visited(image.width() * image.height());
+      const auto target = color.rgb();
+      for (int y = 0; y < image.height(); ++y)
+        for (int x = 0; x < image.width(); ++x) {
+          const int index = y * image.width() + x;
+          if (visited.testBit(index) || image.pixel(x, y) != target) continue;
+          QList<int> pending{index};
+          visited.setBit(index);
+          int left = x, right = x, top = y, bottom = y, count = 0;
+          const auto add = [&](int at) {
+            if (!visited.testBit(at) &&
+                image.pixel(at % image.width(), at / image.width()) == target) {
+              visited.setBit(at);
+              pending.append(at);
+            }
+          };
+          while (!pending.isEmpty()) {
+            const int at = pending.takeLast(), px = at % image.width(), py = at / image.width();
+            left = qMin(left, px);
+            right = qMax(right, px);
+            top = qMin(top, py);
+            bottom = qMax(bottom, py);
+            ++count;
+            if (px) add(at - 1);
+            if (px + 1 < image.width()) add(at + 1);
+            if (py) add(at - image.width());
+            if (py + 1 < image.height()) add(at + image.width());
+          }
+          if (count > 300 && right - left > 40 && bottom - top > 15)
+            boxes.append(QRect(QPoint(left, top), QPoint(right, bottom)));
+        }
+      return boxes;
+    };
+    const auto clearBorder = [](const QImage& image) {
+      const auto background = image.pixel(0, 0);
+      for (int x = 0; x < image.width(); ++x)
+        if (image.pixel(x, 0) != background || image.pixel(x, image.height() - 1) != background)
+          return false;
+      for (int y = 0; y < image.height(); ++y)
+        if (image.pixel(0, y) != background || image.pixel(image.width() - 1, y) != background)
+          return false;
+      return true;
+    };
+    for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"}) {
+      auto directed = source;
+      directed.replace("direction LR", QString("direction ") + direction);
+      for (const bool theme : {false, true}) {
+        const auto image = render::mermaid(directed, theme).image;
+        QVERIFY(!image.isNull() && clearBorder(image));
+        for (int y = 0; y < 32; ++y)
+          for (int x = 0; x < 32; ++x) QCOMPARE(image.pixel(x, y), image.pixel(0, 0));
+        const auto notes = panels(image, QColor(theme ? "#514936" : "#fff6d6"));
+        const auto classes = panels(image, QColor(theme ? "#394d67" : "#e2ecfb"));
+        QCOMPARE(notes.size(), 3);
+        QCOMPARE(classes.size(), 2);
+        const bool horizontal = QString(direction) == "LR" || QString(direction) == "RL";
+        for (const auto& box : classes) {
+          bool nearby = false;
+          for (const auto& note : notes)
+            nearby |=
+                horizontal
+                    ? qAbs(note.center().x() - box.center().x()) <= 3 && note.top() > box.bottom()
+                    : note.left() > box.right() && qAbs(note.center().y() - box.center().y()) < 160;
+          QVERIFY(nearby);
+        }
+        QVERIFY(image.width() <= 1880 && image.height() <= 2520);
+      }
+      const auto loops = render::mermaid(QString("classDiagram\ndirection ") + direction +
+                                         "\nclass A\nA --> A : Retry\nnote for A "
+                                         "\"说明\\n不遮挡环线\"\nnote for A \"第二项说明\"\n")
+                             .image;
+      QVERIFY(!loops.isNull() && clearBorder(loops));
+      const auto peers =
+          render::mermaid(QString("classDiagram\ndirection ") + direction +
+                          "\nA-->B\nA-->C\nB-->C\nnote for B \"one\"\nnote for C \"two\"\n")
+              .image;
+      QVERIFY(!peers.isNull() && clearBorder(peers));
+      const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+      if (!retained.isEmpty()) {
+        QVERIFY(
+            render::mermaid(directed).image.save(retained + "/class-notes-" + direction + ".png"));
+        QVERIFY(loops.save(retained + "/class-notes-loop-" + direction + ".png"));
+      }
+    }
+    const QList<QPair<QString, QString>> equivalent = {
+        {"note for Doc \"before\"\nclass Doc", "class Doc\nnote for Doc \"before\""},
+        {"class Doc\nnote for Doc \"a\\nb\"", "class Doc\nnote for Doc \"a<br/>b\""},
+        {"class 文档\nnote for 文档 \"说明\"", "class `文档`\nnote for `文档` \"说明\""},
+        {"class `Doc Model`\nnote for `Doc Model` \"one\"",
+         "note for `Doc Model` \"one\"\nclass `Doc Model`"},
+        {"note \"a; b\";", "note \"a; b\""},
+        {"note \"C:\\temp\"", "note \"C:\\\\temp\""},
+    };
+    for (const auto& pair : equivalent) {
+      const auto actual = render::mermaid("classDiagram\n" + pair.first);
+      QVERIFY2(!actual.image.isNull(), qPrintable(pair.first));
+      QCOMPARE(actual.image, render::mermaid("classDiagram\n" + pair.second).image);
+    }
+    const auto only = render::mermaid("classDiagram\nnote \"Standalone\"\n").image;
+    const auto empty = render::mermaid("classDiagram\nnote \"\"\n").image;
+    QVERIFY(!only.isNull() && !empty.isNull());
+    QCOMPARE(panels(only, QColor("#fff6d6")).size(), 1);
+    QVERIFY(only != empty);
+    QVERIFY(render::mermaid("classDiagram\nnote \"\\\"Q\\\"\"\n").image !=
+            render::mermaid("classDiagram\nnote \"Q\"\n").image);
+    const auto shortNote = render::mermaid("classDiagram\nnote \"line\"\n").image;
+    const auto blankLine = render::mermaid("classDiagram\nnote \"line\\n\\nline\"\n").image;
+    QVERIFY(blankLine.height() > shortNote.height());
+    QString many = "classDiagram\n";
+    for (int i = 0; i < 16; ++i) many += QString("note \"Note %1\"\n").arg(i);
+    const auto dense = render::mermaid(many).image;
+    QVERIFY(!dense.isNull() && clearBorder(dense));
+    QCOMPARE(panels(dense, QColor("#fff6d6")).size(), 16);
+    QVERIFY(render::mermaid(many + "note \"extra\"\n").image.isNull());
+    const auto longText = QStringLiteral("完整文字和连续中文自动换行 ").repeated(200);
+    const auto longSource = "classDiagram\nclass A\nnote for A \"" + longText + "\"\n";
+    const auto longImage = render::mermaid(longSource).image;
+    QVERIFY(!longImage.isNull() && clearBorder(longImage));
+    const auto sixLines = render::mermaid("classDiagram\nnote \"1\\n2\\n3\\n4\\n5\\n6\"\n").image;
+    const auto sevenLines =
+        render::mermaid("classDiagram\nnote \"1\\n2\\n3\\n4\\n5\\n6\\n7\"\n").image;
+    QCOMPARE(sixLines.size(), sevenLines.size());
+    QVERIFY(sixLines != sevenLines);
+    for (const auto& invalid : {"note for Missing \"text\"", "note for A text\nclass A",
+                                "note \"Unclosed", "note for A \"text\" extra\nclass A",
+                                "note over A \"text\"\nclass A", "class A {\nnote \"inside\"\n}",
+                                "class A[\"Display\"]\nnote for Display \"wrong target\""}) {
+      const auto result = render::mermaid(QString("classDiagram\n") + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
+    }
+    const auto fence = QString(3, QChar(0x60));
+    QTextDocument document;
+    const auto full = fence + "mermaid\n" + longSource + fence + '\n';
+    QVERIFY(editor::loadMarkdown(full, &document, nullptr));
+    QVERIFY(same(full, editor::serializeDocument(&document)));
+    const auto markdown = fence + "mermaid\n" + source + fence + '\n';
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/class-notes-light.png"));
+      QVERIFY(dark.image.save(retained + "/class-notes-dark.png"));
+      QVERIFY(dense.save(retained + "/class-notes-dense.png"));
+      QVERIFY(longImage.save(retained + "/class-notes-long.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -3110,6 +3286,8 @@ class AdvancedContentTests : public QObject {
         << flowchartEdgeStyles() << QStringLiteral("flowchart LR\nA-->B; linkStyle 5 stroke:red\n");
     QTest::newRow("flowchart-edge-ids")
         << flowchartEdgeIds() << QStringLiteral("flowchart LR\nA e1@-->B; class missing hot\n");
+    QTest::newRow("class-notes") << classNotes()
+                                 << QStringLiteral("classDiagram\nnote for Missing \"text\"\n");
     QTest::newRow("flowchart-shapes")
         << flowchartShapes() << QStringLiteral("flowchart LR\n A[[Missing]\n");
     QTest::newRow("sequence-roles")
