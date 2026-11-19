@@ -58,6 +58,15 @@ QString flowchartNodeStyles() {
       " classDef done fill:#dff3e9,stroke:#4a8d6c\n"
       " style B stroke-dasharray:5 3,stroke-width:2\n");
 }
+QString flowchartEdgeStyles() {
+  return QStringLiteral(
+      "flowchart LR\n A([草稿]) -->|提交| B{校验}\n B -->|通过| C[(文档)]\n"
+      " B -.->|修改| D[修订]\n C -->|重试| C\n"
+      " linkStyle default stroke:#74849a\n linkStyle 0 stroke:#5488c9,stroke-width:3\n"
+      " linkStyle 1 stroke:#469875,color:#469875,stroke-width:4\n"
+      " linkStyle 2 stroke:#b88a47,color:#b88a47,stroke-dasharray:7 4\n"
+      " linkStyle 3 stroke:#b76f94,color:#b76f94,stroke-width:2\n");
+}
 QString flowchartShapes() {
   return QStringLiteral(
       "flowchart LR\n A([开始]) --> B[[校验]] --> C[(数据库)]\n"
@@ -2688,6 +2697,158 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void flowchartIndexedStylesSeparateLinesAndCaptions() {
+    const auto source = flowchartEdgeStyles();
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const auto diagram = [](const QString& token, const QString& style,
+                            const QString& caption = QString()) {
+      return render::mermaid("flowchart LR\nA[] " + token +
+                             (caption.isEmpty() ? QString() : '|' + caption + '|') +
+                             " B[]\nlinkStyle 0 " + style)
+          .image;
+    };
+    const auto countColor = [](const QImage& image, const QColor& color) {
+      int count = 0;
+      for (int y = 0; y < image.height(); ++y) {
+        const auto row = reinterpret_cast<const QRgb*>(image.constScanLine(y));
+        for (int x = 0; x < image.width(); ++x) count += row[x] == color.rgb();
+      }
+      return count;
+    };
+    const auto colored = diagram("-->", "stroke:red,color:blue,stroke-width:4", "Label");
+    QVERIFY(!colored.isNull());
+    QVERIFY(countColor(colored, QColor("red")) > 100);
+    QVERIFY(countColor(colored, QColor("blue")) > 5);
+    const QList<QPair<QString, QString>> equivalent = {
+        {"A & B --> C & D --> E\nlinkStyle 0,2 stroke:red\nlinkStyle 1,3,4,5 stroke:blue",
+         "A;B;C;D;E; A-->C; A-->D; B-->C; B-->D; C-->E; D-->E\nlinkStyle 0,2 stroke:red\nlinkStyle "
+         "1,3,4,5 stroke:blue"},
+        {"linkStyle default stroke:red\nA-->B-->C", "A-->B-->C\nlinkStyle 0,1 stroke:red"},
+        {"A-->|Label|B; linkStyle 0 color:blue; linkStyle default stroke:red,stroke-width:4",
+         "linkStyle default stroke:red,stroke-width:4; A-->|Label|B; linkStyle 0 color:blue"},
+        {"A-->|Label|B; linkStyle default stroke:red,color:green; linkStyle default stroke:blue",
+         "A-->|Label|B; linkStyle default stroke:blue"},
+        {"A-->|Label|B; linkStyle 0 stroke:red,color:green; linkStyle 0 stroke:blue",
+         "A-->|Label|B; linkStyle 0 stroke:blue"},
+        {"A-->|Label|B; linkStyle default stroke:red; linkStyle 0 stroke:blue,color:green; "
+         "linkStyle 0 fill:none",
+         "A-->|Label|B; linkStyle 0 stroke:red"},
+        {"A-->B; linkStyle 0,0,00 stroke:blue", "A-->B; linkStyle 0 stroke:blue"},
+        {"A-->B; linkStyle 0 stroke:rgb(255\\,0\\,0),fill:none", "A-->B; linkStyle 0 stroke:red"},
+        {"A-->B; linkStyle 0 stroke:#f008", "A-->B; linkStyle 0 stroke:#ff000088"},
+        {"A-->B; linkStyle 0 stroke:rgba(255\\,0\\,0\\,.5)", "A-->B; linkStyle 0 stroke:#ff000080"},
+        {"A-->B; linkStyle 0 stroke-dasharray:5\\,3",
+         "A-->B; linkStyle 0 stroke-dasharray:5px 3px"},
+        {"A-->B; linkStyle 0 stroke-dasharray:5", "A-->B; linkStyle 0 stroke-dasharray:5 5"},
+        {"A[\"linkStyle 0 stroke:red; classDef & :::\"]-->B",
+         "A[\"linkStyle 0 stroke:red; classDef & :::\"]-->B"},
+    };
+    for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"}) {
+      const auto header = QString("flowchart ") + direction + '\n';
+      for (const bool theme : {false, true})
+        for (const auto& pair : equivalent) {
+          const auto actual = render::mermaid(header + pair.first, theme);
+          QVERIFY2(!actual.image.isNull(), qPrintable(pair.first));
+          QCOMPARE(actual.image, render::mermaid(header + pair.second, theme).image);
+        }
+    }
+    QCOMPARE(diagram("-.->", "stroke-dasharray:none"),
+             render::mermaid("flowchart LR\nA[]-->B[]").image);
+    QCOMPARE(diagram("==>", "stroke-width:1.6"), render::mermaid("flowchart LR\nA[]-->B[]").image);
+    QCOMPARE(diagram("-->", "stroke-width:3.4"), render::mermaid("flowchart LR\nA[]==>B[]").image);
+    for (const auto& token : {"-->", "---", "==>", "-.->", "<-->", "o--o", "x--x"}) {
+      QCOMPARE(diagram(token, "color:red"),
+               render::mermaid(QString("flowchart LR\nA[] ") + token + " B[]").image);
+      QCOMPARE(diagram(token, "stroke:none"), render::mermaid("flowchart LR\nA[]~~~B[]").image);
+      QCOMPARE(diagram(token, "stroke-width:0"), diagram(token, "stroke:none"));
+      const auto hidden = diagram(token, "stroke:none,color:red", "Visible");
+      QVERIFY(!hidden.isNull());
+      QVERIFY(countColor(hidden, QColor("red")) > 5);
+      QCOMPARE(hidden, diagram(token, "stroke-width:0,color:red", "Visible"));
+    }
+    QCOMPARE(diagram("~~~", "stroke:red,color:blue,stroke-width:12"),
+             render::mermaid("flowchart LR\nA[]~~~B[]").image);
+    const auto solid = diagram("---", "stroke:blue,stroke-width:4");
+    const auto dashed = diagram("---", "stroke:blue,stroke-width:4,stroke-dasharray:12 12");
+    QVERIFY(countColor(solid, QColor("blue")) > countColor(dashed, QColor("blue")) * 1.4);
+    QVERIFY(countColor(solid, QColor("blue")) >
+            countColor(diagram("---", "stroke:blue,stroke-width:1.6"), QColor("blue")) * 2);
+    const auto clearBorder = [](const QImage& image) {
+      const auto background = image.pixel(0, 0);
+      for (int x = 0; x < image.width(); ++x)
+        if (image.pixel(x, 0) != background || image.pixel(x, image.height() - 1) != background)
+          return false;
+      for (int y = 0; y < image.height(); ++y)
+        if (image.pixel(0, y) != background || image.pixel(image.width() - 1, y) != background)
+          return false;
+      return true;
+    };
+    const auto longLabel = QStringLiteral("完整的连线样式文字 ").repeated(40);
+    for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"}) {
+      const auto header = QString("flowchart ") + direction + '\n';
+      for (const auto& token : {"-->", "<-->", "o--o", "x--x"}) {
+        const auto loopSource = header + "A[(资源)] " + token + '|' + longLabel +
+                                "|A\nlinkStyle 0 stroke:blue,color:red,stroke-width:12";
+        const auto image = render::mermaid(loopSource).image;
+        QVERIFY(!image.isNull() && clearBorder(image));
+        QVERIFY(countColor(image, QColor("blue")) > 20);
+        QVERIFY(countColor(image, QColor("red")) > 5);
+        const auto fence = QString(3, QChar(0x60));
+        const auto markdown = fence + "mermaid\n" + loopSource + '\n' + fence + '\n';
+        QTextDocument document;
+        QVERIFY(editor::loadMarkdown(markdown, &document, nullptr));
+        QVERIFY(same(markdown, editor::serializeDocument(&document)));
+      }
+      const auto routed =
+          render::mermaid(
+              header +
+              "A[]-->B[]-->C[]; A-->|Skip|C; linkStyle 2 stroke:blue,color:red,stroke-width:12")
+              .image;
+      QVERIFY(!routed.isNull() && clearBorder(routed));
+    }
+    for (const auto& invalid :
+         {"linkStyle 0 stroke:red; A-->B", "A-->B; linkStyle 1 stroke:red",
+          "A-->B; linkStyle -1 stroke:red", "A-->B; linkStyle 999999999999999 stroke:red",
+          "A-->B; linkStyle 0, stroke:red", "A-->B; linkStyle 0,1 stroke:red",
+          "A-->B; linkStyle 0 fill:red", "A-->B; linkStyle 0 stroke:unknown",
+          "A-->B; linkStyle default stroke-width:13", "A-->B; linkStyle 0 stroke-width:.01",
+          "A-->B; linkStyle 0 stroke-dasharray:0 4", "A-->B; linkStyle 0 font-size:12px",
+          "A-->B; linkStyle default interpolate basis", "A e1@-->B; linkStyle 0 stroke:red"}) {
+      const auto result = render::mermaid(QString("flowchart LR\n") + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
+    }
+    const auto repeated = QString("0,").repeated(127) + '0';
+    QVERIFY(!render::mermaid("flowchart LR\nA-->B; linkStyle " + repeated + " stroke:red")
+                 .image.isNull());
+    QVERIFY(render::mermaid("flowchart LR\nA-->B; linkStyle " + repeated + ",0 stroke:red")
+                .image.isNull());
+    const auto fence = QString(3, QChar(0x60));
+    const auto markdown = fence + "mermaid\n" + source + fence + '\n';
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/edge-styles-light.png"));
+      QVERIFY(dark.image.save(retained + "/edge-styles-dark.png"));
+      QVERIFY(colored.save(retained + "/edge-styles-colors.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -2809,6 +2970,8 @@ class AdvancedContentTests : public QObject {
         << flowchartChains() << QStringLiteral("flowchart TB\nA & B --> C &\n");
     QTest::newRow("flowchart-node-styles")
         << flowchartNodeStyles() << QStringLiteral("flowchart LR\nA:::unknown\n");
+    QTest::newRow("flowchart-edge-styles")
+        << flowchartEdgeStyles() << QStringLiteral("flowchart LR\nA-->B; linkStyle 5 stroke:red\n");
     QTest::newRow("flowchart-shapes")
         << flowchartShapes() << QStringLiteral("flowchart LR\n A[[Missing]\n");
     QTest::newRow("sequence-roles")

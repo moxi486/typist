@@ -35,13 +35,13 @@ enum class NodeShape {
   End,
   Choice
 };
-struct NodeStyle {
+struct GraphStyle {
   QColor fill, stroke, color;
   std::optional<qreal> width;
   std::optional<QList<qreal>> dashes;
 };
 
-void mergeStyle(NodeStyle& target, const NodeStyle& source) {
+void mergeStyle(GraphStyle& target, const GraphStyle& source) {
   if (source.fill.isValid()) target.fill = source.fill;
   if (source.stroke.isValid()) target.stroke = source.stroke;
   if (source.color.isValid()) target.color = source.color;
@@ -79,7 +79,7 @@ QColor styleColor(QString value, bool allowNone) {
   return QColor(red, green, blue, qRound(alpha * 255));
 }
 
-bool parseStyle(const QString& text, NodeStyle& style) {
+bool parseStyle(const QString& text, GraphStyle& style) {
   // Mermaid uses commas between properties; escaped commas belong to values.
   QStringList properties;
   QString property;
@@ -143,6 +143,25 @@ bool parseStyle(const QString& text, NodeStyle& style) {
   return true;
 }
 
+QPen graphPen(const GraphStyle& style, const QColor& color, qreal defaultWidth,
+              Qt::PenStyle defaultPattern = Qt::SolidLine) {
+  const qreal width = style.width.value_or(defaultWidth);
+  const auto stroke = style.stroke.isValid() ? style.stroke : color;
+  QPen pen(stroke, width, defaultPattern);
+  if (width == 0 || stroke.alpha() == 0)
+    pen.setStyle(Qt::NoPen);
+  else if (style.dashes) {
+    if (style.dashes->isEmpty())
+      pen.setStyle(Qt::SolidLine);
+    else {
+      auto pattern = *style.dashes;
+      for (auto& dash : pattern) dash /= width;
+      pen.setDashPattern(pattern);
+    }
+  }
+  return pen;
+}
+
 struct Node {
   QString text;
   NodeShape shape = NodeShape::Box;
@@ -151,7 +170,7 @@ struct Node {
   qreal diameter = 0;
   QSizeF textSize{};
   QSizeF boxSize{};
-  NodeStyle style{};
+  GraphStyle style{};
   QStringList classes{};
 };
 enum class LinkStyle { Solid, Dotted, Thick, Invisible };
@@ -162,6 +181,7 @@ struct Edge {
   LinkStyle style = LinkStyle::Solid;
   LinkHead start = LinkHead::None, end = LinkHead::Arrow;
   int minLength = 1;
+  GraphStyle paint{};
 };
 
 LinkHead linkHead(QChar marker) {
@@ -259,13 +279,16 @@ RenderResult flowchart(QStringList lines, bool dark) {
   QList<Node> nodes;
   QList<Edge> edges;
   QHash<QString, int> ids;
-  QHash<QString, NodeStyle> classes;
+  QHash<QString, GraphStyle> classes;
+  GraphStyle edgeDefaults;
   static const QString idPattern = QStringLiteral(R"([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)");
   static const QString idList = idPattern + "(?:\\s*,\\s*" + idPattern + ")*";
   static const QRegularExpression definition("^classDef\\s+(" + idList + ")\\s+(.+)$");
   static const QRegularExpression assignment("^class\\s+(" + idList + ")\\s+(" + idPattern + ")$");
   static const QRegularExpression styling("^style\\s+(" + idPattern + ")\\s+(.+)$");
   static const QRegularExpression shortClass("^:::(" + idPattern + ")");
+  static const QRegularExpression linkStyling(
+      R"(^linkStyle\s+(default|[0-9]+(?:\s*,\s*[0-9]+)*)\s+(.+)$)");
   static const QRegularExpression nodePattern(R"(^\s*([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*))");
   static const QRegularExpression unquotedDelimiter(R"rx([\[\]{}()"])rx");
   struct Form {
@@ -333,8 +356,27 @@ RenderResult flowchart(QStringList lines, bool dark) {
     return group;
   };
   for (auto statement : graphStatements(lines)) {
+    if (const auto styled = linkStyling.match(statement); styled.hasMatch()) {
+      GraphStyle style;
+      if (!parseStyle(styled.captured(2), style) ||
+          (style.fill.isValid() && style.fill.alpha() != 0))
+        return {{}, unsupported};
+      if (styled.captured(1) == "default")
+        edgeDefaults = style;
+      else {
+        const auto indices = styled.captured(1).split(',');
+        if (indices.size() > 128) return {{}, unsupported};
+        for (const auto& value : indices) {
+          bool ok = false;
+          const int index = value.trimmed().toInt(&ok);
+          if (!ok || index < 0 || index >= edges.size()) return {{}, unsupported};
+          edges[index].paint = style;
+        }
+      }
+      continue;
+    }
     if (const auto defined = definition.match(statement); defined.hasMatch()) {
-      NodeStyle style;
+      GraphStyle style;
       if (!parseStyle(defined.captured(2), style)) return {{}, unsupported};
       for (auto name : defined.captured(1).split(',')) {
         mergeStyle(classes[name.trimmed()], style);
@@ -351,7 +393,7 @@ RenderResult flowchart(QStringList lines, bool dark) {
       continue;
     }
     if (const auto styled = styling.match(statement); styled.hasMatch()) {
-      NodeStyle style;
+      GraphStyle style;
       if (!parseStyle(styled.captured(2), style)) return {{}, unsupported};
       const int index = graphNode(nodes, ids, styled.captured(1));
       if (nodes.size() > 64) return {{}, QStringLiteral("Diagram exceeds 64 nodes")};
@@ -387,6 +429,11 @@ RenderResult flowchart(QStringList lines, bool dark) {
     }
     mergeStyle(resolved, entry.style);
     entry.style = resolved;
+  }
+  for (auto& edge : edges) {
+    auto resolved = edgeDefaults;
+    mergeStyle(resolved, edge.paint);
+    edge.paint = resolved;
   }
   return drawGraph(std::move(nodes), edges, mode, dark);
 }
@@ -592,7 +639,7 @@ QPointF graphPort(const Node& node, bool horizontal, bool positive) {
 void drawLinkHead(QPainter& painter, QPointF near, QPointF tip, LinkHead head,
                   const QColor& background) {
   const qreal length = QLineF(near, tip).length();
-  if (head == LinkHead::None || qFuzzyIsNull(length)) return;
+  if (head == LinkHead::None || qFuzzyIsNull(length) || painter.pen().style() == Qt::NoPen) return;
   const auto direction = (tip - near) / length;
   const QPointF normal(-direction.y(), direction.x());
   painter.save();
@@ -625,7 +672,8 @@ bool flowEdgeNeedsLane(const QList<Node>& nodes, const Edge& edge, bool horizont
   path.moveTo(graphPort(a, horizontal, !reverse));
   path.lineTo(graphPort(b, horizontal, reverse));
   QPainterPathStroker stroke;
-  stroke.setWidth(10);
+  stroke.setWidth(
+      qMax(10., edge.paint.width.value_or(edge.style == LinkStyle::Thick ? 3.4 : 1.6) + 8));
   const auto corridor = stroke.createStroke(path);
   for (int i = 0; i < nodes.size(); ++i)
     if (i != edge.from && i != edge.to && corridor.intersects(nodeOutline(nodes.at(i))))
@@ -686,10 +734,9 @@ QPointF drawFlowEdge(QPainter& painter, const QList<Node>& nodes, const QList<Ed
     path.lineTo(end);
     caption = (start + end) / 2;
   }
-  auto pen = painter.pen();
-  pen.setWidthF(edge.style == LinkStyle::Thick ? 3.4 : 1.6);
-  pen.setStyle(edge.style == LinkStyle::Dotted ? Qt::DashLine : Qt::SolidLine);
-  painter.setPen(pen);
+  painter.setPen(graphPen(edge.paint, painter.pen().color(),
+                          edge.style == LinkStyle::Thick ? 3.4 : 1.6,
+                          edge.style == LinkStyle::Dotted ? Qt::DashLine : Qt::SolidLine));
   painter.setBrush(Qt::NoBrush);
   painter.drawPath(path);
   const auto start = path.pointAtPercent(0), end = path.pointAtPercent(1);
@@ -886,6 +933,7 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
     else
       midpoint = drawFlowEdge(painter, nodes, edges, i, horizontal, background, outerLane,
                               flowRoutes.at(i));
+    if (!states) painter.setPen(edge.paint.color.isValid() ? edge.paint.color : foreground);
     if (!edge.text.isEmpty()) {
       const bool self = !states && edge.from == edge.to;
       const bool bounded = states || self || (!states && flowRoutes.at(i));
@@ -904,18 +952,7 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
   }
   for (const auto& node : nodes) {
     const auto& style = node.style;
-    const auto border =
-        style.stroke.isValid() ? style.stroke : QColor(dark ? "#7fa3d2" : "#96b3da");
-    const qreal width = style.width.value_or(1.5);
-    QPen pen(border, width);
-    if (width == 0 || border.alpha() == 0)
-      pen.setStyle(Qt::NoPen);
-    else if (style.dashes && !style.dashes->isEmpty()) {
-      auto pattern = *style.dashes;
-      for (auto& dash : pattern) dash /= width;
-      pen.setDashPattern(pattern);
-    }
-    painter.setPen(pen);
+    painter.setPen(graphPen(style, QColor(dark ? "#7fa3d2" : "#96b3da"), 1.5));
     painter.setBrush(style.fill.isValid() ? style.fill : QColor(dark ? "#344359" : "#edf3fc"));
     if (node.shape == NodeShape::Start || node.shape == NodeShape::End) {
       const auto rect = visibleStateBox(node);
