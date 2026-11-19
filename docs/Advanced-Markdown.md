@@ -19,7 +19,7 @@ Mermaid 使用带 `mermaid` 语言标记的代码围栏。`flowchart / graph` �
 | 平行四边形 / 反向 | `A[/文字/]` / `A[\文字\]` |
 | 梯形 / 倒梯形 | `A[/文字\]` / `A[\文字/]` |
 
-标签支持中文、`<br>` 换行，以及双引号包围的文字，如 `A["保存 [草稿]; 资源"]`。标签中含形状定界符时请加双引号；非对称节点标签中的分号也需放在引号内。分号可分隔同一行的多个声明，后续只引用节点 ID 会沿用已有形状，重复声明使用最后的形状和名称。最多支持 64 个节点与 128 条连接。缺失或错配的定界符、subgraph、自定义样式及 `@{shape: ...}` 等其他形状配置保留为可编辑源码。
+标签支持中文、`<br>` 换行，以及双引号包围的文字，如 `A["保存 [草稿]; 资源"]`。标签中含形状定界符时请加双引号；非对称节点标签中的分号也需放在引号内。分号可分隔同一行的多个声明，后续只引用节点 ID 会沿用已有形状，重复声明使用最后的形状和名称。最多支持 64 个节点与 128 条连接。缺失或错配的定界符、subgraph 及 `@{shape: ...}` 等其他形状配置保留为可编辑源码。
 
 ```mermaid
 flowchart LR
@@ -77,6 +77,32 @@ flowchart TB
     C & D -. 合并 ..-> E[[文档]]
     E ===> F[(归档)]
     B ---->|直接归档| F
+```
+
+流程图节点可通过 `style A 属性` 单独设置外观，或用 `classDef 类名 属性` 定义可复用样式，再以 `class A,B 类名` 赋给已声明节点。`A[文字]:::类名` 是附加样式类的简写，支持在 `&` 分组和链式连接中使用；类定义可以放在引用之后。`style` 在节点尚未声明时会创建以 ID 为名称的节点，后续可补充形状和名称。 [Mermaid 节点样式与类](https://mermaid.js.org/syntax/flowchart.html#styling-a-node)
+
+| 属性 | 支持的值 |
+| --- | --- |
+| `fill` / `stroke` / `color` | 填充色 / 边框色 / 文字色；SVG 命名颜色、`#RGB`、`#RGBA`、`#RRGGBB`、`#RRGGBBAA`、`rgb()` 和 `rgba()` |
+| `stroke-width` | 0 或 0.1–12 的数字，可加 `px`；0 隐藏边框 |
+| `stroke-dasharray` | 最多 8 个 0.1–64 的数字，可加 `px`，以空格或转义逗号分隔；奇数个值会重复成偶数个，`none` 恢复实线 |
+
+颜色中的透明度使用 CSS 的最后一段，例如 `#ff000080` 为半透明红色；`rgb()` 的三个通道为 0–255 整数，`rgba()` 另加 0–1 透明度。Mermaid 用逗号分隔属性，值里的逗号需写为 `\,`，例如 `fill:rgba(255\,0\,0\,.5)` 或 `stroke-dasharray:5\,3`。`transparent` 可作为透明颜色，`fill:none` 和 `stroke:none` 分别隐藏填充或边框。
+
+属性按「主题默认值 → `default` 类 → `node` 公共类 → 按附加顺序的命名类 → 节点 `style`」叠加。重复定义只覆盖本次指定的属性，同一属性以最后的值为准；未指定的属性沿用前一层。显式颜色在浅深主题中保持不变，文字色只影响节点名称，连线和标签仍用主题颜色。虚线长度以像素计算，不随边框粗细成比例变长。
+
+全图最多 32 个样式类，每个节点最多附加 16 次类，每次样式声明最多 32 个属性。缺失的类、`class` 指向尚未声明的节点、无效颜色、超限数字及不支持的属性均保留为可编辑源码；字体、渐变、外部 CSS、交互和连线样式配置尚未支持。
+
+```mermaid
+flowchart LR
+    A([草稿]):::input & B([模板]):::input --> C{校验}:::review
+    C -->|通过| D[(归档)]:::done
+    C -->|重试| A
+    classDef default fill:#eef3fb,stroke:#93a8c8,color:#24324b
+    classDef input fill:#e9efff,stroke:#718cd1
+    classDef review fill:#fff0d4,stroke:#bc8837,stroke-width:3px
+    classDef done fill:#dff3e9,stroke:#4a8d6c
+    style B stroke-dasharray:5 3,stroke-width:2
 ```
 
 `sequenceDiagram` 支持 `participant` 参与者、`actor` 人物符号、显示别名、实线和虚线消息、自调用、`autonumber` 以及 `Note over` 注释。可用 `alt / else` 表示条件分支、`opt` 表示可选操作、`loop` 表示循环、`par / and` 表示并行操作、`critical / option` 表示关键操作与异常分支、`break` 表示中断片段。各片段以 `end` 结束，可以嵌套，编号会延续到各分支内的消息。
