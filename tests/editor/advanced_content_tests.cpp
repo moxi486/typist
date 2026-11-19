@@ -67,6 +67,16 @@ QString flowchartEdgeStyles() {
       " linkStyle 2 stroke:#b88a47,color:#b88a47,stroke-dasharray:7 4\n"
       " linkStyle 3 stroke:#b76f94,color:#b76f94,stroke-width:2\n");
 }
+QString flowchartEdgeIds() {
+  return QStringLiteral(
+      "flowchart LR\n A([草稿]) submit@-->|提交| B{校验}\n B accept@-->|通过| C[(文档)]\n"
+      " B revise@-.->|修改| D[修订]\n C retry@-->|重试| C\n"
+      " class submit primary\n class accept success\n class revise warning\n class retry accent\n"
+      " classDef primary stroke:#5488c9,stroke-width:3\n"
+      " classDef success stroke:#469875,color:#469875,stroke-width:4\n"
+      " classDef warning stroke:#b88a47,color:#b88a47,stroke-dasharray:7 4\n"
+      " classDef accent stroke:#b76f94,color:#b76f94,stroke-width:2\n");
+}
 QString flowchartShapes() {
   return QStringLiteral(
       "flowchart LR\n A([开始]) --> B[[校验]] --> C[(数据库)]\n"
@@ -2257,7 +2267,7 @@ class AdvancedContentTests : public QObject {
     QVERIFY(same(loopMarkdown, editor::serializeDocument(&document)));
     for (const auto& invalid :
          {"--", "==", "-..>", "~~>", "--x>", "==o>", "-- Work ==>", "== Work -->", "-. Work -->",
-          "~~~|Hidden label|", "e1@-->", "-->|Unclosed"}) {
+          "~~~|Hidden label|", "e1@@-->", "-->|Unclosed"}) {
       const auto result = render::mermaid(QString("flowchart LR\nA ") + invalid + " B\n");
       QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
     }
@@ -2446,7 +2456,7 @@ class AdvancedContentTests : public QObject {
     }
     for (const auto& invalid : {"A && B --> C", "A & --> B", "A --> B &", "A & B --> & C",
                                 "A & B --> C & D ? E", "A -->|Missing B & C", "A -- Work ==> B",
-                                "A -..> B", "A ~~~~|Invisible caption| B", "A e1@----> B"}) {
+                                "A -..> B", "A ~~~~|Invisible caption| B", "A e1@@----> B"}) {
       const auto result = render::mermaid(QString("flowchart TB\n") + invalid);
       QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
     }
@@ -2817,7 +2827,7 @@ class AdvancedContentTests : public QObject {
           "A-->B; linkStyle 0 fill:red", "A-->B; linkStyle 0 stroke:unknown",
           "A-->B; linkStyle default stroke-width:13", "A-->B; linkStyle 0 stroke-width:.01",
           "A-->B; linkStyle 0 stroke-dasharray:0 4", "A-->B; linkStyle 0 font-size:12px",
-          "A-->B; linkStyle default interpolate basis", "A e1@-->B; linkStyle 0 stroke:red"}) {
+          "A-->B; linkStyle default interpolate basis", "A e1@-->B; e1@{animate:true}"}) {
       const auto result = render::mermaid(QString("flowchart LR\n") + invalid);
       QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
     }
@@ -2846,6 +2856,132 @@ class AdvancedContentTests : public QObject {
       QVERIFY(light.image.save(retained + "/edge-styles-light.png"));
       QVERIFY(dark.image.save(retained + "/edge-styles-dark.png"));
       QVERIFY(colored.save(retained + "/edge-styles-colors.png"));
+    }
+  }
+
+  void flowchartEdgeIdsAttachClassesWithoutChangingIndices() {
+    const auto source = flowchartEdgeIds();
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const QList<QPair<QString, QString>> equivalent = {
+        {"A e1@-->|Label|B; class e1 hot; classDef hot stroke:red,color:blue,stroke-width:3",
+         "A-->|Label|B; linkStyle 0 stroke:red,color:blue,stroke-width:3"},
+        {"A e1@-->B; A e2@-->B; class e1,e2 hot; classDef hot stroke:red",
+         "A-->B; A-->B; linkStyle 0,1 stroke:red"},
+        {"X-->Y; A e1@-->B; class e1 hot; classDef hot stroke:red",
+         "X-->Y; A-->B; linkStyle 1 stroke:red"},
+        {"A & B e1@--> C & D e2@--> E; class e1 hot; class e2 cold; classDef hot stroke:red; "
+         "classDef cold stroke:blue",
+         "A & B --> C & D --> E; linkStyle 2 stroke:red; linkStyle 5 stroke:blue"},
+        {"A & B e1@--> C & C; class e1 hot; classDef hot stroke:red",
+         "A & B --> C & C; linkStyle 2 stroke:red"},
+        {"A e1@-->B; class A,e1 hot; classDef hot stroke:red,color:blue,stroke-width:3",
+         "A-->B; style A stroke:red,color:blue,stroke-width:3; linkStyle 0 "
+         "stroke:red,color:blue,stroke-width:3"},
+        {"A e1@-->B; classDef default stroke:red,color:blue",
+         "A-->B; classDef default stroke:red,color:blue"},
+        {"A e1@-->B; class e1 default; classDef default stroke:red",
+         "A-->B; classDef default stroke:red; linkStyle 0 stroke:red"},
+        {"A e1@-->|Label|B; class e1 first; class e1 second; classDef second stroke:blue; classDef "
+         "first stroke:red,color:green",
+         "A-->|Label|B; linkStyle 0 stroke:blue,color:green"},
+        {"A e1@-->|Label|B; class e1 hot; classDef hot stroke:red; classDef hot color:blue",
+         "A-->|Label|B; linkStyle 0 stroke:red,color:blue"},
+        {"A e1@-->|Label|B; class e1 hot; classDef hot stroke:red,color:green,stroke-width:3; "
+         "linkStyle default stroke:blue; linkStyle 0 color:purple",
+         "A-->|Label|B; linkStyle 0 stroke:blue,color:purple,stroke-width:3"},
+        {"linkStyle default stroke:blue; A e1@-->B; class e1 hot; classDef hot "
+         "stroke:red,stroke-dasharray:5 3",
+         "A-->B; linkStyle 0 stroke:blue,stroke-dasharray:5 3"},
+        {"A e1@-->B; class e1 hot; classDef hot fill:red,stroke:blue; linkStyle default fill:none",
+         "A-->B; linkStyle 0 stroke:blue"},
+        {"A e1@-->|Label|B; class e1 hot; classDef hot stroke:none,color:red",
+         "A-->|Label|B; linkStyle 0 stroke:none,color:red"},
+        {"A e1@~~~~B; class e1 hot; classDef hot stroke:red,stroke-width:12", "A~~~~B"},
+        {"A[\"Named e1@--> and class e1 hot; &\"] e1@--> B",
+         "A[\"Named e1@--> and class e1 hot; &\"]-->B"},
+    };
+    for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"}) {
+      const auto header = QString("flowchart ") + direction + '\n';
+      for (const bool theme : {false, true}) {
+        for (const auto& pair : equivalent) {
+          const auto actual = render::mermaid(header + pair.first, theme);
+          QVERIFY2(!actual.image.isNull(), qPrintable(pair.first));
+          QCOMPARE(actual.image, render::mermaid(header + pair.second, theme).image);
+        }
+        for (const auto& token :
+             {"-->", "---", "-.->", "-.-", "==>", "===", "<-->", "o--o", "x--x", "~~~~", "---->"}) {
+          const auto named = render::mermaid(header + "A[] e1@" + token + " B[]", theme).image;
+          QVERIFY2(!named.isNull(), token);
+          QCOMPARE(named, render::mermaid(header + "A[] " + token + " B[]", theme).image);
+          if (QString(token).startsWith('~')) continue;
+          const auto loop =
+              render::mermaid(
+                  header + "A[(资源)] e1@" + token +
+                      "|Retry| A; class e1 hot; classDef hot stroke:blue,color:red,stroke-width:4",
+                  theme)
+                  .image;
+          QVERIFY(!loop.isNull());
+          QCOMPARE(loop, render::mermaid(
+                             header + "A[(资源)] " + token +
+                                 "|Retry| A; linkStyle 0 stroke:blue,color:red,stroke-width:4",
+                             theme)
+                             .image);
+        }
+      }
+    }
+    for (const auto& id : {"0", "e-1", "o", "x", "Edge_1"}) {
+      const auto named = render::mermaid(QString("flowchart LR\nA[] ") + id + "@o--o B[]; class " +
+                                         id + " hot; classDef hot stroke:red")
+                             .image;
+      QVERIFY2(!named.isNull(), id);
+      QCOMPARE(named, render::mermaid("flowchart LR\nA[] o--o B[]; linkStyle 0 stroke:red").image);
+    }
+    QCOMPARE(
+        render::mermaid("flowchart LR\nA e1@-- Work ----> B; class e1 hot; classDef hot stroke:red")
+            .image,
+        render::mermaid("flowchart LR\nA ---->|Work| B; linkStyle 0 stroke:red").image);
+    for (const auto& invalid :
+         {"A e1@-->B; C e1@-->D", "e1; A e1@-->B", "A e1@-->B; e1[Fake]", "A e1@-->e1",
+          "style e1 stroke:red; A e1@-->B", "A e1@-->B; style e1 stroke:red", "A e1@-->B; e1-->C",
+          "A @-->B", "A e1@@-->B", "A e1@ B", "A e1 @-->B",
+          "A e1@-->B; class missing hot; classDef hot stroke:red",
+          "class e1 hot; A e1@-->B; classDef hot stroke:red", "A e1@-->B; class e1 hot",
+          "A e1@-->B; class e1 hot; classDef hot fill:red", "A e1@-->B; e1@{animate:true}",
+          "A e1@-->B; e1@{curve:linear}"}) {
+      const auto result = render::mermaid(QString("flowchart LR\n") + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
+    }
+    const auto attached = QString("flowchart LR\nA e1@-->B; classDef hot stroke:red; ") +
+                          QString("class e1 hot; ").repeated(16);
+    QVERIFY(!render::mermaid(attached).image.isNull());
+    QVERIFY(render::mermaid(attached + "class e1 hot").image.isNull());
+    QString many = "flowchart LR\n";
+    for (int i = 0; i < 128; ++i) many += QString("A edge%1@-->A\n").arg(i);
+    QVERIFY(!render::mermaid(many + "class edge127 hot; classDef hot stroke:blue").image.isNull());
+    QVERIFY(render::mermaid(many + "A extra@-->A").image.isNull());
+    const auto fence = QString(3, QChar(0x60));
+    const auto markdown = fence + "mermaid\n" + source + fence + '\n';
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/edge-ids-light.png"));
+      QVERIFY(dark.image.save(retained + "/edge-ids-dark.png"));
     }
   }
 
@@ -2972,6 +3108,8 @@ class AdvancedContentTests : public QObject {
         << flowchartNodeStyles() << QStringLiteral("flowchart LR\nA:::unknown\n");
     QTest::newRow("flowchart-edge-styles")
         << flowchartEdgeStyles() << QStringLiteral("flowchart LR\nA-->B; linkStyle 5 stroke:red\n");
+    QTest::newRow("flowchart-edge-ids")
+        << flowchartEdgeIds() << QStringLiteral("flowchart LR\nA e1@-->B; class missing hot\n");
     QTest::newRow("flowchart-shapes")
         << flowchartShapes() << QStringLiteral("flowchart LR\n A[[Missing]\n");
     QTest::newRow("sequence-roles")
