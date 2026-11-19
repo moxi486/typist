@@ -48,6 +48,16 @@ QString flowchartChains() {
       "flowchart TB\n A([草稿]) & B([模板]) -->|校验| C{正文} & D{资源}\n"
       " C & D -. 合并 ..-> E[[文档]]\n E ===> F[(归档)]\n B ---->|直接归档| F\n");
 }
+QString flowchartNodeStyles() {
+  return QStringLiteral(
+      "flowchart LR\n A([草稿]):::input & B([模板]):::input --> C{校验}:::review\n"
+      " C -->|通过| D[(归档)]:::done\n C -->|重试| A\n"
+      " classDef default fill:#eef3fb,stroke:#93a8c8,color:#24324b\n"
+      " classDef input fill:#e9efff,stroke:#718cd1\n"
+      " classDef review fill:#fff0d4,stroke:#bc8837,stroke-width:3px\n"
+      " classDef done fill:#dff3e9,stroke:#4a8d6c\n"
+      " style B stroke-dasharray:5 3,stroke-width:2\n");
+}
 QString flowchartShapes() {
   return QStringLiteral(
       "flowchart LR\n A([开始]) --> B[[校验]] --> C[(数据库)]\n"
@@ -2472,6 +2482,212 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void flowchartStylesCascadeAndKeepNodeGeometry() {
+    const auto source = flowchartNodeStyles();
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const auto countColor = [](const QImage& image, const QColor& color) {
+      int count = 0;
+      for (int y = 0; y < image.height(); ++y) {
+        const auto row = reinterpret_cast<const QRgb*>(image.constScanLine(y));
+        for (int x = 0; x < image.width(); ++x) count += row[x] == color.rgb();
+      }
+      return count;
+    };
+    const auto diagram = [](const QString& styles, bool theme = false) {
+      return render::mermaid("flowchart LR\nA[Text]\nstyle A " + styles, theme).image;
+    };
+    const auto colored = diagram("fill:#ff0000,stroke:#00ff00,color:#0000ff,stroke-width:4px");
+    QVERIFY(!colored.isNull());
+    QVERIFY(countColor(colored, QColor("red")) > 1000);
+    QVERIFY(countColor(colored, QColor("lime")) > 100);
+    QVERIFY(countColor(colored, QColor("blue")) > 5);
+    QCOMPARE(colored.size(), render::mermaid("flowchart LR\nA[Text]").image.size());
+    const auto colors = QStringLiteral("fill:#f00,stroke:lime,color:blue,stroke-width:4");
+    QCOMPARE(colored, diagram(colors));
+    for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"}) {
+      const auto header = QString("flowchart ") + direction + '\n';
+      for (const bool theme : {false, true}) {
+        const auto explicitStyle =
+            render::mermaid(header + "A[Text]\nstyle A " + colors, theme).image;
+        QVERIFY(!explicitStyle.isNull());
+        QCOMPARE(explicitStyle,
+                 render::mermaid(header + "A[Text]:::hot\nclassDef hot " + colors, theme).image);
+        QCOMPARE(
+            explicitStyle,
+            render::mermaid(header + "A[Text]\nclass A hot\nclassDef hot " + colors, theme).image);
+        QCOMPARE(explicitStyle,
+                 render::mermaid(header + "classDef default " + colors + "\nA[Text]", theme).image);
+        QCOMPARE(explicitStyle,
+                 render::mermaid(header + "style A " + colors + "\nA[Text]", theme).image);
+        auto shapeSource = flowchartShapes();
+        shapeSource.replace("flowchart LR\n", header);
+        const auto shapes =
+            render::mermaid(shapeSource + "classDef default " + colors + ",stroke-width:12", theme)
+                .image;
+        QVERIFY(!shapes.isNull());
+        QVERIFY(countColor(shapes, QColor("red")) > 1000);
+        const auto background = shapes.pixel(0, 0);
+        for (int x = 0; x < shapes.width(); ++x) {
+          QCOMPARE(shapes.pixel(x, 0), background);
+          QCOMPARE(shapes.pixel(x, shapes.height() - 1), background);
+        }
+        for (int y = 0; y < shapes.height(); ++y) {
+          QCOMPARE(shapes.pixel(0, y), background);
+          QCOMPARE(shapes.pixel(shapes.width() - 1, y), background);
+        }
+      }
+    }
+    const QList<QPair<QString, QString>> equivalent = {
+        {"A:::hot & B:::cool --> C:::hot\nclassDef hot,cool fill:red,stroke:blue",
+         "A & B --> C\nstyle A fill:red,stroke:blue\nstyle B fill:red,stroke:blue\nstyle C "
+         "fill:red,stroke:blue"},
+        {"A & B; class A,B hot; classDef hot fill:red",
+         "A & B; style A fill:red; style B fill:red"},
+        {"A:::hot; classDef hot fill:red; classDef hot stroke:blue",
+         "A; style A fill:red,stroke:blue"},
+        {"A:::hot; style A fill:green; classDef hot fill:red,stroke:blue",
+         "A; style A fill:green,stroke:blue"},
+        {"classDef default fill:red,color:green; A:::hot; classDef hot stroke:blue",
+         "A; style A fill:red,color:green,stroke:blue"},
+        {"classDef node fill:red; A", "A; style A fill:red"},
+        {"A:::first; class A second; classDef second fill:blue; classDef first fill:red",
+         "A; style A fill:blue"},
+        {"A:::second; class A first; classDef second fill:blue; classDef first fill:red",
+         "A; style A fill:red"},
+        {"A[\"style; classDef & :::hot\"]", "A[\"style; classDef & :::hot\"]"},
+    };
+    for (const auto& pair : equivalent) {
+      const auto actual = render::mermaid("flowchart TB\n" + pair.first);
+      QVERIFY2(!actual.image.isNull(), qPrintable(pair.first));
+      QCOMPARE(actual.image, render::mermaid("flowchart TB\n" + pair.second).image);
+    }
+    const QList<QPair<QString, QString>> values = {
+        {"fill:rgb(255\\,0\\,0)", "fill:red"},
+        {"fill:rgba(255\\,0\\,0\\,.5)", "fill:#ff000080"},
+        {"fill:#f008", "fill:#ff000088"},
+        {"fill:#1234", "fill:#11223344"},
+        {"fill:none", "fill:transparent"},
+        {"stroke-width:0", "stroke:none"},
+        {"stroke-dasharray:5", "stroke-dasharray:5 5"},
+        {"stroke-dasharray:5\\,3", "stroke-dasharray:5px 3px"},
+        {"stroke-dasharray:none", "stroke-width:1.5"},
+        {"stroke-dasharray:5 3,stroke-dasharray:none", "stroke-dasharray:none"},
+        {"fill:red,fill:blue", "fill:blue"},
+        {"fill:red,color:blue,stroke:green", "color:blue,stroke:green,fill:red"},
+    };
+    for (const auto& pair : values)
+      for (const bool theme : {false, true}) {
+        const auto actual = diagram(pair.first, theme);
+        QVERIFY2(!actual.isNull(), qPrintable(pair.first));
+        QCOMPARE(actual, diagram(pair.second, theme));
+      }
+    for (const auto& node : {"A[]", "A(())", "A((( )))", "A[( )]", "A[[ ]]"}) {
+      const auto image = render::mermaid(QString("flowchart LR\n") + node +
+                                         "\nstyle A fill:#ff000080,stroke:black")
+                             .image;
+      QVERIFY(!image.isNull());
+      QVERIFY(countColor(image, QColor(255, 127, 127)) > 1000);
+      QCOMPARE(countColor(image, QColor(255, 63, 63)), 0);
+    }
+    const auto solid = diagram("stroke:blue,stroke-width:4"),
+               dashed = diagram("stroke:blue,stroke-width:4,stroke-dasharray:12 12");
+    QVERIFY(countColor(solid, QColor("blue")) > countColor(dashed, QColor("blue")) * 1.4);
+    QVERIFY(countColor(diagram("stroke:blue,stroke-width:6"), QColor("blue")) >
+            countColor(diagram("stroke:blue,stroke-width:2"), QColor("blue")) * 2);
+    const auto dashPeriod = [](const QImage& image, int width) {
+      int top = image.height(), left = image.width(), right = 0;
+      for (int y = 0; y < image.height(); ++y) {
+        const auto row = reinterpret_cast<const QRgb*>(image.constScanLine(y));
+        for (int x = 0; x < image.width(); ++x)
+          if (row[x] == QColor("blue").rgb()) {
+            top = qMin(top, y);
+            left = qMin(left, x);
+            right = qMax(right, x);
+          }
+      }
+      if (top + width >= image.height()) return -1;
+      QList<int> starts;
+      const auto row = reinterpret_cast<const QRgb*>(image.constScanLine(top + width));
+      for (int x = left + 25; x < right - 25; ++x)
+        if (row[x] == QColor("blue").rgb() && row[x - 1] != QColor("blue").rgb()) starts.append(x);
+      return starts.size() >= 2 ? starts[1] - starts[0] : -1;
+    };
+    const int period = dashPeriod(diagram("stroke:blue,stroke-width:2,stroke-dasharray:12 12"), 2);
+    QVERIFY(period > 0);
+    QCOMPARE(period, dashPeriod(dashed, 4));
+    for (const auto& invalid :
+         {"A:::missing", "A:::hot; classDef hot fill:red; A:::other",
+          "class A hot; A; classDef hot fill:red", "A; class A,Missing hot; classDef hot fill:red",
+          "A; classDef hot fill:red; class A hot,cold", "A; classDef hot, fill:red"}) {
+      const auto result = render::mermaid(QString("flowchart LR\n") + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
+    }
+    for (const auto& invalid : {"fill:unknown",
+                                "fill:#12345",
+                                "fill:hsl(0 50% 50%)",
+                                "fill:url(image.png)",
+                                "fill:rgb(255,0,0)",
+                                "fill:rgb(256\\,0\\,0)",
+                                "fill:rgba(0\\,0\\,0\\,1.1)",
+                                "fill:rgb(0\\,0\\,0\\,.5)",
+                                "fill:rgba(0\\,0\\,0)",
+                                "color:none",
+                                "font-size:20px",
+                                "stroke-width:-1",
+                                "stroke-width:0.01",
+                                "stroke-width:13",
+                                "stroke-width:2pt",
+                                "stroke-width:NaN",
+                                "stroke-dasharray:0 2",
+                                "stroke-dasharray:0.01 2",
+                                "stroke-dasharray:65",
+                                "stroke-dasharray:5,",
+                                "fill:red,",
+                                "stroke-dasharray:1 2 3 4 5 6 7 8 9",
+                                "fill:red\\;"}) {
+      const auto result = render::mermaid(QString("flowchart LR\nA; style A ") + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
+      QVERIFY(render::mermaid(QString("flowchart LR\nA:::hot; classDef hot ") + invalid)
+                  .image.isNull());
+    }
+    QVERIFY(!diagram("stroke-width:.1,stroke-dasharray:.1 64").isNull());
+    QString declarations = "flowchart LR\nA\n";
+    for (int i = 0; i < 32; ++i) declarations += QString("classDef C%1 fill:red\n").arg(i);
+    QVERIFY(!render::mermaid(declarations).image.isNull());
+    QVERIFY(render::mermaid(declarations + "classDef Extra fill:red").image.isNull());
+    const auto attached =
+        QString("flowchart LR\nA; classDef hot fill:red; ") + QString("class A hot; ").repeated(16);
+    QVERIFY(!render::mermaid(attached).image.isNull());
+    QVERIFY(render::mermaid(attached + "class A hot").image.isNull());
+    QVERIFY(!diagram(QString("fill:red,").repeated(31) + "fill:red").isNull());
+    QVERIFY(diagram(QString("fill:red,").repeated(32) + "fill:red").isNull());
+    const auto fence = QString(3, QChar(0x60));
+    const auto markdown = fence + "mermaid\n" + source + fence + '\n';
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/styles-light.png"));
+      QVERIFY(dark.image.save(retained + "/styles-dark.png"));
+      QVERIFY(dashed.save(retained + "/styles-dashes.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -2591,6 +2807,8 @@ class AdvancedContentTests : public QObject {
         << flowchartLinks() << QStringLiteral("flowchart LR\nA-- Work ==>B\n");
     QTest::newRow("flowchart-chains")
         << flowchartChains() << QStringLiteral("flowchart TB\nA & B --> C &\n");
+    QTest::newRow("flowchart-node-styles")
+        << flowchartNodeStyles() << QStringLiteral("flowchart LR\nA:::unknown\n");
     QTest::newRow("flowchart-shapes")
         << flowchartShapes() << QStringLiteral("flowchart LR\n A[[Missing]\n");
     QTest::newRow("sequence-roles")

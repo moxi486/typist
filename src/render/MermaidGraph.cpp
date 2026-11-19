@@ -11,6 +11,7 @@
 #include <QtMath>
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <utility>
 
 namespace typist::render::mermaid_detail {
@@ -34,6 +35,114 @@ enum class NodeShape {
   End,
   Choice
 };
+struct NodeStyle {
+  QColor fill, stroke, color;
+  std::optional<qreal> width;
+  std::optional<QList<qreal>> dashes;
+};
+
+void mergeStyle(NodeStyle& target, const NodeStyle& source) {
+  if (source.fill.isValid()) target.fill = source.fill;
+  if (source.stroke.isValid()) target.stroke = source.stroke;
+  if (source.color.isValid()) target.color = source.color;
+  if (source.width) target.width = source.width;
+  if (source.dashes) target.dashes = source.dashes;
+}
+
+QColor styleColor(QString value, bool allowNone) {
+  if (allowNone && value.compare("none", Qt::CaseInsensitive) == 0) return QColor(0, 0, 0, 0);
+  static const QRegularExpression hex(R"(^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$)",
+                                      QRegularExpression::CaseInsensitiveOption);
+  if (hex.match(value).hasMatch()) {
+    value.remove(0, 1);
+    if (value.size() <= 4) {
+      QString expanded;
+      for (const auto c : value) expanded += QString(2, c);
+      value = expanded;
+    }
+    if (value.size() == 6) return QColor('#' + value);
+    return QColor(value.mid(0, 2).toInt(nullptr, 16), value.mid(2, 2).toInt(nullptr, 16),
+                  value.mid(4, 2).toInt(nullptr, 16), value.mid(6, 2).toInt(nullptr, 16));
+  }
+  static const QRegularExpression named("^[A-Za-z]+$");
+  if (named.match(value).hasMatch()) return QColor(value);
+  static const QRegularExpression rgb(
+      R"(^(rgb|rgba)\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*(\d+(?:\.\d*)?|\.\d+)\s*)?\)$)",
+      QRegularExpression::CaseInsensitiveOption);
+  const auto match = rgb.match(value);
+  if (!match.hasMatch() || (match.captured(1).size() == 4) != (match.capturedStart(5) >= 0))
+    return {};
+  const int red = match.captured(2).toInt(), green = match.captured(3).toInt(),
+            blue = match.captured(4).toInt();
+  const qreal alpha = match.capturedStart(5) < 0 ? 1 : match.captured(5).toDouble();
+  if (red > 255 || green > 255 || blue > 255 || !std::isfinite(alpha) || alpha > 1) return {};
+  return QColor(red, green, blue, qRound(alpha * 255));
+}
+
+bool parseStyle(const QString& text, NodeStyle& style) {
+  // Mermaid uses commas between properties; escaped commas belong to values.
+  QStringList properties;
+  QString property;
+  for (qsizetype i = 0; i < text.size(); ++i) {
+    if (text.at(i) == '\\') {
+      if (++i >= text.size() || text.at(i) != ',') return false;
+      property += ',';
+    } else if (text.at(i) == ',') {
+      properties.append(property);
+      property.clear();
+    } else
+      property += text.at(i);
+  }
+  properties.append(property);
+  if (properties.size() > 32) return false;
+  static const QString number = QStringLiteral(R"((?:\d+(?:\.\d*)?|\.\d+)(?:px)?)");
+  static const QRegularExpression widthPattern('^' + number + '$',
+                                               QRegularExpression::CaseInsensitiveOption);
+  static const QRegularExpression dashPattern(
+      '^' + number + "(?:(?:\\s*,\\s*|\\s+)" + number + ")*$",
+      QRegularExpression::CaseInsensitiveOption);
+  const auto pixels = [](QString value) {
+    if (value.endsWith("px", Qt::CaseInsensitive)) value.chop(2);
+    return value.toDouble();
+  };
+  for (const auto& entry : properties) {
+    const auto colon = entry.indexOf(':');
+    if (colon < 0) return false;
+    const auto key = entry.left(colon).trimmed().toLower(), value = entry.mid(colon + 1).trimmed();
+    if (key == "fill" || key == "stroke" || key == "color") {
+      const auto color = styleColor(value, key != "color");
+      if (!color.isValid()) return false;
+      if (key == "fill") style.fill = color;
+      if (key == "stroke") style.stroke = color;
+      if (key == "color") style.color = color;
+    } else if (key == "stroke-width") {
+      if (!widthPattern.match(value).hasMatch()) return false;
+      const auto width = pixels(value);
+      if (!std::isfinite(width) || width > 12 || (width > 0 && width < .1)) return false;
+      style.width = width;
+    } else if (key == "stroke-dasharray") {
+      QList<qreal> dashes;
+      if (value.compare("none", Qt::CaseInsensitive) != 0) {
+        if (!dashPattern.match(value).hasMatch()) return false;
+        const auto parts = value.split(QRegularExpression("[\\s,]+"), Qt::SkipEmptyParts);
+        if (parts.size() > 8) return false;
+        for (const auto& part : parts) {
+          const auto dash = pixels(part);
+          if (!std::isfinite(dash) || dash < .1 || dash > 64) return false;
+          dashes.append(dash);
+        }
+        if (dashes.size() % 2) {
+          const int count = int(dashes.size());
+          for (int i = 0; i < count; ++i) dashes.append(dashes.at(i));
+        }
+      }
+      style.dashes = dashes;
+    } else
+      return false;
+  }
+  return true;
+}
+
 struct Node {
   QString text;
   NodeShape shape = NodeShape::Box;
@@ -42,6 +151,8 @@ struct Node {
   qreal diameter = 0;
   QSizeF textSize{};
   QSizeF boxSize{};
+  NodeStyle style{};
+  QStringList classes{};
 };
 enum class LinkStyle { Solid, Dotted, Thick, Invisible };
 enum class LinkHead { None, Arrow, Circle, Cross };
@@ -148,6 +259,13 @@ RenderResult flowchart(QStringList lines, bool dark) {
   QList<Node> nodes;
   QList<Edge> edges;
   QHash<QString, int> ids;
+  QHash<QString, NodeStyle> classes;
+  static const QString idPattern = QStringLiteral(R"([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)");
+  static const QString idList = idPattern + "(?:\\s*,\\s*" + idPattern + ")*";
+  static const QRegularExpression definition("^classDef\\s+(" + idList + ")\\s+(.+)$");
+  static const QRegularExpression assignment("^class\\s+(" + idList + ")\\s+(" + idPattern + ")$");
+  static const QRegularExpression styling("^style\\s+(" + idPattern + ")\\s+(.+)$");
+  static const QRegularExpression shortClass("^:::(" + idPattern + ")");
   static const QRegularExpression nodePattern(R"(^\s*([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*))");
   static const QRegularExpression unquotedDelimiter(R"rx([\[\]{}()"])rx");
   struct Form {
@@ -200,6 +318,13 @@ RenderResult flowchart(QStringList lines, bool dark) {
     do {
       const int index = node(remaining);
       if (index < 0 || nodes.size() > 64) return QList<int>{};
+      if (remaining.startsWith(":::")) {
+        const auto named = shortClass.match(remaining);
+        if (!named.hasMatch() || nodes.at(index).classes.size() >= 16) return QList<int>{};
+        nodes[index].classes.append(named.captured(1));
+        remaining.remove(0, named.capturedLength());
+        remaining = remaining.trimmed();
+      }
       group.append(index);
       if (group.size() > 64) return QList<int>{};
       if (!remaining.startsWith('&')) break;
@@ -208,6 +333,31 @@ RenderResult flowchart(QStringList lines, bool dark) {
     return group;
   };
   for (auto statement : graphStatements(lines)) {
+    if (const auto defined = definition.match(statement); defined.hasMatch()) {
+      NodeStyle style;
+      if (!parseStyle(defined.captured(2), style)) return {{}, unsupported};
+      for (auto name : defined.captured(1).split(',')) {
+        mergeStyle(classes[name.trimmed()], style);
+        if (classes.size() > 32) return {{}, QStringLiteral("Diagram exceeds 32 style classes")};
+      }
+      continue;
+    }
+    if (const auto assigned = assignment.match(statement); assigned.hasMatch()) {
+      for (auto target : assigned.captured(1).split(',')) {
+        const auto index = ids.constFind(target.trimmed());
+        if (index == ids.cend() || nodes.at(*index).classes.size() >= 16) return {{}, unsupported};
+        nodes[*index].classes.append(assigned.captured(2));
+      }
+      continue;
+    }
+    if (const auto styled = styling.match(statement); styled.hasMatch()) {
+      NodeStyle style;
+      if (!parseStyle(styled.captured(2), style)) return {{}, unsupported};
+      const int index = graphNode(nodes, ids, styled.captured(1));
+      if (nodes.size() > 64) return {{}, QStringLiteral("Diagram exceeds 64 nodes")};
+      mergeStyle(nodes[index].style, style);
+      continue;
+    }
     auto previous = nodeGroup(statement);
     if (previous.isEmpty()) return {{}, unsupported};
     while (!statement.trimmed().isEmpty()) {
@@ -226,6 +376,17 @@ RenderResult flowchart(QStringList lines, bool dark) {
       previous = next;
     }
     if (nodes.size() > 64) return {{}, QStringLiteral("Diagram exceeds 64 nodes")};
+  }
+  for (auto& entry : nodes) {
+    auto resolved = classes.value("default");
+    mergeStyle(resolved, classes.value("node"));
+    for (const auto& name : entry.classes) {
+      const auto defined = classes.constFind(name);
+      if (defined == classes.cend()) return {{}, unsupported};
+      mergeStyle(resolved, *defined);
+    }
+    mergeStyle(resolved, entry.style);
+    entry.style = resolved;
   }
   return drawGraph(std::move(nodes), edges, mode, dark);
 }
@@ -742,8 +903,20 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
     }
   }
   for (const auto& node : nodes) {
-    painter.setPen(QPen(dark ? QColor("#7fa3d2") : QColor("#96b3da"), 1.5));
-    painter.setBrush(dark ? QColor("#344359") : QColor("#edf3fc"));
+    const auto& style = node.style;
+    const auto border =
+        style.stroke.isValid() ? style.stroke : QColor(dark ? "#7fa3d2" : "#96b3da");
+    const qreal width = style.width.value_or(1.5);
+    QPen pen(border, width);
+    if (width == 0 || border.alpha() == 0)
+      pen.setStyle(Qt::NoPen);
+    else if (style.dashes && !style.dashes->isEmpty()) {
+      auto pattern = *style.dashes;
+      for (auto& dash : pattern) dash /= width;
+      pen.setDashPattern(pattern);
+    }
+    painter.setPen(pen);
+    painter.setBrush(style.fill.isValid() ? style.fill : QColor(dark ? "#344359" : "#edf3fc"));
     if (node.shape == NodeShape::Start || node.shape == NodeShape::End) {
       const auto rect = visibleStateBox(node);
       if (node.shape == NodeShape::End) {
@@ -765,6 +938,7 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
       continue;
     }
     painter.drawPath(nodeOutline(node));
+    painter.setBrush(Qt::NoBrush);
     if (node.shape == NodeShape::DoubleCircle)
       painter.drawEllipse(node.rect.adjusted(8, 8, -8, -8));
     if (node.shape == NodeShape::Subroutine) {
@@ -776,7 +950,7 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
     if (node.shape == NodeShape::Cylinder)
       painter.drawEllipse(QRectF(node.rect.left(), node.rect.top(), node.rect.width(),
                                  qMin(24., node.rect.height() / 2)));
-    painter.setPen(foreground);
+    painter.setPen(style.color.isValid() ? style.color : foreground);
     const bool shaped = node.shape >= NodeShape::Stadium && node.shape <= NodeShape::DoubleCircle;
     const qreal inset = shaped ? 24 : 12, vertical = node.shape == NodeShape::Cylinder ? 16 : 4;
     auto textRect = node.rect.adjusted(inset, vertical, -inset, -vertical);
