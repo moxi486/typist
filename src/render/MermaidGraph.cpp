@@ -5,6 +5,7 @@
 #include <QLineF>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPainterPathStroker>
 #include <QRegularExpression>
 #include <QSet>
 #include <QtMath>
@@ -49,6 +50,7 @@ struct Edge {
   QString text;
   LinkStyle style = LinkStyle::Solid;
   LinkHead start = LinkHead::None, end = LinkHead::Arrow;
+  int minLength = 1;
 };
 
 LinkHead linkHead(QChar marker) {
@@ -60,15 +62,13 @@ LinkHead linkHead(QChar marker) {
 
 bool parseLink(QString& remaining, Edge& edge) {
   static const QRegularExpression compact(
-      R"(^\s*([<ox]?(?:--[-ox>]|==[=ox>]|-\.-[ox>]?)|~~~)\s*(?:\|([^|]*)\|\s*)?)");
+      R"(^\s*([<ox]?(?:-{2,}[ox>]|-{3,}|={2,}[ox>]|={3,}|-\.+-[ox>]?)|~{3,})\s*(?:\|([^|]*)\|\s*)?)");
   static const QRegularExpression words(
-      R"rx(^\s*([<ox]?)(--|==|-\.)\s+("[^"]*"|.+?)\s+(--[-ox>]|==[=ox>]|\.-[ox>]?)\s*)rx");
+      R"rx(^\s*([<ox]?)(--|==|-\.)\s+("[^"]*"|.+?)\s+(-{2,}[ox>]|-{3,}|={2,}[ox>]|={3,}|\.+-[ox>]?)\s*)rx");
   QString token;
-  qsizetype markerEnd = 0;
   auto match = compact.match(remaining);
   if (match.hasMatch()) {
     token = match.captured(1);
-    markerEnd = match.capturedEnd(1);
     edge.text = label(match.captured(2));
   } else {
     match = words.match(remaining);
@@ -76,22 +76,25 @@ bool parseLink(QString& remaining, Edge& edge) {
     const auto opening = match.captured(2), ending = match.captured(4);
     if ((opening == "--" && !ending.startsWith("--")) ||
         (opening == "==" && !ending.startsWith("==")) ||
-        (opening == "-." && !ending.startsWith(".-")))
+        (opening == "-." && !ending.startsWith('.')))
       return false;
     token = match.captured(1) + (opening == "-." ? "-" : "") + ending;
-    markerEnd = match.capturedEnd(4);
     edge.text = label(match.captured(3));
   }
-  if ((token.endsWith('-') || token.endsWith('=')) && markerEnd < remaining.size() &&
-      (remaining.at(markerEnd) == 'o' || remaining.at(markerEnd) == 'x'))
-    return false;
-  edge.style = token == "~~~"        ? LinkStyle::Invisible
+  edge.style = token.startsWith('~') ? LinkStyle::Invisible
                : token.contains('=') ? LinkStyle::Thick
                : token.contains('.') ? LinkStyle::Dotted
                                      : LinkStyle::Solid;
   if (edge.style == LinkStyle::Invisible && !edge.text.isEmpty()) return false;
   edge.start = linkHead(token.front());
   edge.end = linkHead(token.back());
+  edge.minLength = edge.style == LinkStyle::Dotted      ? int(token.count('.'))
+                   : edge.style == LinkStyle::Invisible ? int(token.size()) - 2
+                   : edge.style == LinkStyle::Thick     ? int(token.count('='))
+                                                        : int(token.count('-'));
+  if (edge.style == LinkStyle::Solid || edge.style == LinkStyle::Thick)
+    edge.minLength -= edge.end == LinkHead::None ? 2 : 1;
+  if (edge.minLength < 1 || edge.minLength > 8) return false;
   remaining.remove(0, match.capturedLength());
   return true;
 }
@@ -192,18 +195,35 @@ RenderResult flowchart(QStringList lines, bool dark) {
     }
     return framed ? -1 : index;
   };
+  const auto nodeGroup = [&](QString& remaining) {
+    QList<int> group;
+    do {
+      const int index = node(remaining);
+      if (index < 0 || nodes.size() > 64) return QList<int>{};
+      group.append(index);
+      if (group.size() > 64) return QList<int>{};
+      if (!remaining.startsWith('&')) break;
+      remaining.remove(0, 1);
+    } while (true);
+    return group;
+  };
   for (auto statement : graphStatements(lines)) {
-    int previous = node(statement);
-    if (previous < 0) return {{}, unsupported};
+    auto previous = nodeGroup(statement);
+    if (previous.isEmpty()) return {{}, unsupported};
     while (!statement.trimmed().isEmpty()) {
-      Edge edge{previous, -1, {}};
+      Edge edge{-1, -1, {}};
       if (!parseLink(statement, edge)) return {{}, unsupported};
-      const int next = node(statement);
-      if (next < 0) return {{}, unsupported};
-      edge.to = next;
-      edges.append(edge);
+      const auto next = nodeGroup(statement);
+      if (next.isEmpty()) return {{}, unsupported};
+      if (edges.size() + previous.size() * next.size() > 128)
+        return {{}, QStringLiteral("Diagram exceeds 128 edges")};
+      for (const int from : previous)
+        for (const int to : next) {
+          edge.from = from;
+          edge.to = to;
+          edges.append(edge);
+        }
       previous = next;
-      if (edges.size() > 128) return {{}, QStringLiteral("Diagram exceeds 128 edges")};
     }
     if (nodes.size() > 64) return {{}, QStringLiteral("Diagram exceeds 64 nodes")};
   }
@@ -434,8 +454,27 @@ void drawLinkHead(QPainter& painter, QPointF near, QPointF tip, LinkHead head,
   painter.restore();
 }
 
+bool flowEdgeNeedsLane(const QList<Node>& nodes, const Edge& edge, bool horizontal) {
+  if (edge.from == edge.to || edge.style == LinkStyle::Invisible) return false;
+  const auto& a = nodes.at(edge.from);
+  const auto& b = nodes.at(edge.to);
+  const bool reverse = horizontal ? a.rect.center().x() > b.rect.center().x()
+                                  : a.rect.center().y() > b.rect.center().y();
+  QPainterPath path;
+  path.moveTo(graphPort(a, horizontal, !reverse));
+  path.lineTo(graphPort(b, horizontal, reverse));
+  QPainterPathStroker stroke;
+  stroke.setWidth(10);
+  const auto corridor = stroke.createStroke(path);
+  for (int i = 0; i < nodes.size(); ++i)
+    if (i != edge.from && i != edge.to && corridor.intersects(nodeOutline(nodes.at(i))))
+      return true;
+  return false;
+}
+
 QPointF drawFlowEdge(QPainter& painter, const QList<Node>& nodes, const QList<Edge>& edges,
-                     int index, bool horizontal, const QColor& background) {
+                     int index, bool horizontal, const QColor& background, qreal outerLane,
+                     bool routed) {
   const auto& edge = edges.at(index);
   const auto& a = nodes.at(edge.from);
   const auto& b = nodes.at(edge.to);
@@ -451,6 +490,33 @@ QPointF drawFlowEdge(QPainter& painter, const QList<Node>& nodes, const QList<Ed
     path.moveTo(start);
     path.cubicTo(start + QPointF(radius, -24), end + QPointF(radius, 24), end);
     caption = {a.rect.right() + radius * .8 + 84, a.rect.center().y()};
+  } else if (routed) {
+    const bool forward = horizontal ? b.rect.center().x() > a.rect.center().x()
+                                    : b.rect.center().y() > a.rect.center().y();
+    const auto start = graphPort(a, horizontal, forward), end = graphPort(b, horizontal, !forward);
+    const auto bend = [&](const Node& node, QPointF port, bool positive) {
+      qreal boundary = horizontal ? port.x() : port.y();
+      for (const auto& peer : nodes)
+        if (peer.rank == node.rank) {
+          const qreal side = horizontal ? (positive ? peer.rect.right() : peer.rect.left())
+                                        : (positive ? peer.rect.bottom() : peer.rect.top());
+          boundary = positive ? qMax(boundary, side) : qMin(boundary, side);
+        }
+      boundary += positive ? 30 : -30;
+      return horizontal ? QPointF(boundary, port.y()) : QPointF(port.x(), boundary);
+    };
+    const auto leave = bend(a, start, forward), enter = bend(b, end, !forward);
+    const auto outside = [horizontal, outerLane](QPointF port) {
+      return horizontal ? QPointF(port.x(), outerLane) : QPointF(outerLane, port.y());
+    };
+    const auto first = outside(leave), last = outside(enter);
+    path.moveTo(start);
+    path.lineTo(leave);
+    path.lineTo(first);
+    path.lineTo(last);
+    path.lineTo(enter);
+    path.lineTo(end);
+    caption = (first + last) / 2;
   } else {
     const bool reverse = horizontal ? a.rect.center().x() > b.rect.center().x()
                                     : a.rect.center().y() > b.rect.center().y();
@@ -465,8 +531,11 @@ QPointF drawFlowEdge(QPainter& painter, const QList<Node>& nodes, const QList<Ed
   painter.setPen(pen);
   painter.setBrush(Qt::NoBrush);
   painter.drawPath(path);
-  drawLinkHead(painter, path.pointAtPercent(.08), path.pointAtPercent(0), edge.start, background);
-  drawLinkHead(painter, path.pointAtPercent(.92), path.pointAtPercent(1), edge.end, background);
+  const auto start = path.pointAtPercent(0), end = path.pointAtPercent(1);
+  drawLinkHead(painter, start + QLineF::fromPolar(12, path.angleAtPercent(0)).p2(), start,
+               edge.start, background);
+  drawLinkHead(painter, end - QLineF::fromPolar(12, path.angleAtPercent(1)).p2(), end, edge.end,
+               background);
   return caption;
 }
 
@@ -536,7 +605,22 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
   else {
     QList<QPair<int, int>> links;
     for (const auto& edge : edges) links.append({edge.from, edge.to});
-    const auto ranks = graphRanks(int(nodes.size()), links);
+    auto ranks = graphRanks(int(nodes.size()), links);
+    if (std::any_of(edges.cbegin(), edges.cend(),
+                    [](const Edge& edge) { return edge.minLength > 1 && edge.from != edge.to; })) {
+      // Preserve the existing cycle ordering. Only forward constraints can be
+      // satisfied in a cycle; DAGs retain every requested minimum rank span.
+      QList<int> order;
+      for (int i = 0; i < nodes.size(); ++i) order.append(i);
+      std::stable_sort(order.begin(), order.end(),
+                       [&](int a, int b) { return ranks.at(a) < ranks.at(b); });
+      QList<int> position(nodes.size());
+      for (int i = 0; i < order.size(); ++i) position[order.at(i)] = i;
+      for (const int from : order)
+        for (const auto& edge : edges)
+          if (edge.from == from && position.at(edge.to) > position.at(from))
+            ranks[edge.to] = qMax(ranks.at(edge.to), ranks.at(from) + edge.minLength);
+    }
     for (int i = 0; i < nodes.size(); ++i) nodes[i].rank = ranks.at(i);
   }
   const bool horizontal = mode == "LR" || mode == "RL";
@@ -582,7 +666,7 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
                       });
   qreal naturalWidth = (horizontal ? majorSize : minorSize) + (loops && states ? 118 : 0) +
                        (!horizontal && routes ? 88 : 0);
-  const qreal naturalHeight = horizontal ? minorSize + (routes ? 34 : 0) : majorSize;
+  qreal naturalHeight = horizontal ? minorSize + (routes ? 34 : 0) : majorSize;
   for (int rank = 0; rank <= maxRank; ++rank) {
     const auto group = ranks.value(rank);
     for (int j = 0; j < group.size(); ++j) {
@@ -608,11 +692,22 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
       if (edge.from == edge.to && edge.style != LinkStyle::Invisible)
         naturalWidth = qMax(naturalWidth,
                             nodes.at(edge.from).rect.right() + (edge.text.isEmpty() ? 100 : 250));
-  const qreal scale = qMin(1., qMin(820. / naturalWidth, (states ? 720. : 1400.) / naturalHeight));
   qreal outerLane = 0;
   for (const auto& node : nodes)
     outerLane = qMax(outerLane, horizontal ? node.rect.bottom() : node.rect.right());
   outerLane += loops && !horizontal ? 85 : 17;
+  QList<bool> flowRoutes;
+  if (!states) {
+    for (const auto& edge : edges) flowRoutes.append(flowEdgeNeedsLane(nodes, edge, horizontal));
+    if (flowRoutes.contains(true)) {
+      outerLane += 24;
+      if (horizontal)
+        naturalHeight = qMax(naturalHeight, outerLane + 34);
+      else
+        naturalWidth = qMax(naturalWidth, outerLane + 90);
+    }
+  }
+  const qreal scale = qMin(1., qMin(820. / naturalWidth, (states ? 720. : 1400.) / naturalHeight));
   QImage image = canvas(qMin(820, qCeil(naturalWidth * scale)),
                         qMin(states ? 720 : 1400, qCeil(naturalHeight * scale)), dark);
   QPainter painter(&image);
@@ -628,14 +723,16 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
     if (states)
       midpoint = drawStateEdge(painter, nodes, edges, i, horizontal, outerLane);
     else
-      midpoint = drawFlowEdge(painter, nodes, edges, i, horizontal, background);
+      midpoint = drawFlowEdge(painter, nodes, edges, i, horizontal, background, outerLane,
+                              flowRoutes.at(i));
     if (!edge.text.isEmpty()) {
       const bool self = !states && edge.from == edge.to;
+      const bool bounded = states || self || (!states && flowRoutes.at(i));
       auto caption = edge.text;
-      if (self) caption.replace('\n', ' ');
-      if (states || self) caption = metrics.elidedText(caption, Qt::ElideRight, 150);
+      if (self || (!states && flowRoutes.at(i))) caption.replace('\n', ' ');
+      if (bounded) caption = metrics.elidedText(caption, Qt::ElideRight, 150);
       QRectF text = metrics.boundingRect(caption);
-      if (states || self)
+      if (bounded)
         midpoint.setX(
             qBound(text.width() / 2 + 6, midpoint.x(), naturalWidth - text.width() / 2 - 6));
       text.moveCenter(midpoint);
