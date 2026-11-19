@@ -36,6 +36,13 @@ QString specimen() {
       "original source\n```\n\n"
       "[^note]: Footnotes preserve the original text.\n    中文注释也可以跨行。\n\n");
 }
+QString flowchartShapes() {
+  return QStringLiteral(
+      "flowchart LR\n A([开始]) --> B[[校验]] --> C[(数据库)]\n"
+      " D>草稿] --> E{{内容}} --> F[/输入/] --> G[\\输出\\]\n"
+      " H[/处理\\] --> I[\\归档/] --> J(((完成)))\n"
+      " K[正文] --> L(说明) --> M((节点)) --> N{保存?}\n");
+}
 QString sequenceRoles() {
   return QStringLiteral(
       "sequenceDiagram\n box rgba(80,160,240,.12) 写作端\n actor User as 作者\n"
@@ -1994,6 +2001,133 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void flowchartShapesKeepLabelsAndContourConnections() {
+    const auto source = flowchartShapes();
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const QList<QPair<QString, QString>> forms = {
+        {"[", "]"},     {"(", ")"},    {"((", "))"},  {"{", "}"},     {"([", "])"},
+        {"[[", "]]"},   {"[(", ")]"},  {">", "]"},    {"{{", "}}"},   {"[/", "/]"},
+        {"[\\", "\\]"}, {"[/", "\\]"}, {"[\\", "/]"}, {"(((", ")))"},
+    };
+    QList<QImage> symbols;
+    for (const auto& form : forms) {
+      const auto node = " A" + form.first + "Node" + form.second;
+      const auto image = render::mermaid("flowchart LR\n" + node).image;
+      QVERIFY2(!image.isNull(), qPrintable(node));
+      for (const auto& previous : symbols) QVERIFY(image != previous);
+      symbols.append(image);
+      QCOMPARE(image,
+               render::mermaid("flowchart LR\n A" + form.first + "\"Node\"" + form.second).image);
+      const auto quoted = "A" + form.first + "\"文档 []{}();资源\"" + form.second;
+      const auto statements = render::mermaid("graph LR\n" + quoted + "; A --> B[End]\n").image;
+      QVERIFY(!statements.isNull());
+      QCOMPARE(statements, render::mermaid("flowchart LR\n" + quoted + "\nA --> B[End]\n").image);
+      for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"}) {
+        const auto connected =
+            render::mermaid(QString("flowchart ") + direction + "\n" + node + "-->|Go| B[End]\n")
+                .image;
+        QVERIFY2(!connected.isNull(), qPrintable(node));
+        QVERIFY(connected.width() <= 1640 && connected.height() <= 2800);
+      }
+    }
+    const auto filledBounds = [](const QImage& image) {
+      QRect bounds;
+      for (int y = 0; y < image.height(); ++y)
+        for (int x = 0; x < image.width(); ++x)
+          if (image.pixelColor(x, y) == QColor("#edf3fc"))
+            bounds = bounds.united(QRect(x, y, 1, 1));
+      return bounds;
+    };
+    const auto independent =
+        render::mermaid("flowchart LR\nA[\"" + QStringLiteral("长标签中的文档内容 ").repeated(15) +
+                        "\"]\nB[Short]\n")
+            .image;
+    QVERIFY(!independent.isNull());
+    const int half = independent.height() / 2;
+    const auto tall = filledBounds(independent.copy(0, 0, independent.width(), half));
+    const auto shortNode =
+        filledBounds(independent.copy(0, half, independent.width(), independent.height() - half));
+    QVERIFY(tall.height() > shortNode.height() * 2);
+    for (const auto& circle : {QString("A((A longer label))"), QString("A(((A longer label)))")}) {
+      const auto image = render::mermaid("flowchart LR\n" + circle).image;
+      const auto bounds = filledBounds(image);
+      QVERIFY(!bounds.isEmpty());
+      QVERIFY(qAbs(bounds.width() - bounds.height()) <= 2);
+    }
+    const auto ink = [](const QImage& image, const QRect& area) {
+      const auto ratio = image.devicePixelRatio();
+      int pixels = 0;
+      for (int y = qRound(area.top() * ratio); y < qRound((area.bottom() + 1) * ratio); ++y)
+        for (int x = qRound(area.left() * ratio); x < qRound((area.right() + 1) * ratio); ++x) {
+          const auto pixel = image.pixelColor(x, y);
+          pixels += qAbs(pixel.red() - 68) < 48 && qAbs(pixel.green() - 82) < 48 &&
+                    qAbs(pixel.blue() - 105) < 48;
+        }
+      return pixels;
+    };
+    const auto forward = render::mermaid("flowchart LR\nA[X]-->B>Y]\n").image;
+    const auto reverse = render::mermaid("flowchart RL\nA>Y]-->B[X]\n").image;
+    QVERIFY(!forward.isNull() && !reverse.isNull());
+    // The line and arrowhead must reach into the asymmetric node's notch.
+    const auto notchInk = [&](const QImage& image) {
+      const int split = image.width() / 2;
+      auto bounds = filledBounds(image.copy(split, 0, image.width() - split, image.height()));
+      if (bounds.isEmpty()) return 0;
+      bounds.translate(split, 0);
+      const auto ratio = image.devicePixelRatio();
+      const QRect probe(qRound(bounds.left() / ratio + 3), qRound(bounds.center().y() / ratio) - 4,
+                        qMax(1, qRound(bounds.width() / ratio * .15) - 3), 9);
+      return ink(image, probe);
+    };
+    const int forwardInk = notchInk(forward), reverseInk = notchInk(reverse);
+    QVERIFY2(forwardInk > 20, qPrintable(QString("Forward notch ink: %1").arg(forwardInk)));
+    QVERIFY2(reverseInk > 20, qPrintable(QString("Reverse notch ink: %1").arg(reverseInk)));
+    const auto multiline =
+        render::mermaid("flowchart TD\nA[(文档内容<br>本地资源)]-->B[[校验<br>保存]]\n").image;
+    QVERIFY(!multiline.isNull());
+    auto longSource = source;
+    longSource.replace("校验", QStringLiteral("核对文档内容 ").repeated(20));
+    const auto longResult = render::mermaid(longSource);
+    const auto longImage = longResult.image;
+    QVERIFY2(!longImage.isNull(), qPrintable(longResult.error));
+    QVERIFY2(longImage.width() <= 1640 && longImage.height() <= 2800,
+             qPrintable(QString("%1 x %2").arg(longImage.width()).arg(longImage.height())));
+    for (const auto& invalid : {"A([Missing]", "A[[Missing]", "A[(Missing]", "A{{Missing}",
+                                "A(((Missing))", "A[/Mismatch]]", "A[unquoted [nested]]",
+                                "A[\"Missing]", "A@{shape: cloud}", "A<<Other>>"}) {
+      const auto result = render::mermaid(QString("flowchart LR\n") + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
+    }
+    const auto fence = QString(3, QChar(0x60));
+    const auto markdown = fence + "mermaid\n" + source + fence + '\n';
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/shapes-light.png"));
+      QVERIFY(dark.image.save(retained + "/shapes-dark.png"));
+      QVERIFY(forward.save(retained + "/shapes-forward.png"));
+      QVERIFY(reverse.save(retained + "/shapes-reverse.png"));
+      QVERIFY(multiline.save(retained + "/shapes-multiline.png"));
+      QVERIFY(longImage.save(retained + "/shapes-long.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -2109,6 +2243,8 @@ class AdvancedContentTests : public QObject {
                " A->>+B: Write\n Note over A,B: Keep source\n autonumber off\n"
                " B->>B: Check\n autonumber\n B-->>-A: Saved\n")
         << QStringLiteral("sequenceDiagram\n autonumber 1 .001\n A->>B: Work\n");
+    QTest::newRow("flowchart-shapes")
+        << flowchartShapes() << QStringLiteral("flowchart LR\n A[[Missing]\n");
     QTest::newRow("sequence-roles")
         << sequenceRoles()
         << QStringLiteral("sequenceDiagram\n participant A@{\"type\":\"other\"}\n A->>B: Work\n");
