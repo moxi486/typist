@@ -44,12 +44,13 @@ sys.exit(int(os.environ.get("TYPIST_APT_FAIL_" + step, "0")))
     def calls(self):
         return [json.loads(line) for line in self.trace.read_text().splitlines()]
 
-    def test_official_https_mirrors_and_bounded_downloads(self):
+    def test_https_mirror_fallbacks_and_bounded_downloads(self):
         result = self.run_installer("libcmark-gfm-dev", "qt6-base-dev")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.mirrors.read_text().splitlines(), [
-            "https://archive.ubuntu.com/ubuntu/\tpriority:1",
-            "https://security.ubuntu.com/ubuntu/\tpriority:2"])
+            "https://mirror.math.princeton.edu/pub/ubuntu/\tpriority:1",
+            "https://archive.ubuntu.com/ubuntu/\tpriority:2",
+            "https://security.ubuntu.com/ubuntu/\tpriority:3"])
         update, install = self.calls()
         self.assertEqual(update[-1], "update")
         self.assertEqual(install[-5:], ["install", "-y", "--", "libcmark-gfm-dev", "qt6-base-dev"])
