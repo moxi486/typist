@@ -182,6 +182,8 @@ struct Edge {
   LinkHead start = LinkHead::None, end = LinkHead::Arrow;
   int minLength = 1;
   GraphStyle paint{};
+  QString id{};
+  QStringList classes{};
 };
 
 LinkHead linkHead(QChar marker) {
@@ -192,6 +194,11 @@ LinkHead linkHead(QChar marker) {
 }
 
 bool parseLink(QString& remaining, Edge& edge) {
+  static const QRegularExpression identifier(R"(^\s*([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)@\s*)");
+  if (const auto named = identifier.match(remaining); named.hasMatch()) {
+    edge.id = named.captured(1);
+    remaining.remove(0, named.capturedLength());
+  }
   static const QRegularExpression compact(
       R"(^\s*([<ox]?(?:-{2,}[ox>]|-{3,}|={2,}[ox>]|={3,}|-\.+-[ox>]?)|~{3,})\s*(?:\|([^|]*)\|\s*)?)");
   static const QRegularExpression words(
@@ -279,6 +286,7 @@ RenderResult flowchart(QStringList lines, bool dark) {
   QList<Node> nodes;
   QList<Edge> edges;
   QHash<QString, int> ids;
+  QHash<QString, int> edgeIds;
   QHash<QString, GraphStyle> classes;
   GraphStyle edgeDefaults;
   static const QString idPattern = QStringLiteral(R"([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)");
@@ -305,7 +313,7 @@ RenderResult flowchart(QStringList lines, bool dark) {
       {"(", ")", NodeShape::Rounded},          {"{", "}", NodeShape::Diamond}};
   auto node = [&](QString& remaining) {
     const auto m = nodePattern.match(remaining);
-    if (!m.hasMatch()) return -1;
+    if (!m.hasMatch() || edgeIds.contains(m.captured(1))) return -1;
     remaining.remove(0, m.capturedLength());
     remaining = remaining.trimmed();
     const int index = graphNode(nodes, ids, m.captured(1));
@@ -387,14 +395,22 @@ RenderResult flowchart(QStringList lines, bool dark) {
     if (const auto assigned = assignment.match(statement); assigned.hasMatch()) {
       for (auto target : assigned.captured(1).split(',')) {
         const auto index = ids.constFind(target.trimmed());
-        if (index == ids.cend() || nodes.at(*index).classes.size() >= 16) return {{}, unsupported};
-        nodes[*index].classes.append(assigned.captured(2));
+        const auto edgeIndex = edgeIds.constFind(target.trimmed());
+        if (index != ids.cend()) {
+          if (nodes.at(*index).classes.size() >= 16) return {{}, unsupported};
+          nodes[*index].classes.append(assigned.captured(2));
+        } else if (edgeIndex != edgeIds.cend()) {
+          if (edges.at(*edgeIndex).classes.size() >= 16) return {{}, unsupported};
+          edges[*edgeIndex].classes.append(assigned.captured(2));
+        } else
+          return {{}, unsupported};
       }
       continue;
     }
     if (const auto styled = styling.match(statement); styled.hasMatch()) {
       GraphStyle style;
-      if (!parseStyle(styled.captured(2), style)) return {{}, unsupported};
+      if (edgeIds.contains(styled.captured(1)) || !parseStyle(styled.captured(2), style))
+        return {{}, unsupported};
       const int index = graphNode(nodes, ids, styled.captured(1));
       if (nodes.size() > 64) return {{}, QStringLiteral("Diagram exceeds 64 nodes")};
       mergeStyle(nodes[index].style, style);
@@ -407,12 +423,21 @@ RenderResult flowchart(QStringList lines, bool dark) {
       if (!parseLink(statement, edge)) return {{}, unsupported};
       const auto next = nodeGroup(statement);
       if (next.isEmpty()) return {{}, unsupported};
+      const auto name = edge.id;
+      if (!name.isEmpty() && (ids.contains(name) || edgeIds.contains(name)))
+        return {{}, unsupported};
       if (edges.size() + previous.size() * next.size() > 128)
         return {{}, QStringLiteral("Diagram exceeds 128 edges")};
       for (const int from : previous)
         for (const int to : next) {
           edge.from = from;
           edge.to = to;
+          edge.id.clear();
+          if (!name.isEmpty() && !edgeIds.contains(name) && from == previous.last() &&
+              to == next.first()) {
+            edge.id = name;
+            edgeIds.insert(name, int(edges.size()));
+          }
           edges.append(edge);
         }
       previous = next;
@@ -431,8 +456,15 @@ RenderResult flowchart(QStringList lines, bool dark) {
     entry.style = resolved;
   }
   for (auto& edge : edges) {
-    auto resolved = edgeDefaults;
+    GraphStyle resolved;
+    for (const auto& name : edge.classes) {
+      const auto defined = classes.constFind(name);
+      if (defined == classes.cend()) return {{}, unsupported};
+      mergeStyle(resolved, *defined);
+    }
+    mergeStyle(resolved, edgeDefaults);
     mergeStyle(resolved, edge.paint);
+    if (resolved.fill.isValid() && resolved.fill.alpha() != 0) return {{}, unsupported};
     edge.paint = resolved;
   }
   return drawGraph(std::move(nodes), edges, mode, dark);

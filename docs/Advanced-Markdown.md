@@ -42,7 +42,7 @@ flowchart LR
 
 文字可写在竖线之间，如 `A -->|保存| B`；也可写在分开的连线标记之间，如 `A -- 保存 --> B`、`A -. 结果 .-> B` 和 `A == 保存 ==> B`。无端头连接和双端连接也支持文字。文字包含箭头标记时使用双引号，如 `A -- "显示 --> 标记" --> B`。不可见连接只影响节点布局，不绘制线或文字；给不可见连接添加非空标签会保留为源码。
 
-`A --> A` 等自连接在节点右侧绘制为环线，可使用上述端头和线型。排版会为环线及标签预留横向空间；环线标签显示为一行，过长时省略，完整文字保留在源码与保存文件中。同一对节点的多条连接可能共用路径。边 ID 仍保留为可编辑源码。
+`A --> A` 等自连接在节点右侧绘制为环线，可使用上述端头和线型。排版会为环线及标签预留横向空间；环线标签显示为一行，过长时省略，完整文字保留在源码与保存文件中。同一对节点的多条连接可能共用路径。
 
 节点 ID 以小写 `o` 或 `x` 开头时，与无端头连接之间留空格，例如 `A --- oNode`，以免被当作圆点或叉号端头；`A---oB` 表示到 `B` 的加长圆点连线。
 
@@ -114,9 +114,9 @@ flowchart LR
 | `stroke-dasharray` | 自定义虚线长度；`none` 将虚线恢复为实线 |
 | `color` | 连线标签的文字颜色；未指定时使用主题文字色 |
 
-颜色、粗细、虚线长度及转义逗号的写法沿用上方节点样式的数值范围；也接受无填充的 `fill:none` 或透明填充，其他填充保留为源码。属性按「连线语法（普通、虚线或粗线）→ `default` → 编号样式」的顺序叠加。对同一编号或 `default` 的后一次声明会替换前一次的整组属性；只有最后一组生效，编号样式仍可继承当前 `default` 中的其他属性。
+颜色、粗细、虚线长度及转义逗号的写法沿用上方节点样式的数值范围；也接受无填充的 `fill:none` 或透明填充，其他填充保留为源码。属性按「连线语法（普通、虚线或粗线）→ 显式附加的样式类 → `linkStyle default` → 编号样式」的顺序叠加。对同一编号或 `default` 的后一次 `linkStyle` 声明会替换前一次的整组属性；只有最后一组生效，编号样式仍可继承当前 `default` 中的其他属性。
 
-编号按连线的声明顺序计算；`&` 分组先按起点、再按终点顺序展开。例如 `A & B --> C & D` 的 0–3 依次为 `A→C`、`A→D`、`B→C`、`B→D`。自连接、重复连接和不可见连接均占编号。隐藏路径会保留节点布局和编号，标签仍可显示；不可见的 `~~~` 连线始终不绘制路径、端头或标签。显式配色在浅深主题中保持不变。边 ID、动画、曲线配置、无效属性及越界编号保留为可编辑源码。
+编号按连线的声明顺序计算；`&` 分组先按起点、再按终点顺序展开。例如 `A & B --> C & D` 的 0–3 依次为 `A→C`、`A→D`、`B→C`、`B→D`。自连接、重复连接和不可见连接均占编号。隐藏路径会保留节点布局和编号，标签仍可显示；不可见的 `~~~` 连线始终不绘制路径、端头或标签。显式配色在浅深主题中保持不变。动画、曲线配置、无效属性及越界编号保留为可编辑源码。
 
 ```mermaid
 flowchart LR
@@ -129,6 +129,30 @@ flowchart LR
     linkStyle 1 stroke:#469875,color:#469875,stroke-width:4
     linkStyle 2 stroke:#b88a47,color:#b88a47,stroke-dasharray:7 4
     linkStyle 3 stroke:#b76f94,color:#b76f94,stroke-width:2
+```
+
+在连线前加 `ID@` 可命名连线，如 `A e1@--> B`，随后用 `class e1 类名` 附加样式。`class A,e1 类名` 可同时引用已声明的节点和命名连线；样式类定义可放在引用之后。支持已有的实线、虚线、粗线、双端端头、加长连接、行内文字、竖线标签、自连接和不可见连接。ID 不显示在图里，也不会新增节点或改变编号。 [Mermaid 连线 ID](https://mermaid.js.org/syntax/flowchart.html#attaching-an-id-to-edges)
+
+ID 支持 ASCII 字母、数字、下划线和内部的单个连字符，区分大小写，且需紧挨 `@`；`@` 后可留空格。显式 ID 必须唯一，不能与节点 ID 重名。同一对节点的多条连接可使用不同 ID。分组写法 `A & B e1@--> C & D` 只将 `e1` 赋给 `B→C`（编号 2）；一般规则为最后一个起点值和第一个终点值对应的首条展开连线获得 ID，其余连接保留编号。重复引用同一端点时仍只命名首个匹配的连接。
+
+每条命名连线最多附加 16 次样式类，类按附加顺序逐属性叠加，并继承既有的颜色、线宽和虚线范围限制。`classDef default` 和 `classDef node` 只自动应用于节点；连线需显式用 `class` 引用这些类。`linkStyle default` 和编号样式可覆盖类中的对应属性。连线最终样式含不透明 `fill` 时保留为源码，可用 `linkStyle default fill:none` 覆盖共享类中的填充。
+
+重名、节点与连线 ID 冲突、未声明目标、缺失样式类、`style 边ID`、将边 ID 用作节点以及 JSON 元数据 / 动画 / 曲线配置均保留为可编辑源码。
+
+```mermaid
+flowchart LR
+    A([草稿]) submit@-->|提交| B{校验}
+    B accept@-->|通过| C[(文档)]
+    B revise@-.->|修改| D[修订]
+    C retry@-->|重试| C
+    class submit primary
+    class accept success
+    class revise warning
+    class retry accent
+    classDef primary stroke:#5488c9,stroke-width:3
+    classDef success stroke:#469875,color:#469875,stroke-width:4
+    classDef warning stroke:#b88a47,color:#b88a47,stroke-dasharray:7 4
+    classDef accent stroke:#b76f94,color:#b76f94,stroke-width:2
 ```
 
 `sequenceDiagram` 支持 `participant` 参与者、`actor` 人物符号、显示别名、实线和虚线消息、自调用、`autonumber` 以及 `Note over` 注释。可用 `alt / else` 表示条件分支、`opt` 表示可选操作、`loop` 表示循环、`par / and` 表示并行操作、`critical / option` 表示关键操作与异常分支、`break` 表示中断片段。各片段以 `end` 结束，可以嵌套，编号会延续到各分支内的消息。
