@@ -43,6 +43,11 @@ QString flowchartLinks() {
       " G[入口] o--o H[终端]\n I[停止] x--x J[任务]\n"
       " K[排版] ~~~ L[占位]\n M[[缓存]] -->|重试| M\n");
 }
+QString flowchartChains() {
+  return QStringLiteral(
+      "flowchart TB\n A([草稿]) & B([模板]) -->|校验| C{正文} & D{资源}\n"
+      " C & D -. 合并 ..-> E[[文档]]\n E ===> F[(归档)]\n B ---->|直接归档| F\n");
+}
 QString flowchartShapes() {
   return QStringLiteral(
       "flowchart LR\n A([开始]) --> B[[校验]] --> C[(数据库)]\n"
@@ -2231,9 +2236,9 @@ class AdvancedContentTests : public QObject {
     const auto loopMarkdown = fence + "mermaid\n" + loopSource + fence + '\n';
     QVERIFY(editor::loadMarkdown(loopMarkdown, &document, nullptr));
     QVERIFY(same(loopMarkdown, editor::serializeDocument(&document)));
-    for (const auto& invalid : {"---->", "===>", "-..->", "~~>", "---o", "---x", "===o", "===x",
-                                "-- Work ---o", "== Work ===x", "-- Work ==>", "== Work -->",
-                                "-. Work -->", "~~~|Hidden label|", "e1@-->", "-->|Unclosed"}) {
+    for (const auto& invalid :
+         {"--", "==", "-..>", "~~>", "--x>", "==o>", "-- Work ==>", "== Work -->", "-. Work -->",
+          "~~~|Hidden label|", "e1@-->", "-->|Unclosed"}) {
       const auto result = render::mermaid(QString("flowchart LR\nA ") + invalid + " B\n");
       QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
     }
@@ -2257,6 +2262,213 @@ class AdvancedContentTests : public QObject {
       QVERIFY(dark.image.save(retained + "/links-dark.png"));
       QVERIFY(loopImage.save(retained + "/links-long-loop.png"));
       QVERIFY(reverseLoop.save(retained + "/links-reverse-loop.png"));
+    }
+  }
+
+  void flowchartGroupsExpandChainsAndRespectMinimumLengths() {
+    const auto source = flowchartChains();
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const auto expanded = QStringLiteral(
+        "A([草稿]); B([模板]); C{正文}; D{资源}\n"
+        "A-->|校验|C; A-->|校验|D; B-->|校验|C; B-->|校验|D\n"
+        "E[[文档]]; C-..->|合并|E; D-..->|合并|E\n"
+        "F[(归档)]; E===>F; B---->|直接归档|F\n");
+    const QList<QPair<QString, QString>> groups = {
+        {"A & B --> C & D --> E", "A; B; C; D; A-->C; A-->D; B-->C; B-->D; C-->E; D-->E"},
+        {"A-->B&C-->D", "A; B; C; A-->B; A-->C; B-->D; C-->D"},
+        {"A & B & C", "A; B; C"},
+        {"A & A --> B", "A-->B; A-->B"},
+        {"A & B --> A & B", "A; B; A-->A; A-->B; B-->A; B-->B"},
+        {"A[\"Save & keep; draft\"] & B --> C & D",
+         "A[\"Save & keep; draft\"]; B; C; D; A-->C; A-->D; B-->C; B-->D"},
+    };
+    for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"}) {
+      const auto header = QString("flowchart ") + direction + '\n';
+      auto grouped = source;
+      grouped.replace("flowchart TB\n", header);
+      for (const bool theme : {false, true}) {
+        const auto image = render::mermaid(grouped, theme).image;
+        QVERIFY(!image.isNull());
+        QCOMPARE(image, render::mermaid(header + expanded, theme).image);
+        for (const auto& pair : groups) {
+          const auto compact = render::mermaid(header + pair.first, theme);
+          QVERIFY2(!compact.image.isNull(), qPrintable(pair.first));
+          QCOMPARE(compact.image, render::mermaid(header + pair.second, theme).image);
+        }
+      }
+    }
+    for (const auto& token :
+         {"-->|Go|", "-- Go -->", "<-->", "o---o", "x==x", "-..->", "===>", "~~~~"}) {
+      const auto statement = QString("A & B ") + token + " C & D";
+      const auto explicitLinks = QString("A; B; C; D; A %1 C; A %1 D; B %1 C; B %1 D").arg(token);
+      const auto compact = render::mermaid("flowchart TB\n" + statement);
+      QVERIFY2(!compact.image.isNull(), token);
+      QCOMPARE(compact.image, render::mermaid("flowchart TB\n" + explicitLinks).image);
+    }
+    const QList<QStringList> lengths = {
+        {"---", "----", "-----"},    {"-->", "--->", "---->"},      {"===", "====", "====="},
+        {"==>", "===>", "====>"},    {"-.-", "-..-", "-...-"},      {"-.->", "-..->", "-...->"},
+        {"~~~", "~~~~", "~~~~~"},    {"<-->", "<--->", "<---->"},   {"o--o", "o---o", "o----o"},
+        {"x==x", "x===x", "x====x"}, {"o-.-o", "o-..-o", "o-...-o"}};
+    for (const auto& tokens : lengths) {
+      QList<QImage> images;
+      for (const auto& token : tokens) {
+        const auto image = render::mermaid("flowchart TB\nA[] " + token + " B[]").image;
+        QVERIFY2(!image.isNull(), qPrintable(token));
+        images.append(image);
+      }
+      QCOMPARE(images[0].width(), images[2].width());
+      QVERIFY(images[0].height() < images[1].height());
+      QCOMPARE(images[2].height() - images[1].height(), images[1].height() - images[0].height());
+    }
+    const QList<QPair<QString, QString>> captions = {
+        {"-- Work ---->", "---->|Work|"}, {"-- Work -----", "-----|Work|"},
+        {"== Work ===>", "===>|Work|"},   {"-. Work ...->", "-...->|Work|"},
+        {"o-- Work ---o", "o---o|Work|"}, {"x== Work ===x", "x===x|Work|"}};
+    for (const auto& pair : captions)
+      QCOMPARE(render::mermaid("flowchart TB\nA " + pair.first + " B").image,
+               render::mermaid("flowchart TB\nA " + pair.second + " B").image);
+    QCOMPARE(render::mermaid("flowchart TB\nA---oB").image,
+             render::mermaid("flowchart TB\nA---o B").image);
+    QCOMPARE(render::mermaid("flowchart TB\nA--- oB").image,
+             render::mermaid("flowchart TB\nA--- B[oB]").image);
+    const auto bands = [](const QImage& image, bool horizontal) {
+      QList<int> centers;
+      int begin = -1;
+      for (int major = 0; major <= (horizontal ? image.width() : image.height()); ++major) {
+        bool filled = false;
+        for (int minor = 0; major < (horizontal ? image.width() : image.height()) &&
+                            minor < (horizontal ? image.height() : image.width());
+             ++minor) {
+          const auto color =
+              image.pixelColor(horizontal ? major : minor, horizontal ? minor : major);
+          if (color == QColor("#edf3fc")) {
+            filled = true;
+            break;
+          }
+        }
+        if (filled && begin < 0) begin = major;
+        if (!filled && begin >= 0) {
+          centers.append((begin + major - 1) / 2);
+          begin = -1;
+        }
+      }
+      return centers;
+    };
+    for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"}) {
+      const auto header = QString("flowchart ") + direction + '\n';
+      const bool horizontal = QString(direction) == "LR" || QString(direction) == "RL";
+      const auto image = render::mermaid(header + "A[]-->B[]-->C[]-->D[]; A---->C").image;
+      QVERIFY(!image.isNull());
+      const auto centers = bands(image, horizontal);
+      QCOMPARE(centers.size(), 4);
+      const int first = centers[1] - centers[0], middle = centers[2] - centers[1],
+                last = centers[3] - centers[2];
+      QVERIFY(qAbs(first - last) <= 2);
+      QVERIFY(qAbs(middle - first * 2) <= 3);
+      const auto cycle = render::mermaid(header + "A---->B; B-->C; C-->A; B--->D");
+      QVERIFY(!cycle.image.isNull());
+      QCOMPARE(cycle.image, render::mermaid(header + "A---->B; B-->C; C-->A; B--->D").image);
+      QVERIFY(image.width() <= 1640 && image.height() <= 2800);
+    }
+    const auto clearBorder = [](const QImage& image) {
+      const auto background = image.pixel(0, 0);
+      for (int x = 0; x < image.width(); ++x)
+        if (image.pixel(x, 0) != background || image.pixel(x, image.height() - 1) != background)
+          return false;
+      for (int y = 0; y < image.height(); ++y)
+        if (image.pixel(0, y) != background || image.pixel(image.width() - 1, y) != background)
+          return false;
+      return true;
+    };
+    const auto outsideInk = [](const QImage& image, bool horizontal, bool darkTheme) {
+      const auto fill = QColor(darkTheme ? "#344359" : "#edf3fc").rgb();
+      const auto ink = QColor(darkTheme ? "#dde3ec" : "#445269").rgb();
+      int lastNode = 0, pixels = 0;
+      for (int y = 0; y < image.height(); ++y) {
+        const auto row = reinterpret_cast<const QRgb*>(image.constScanLine(y));
+        for (int x = 0; x < image.width(); ++x)
+          if (row[x] == fill) lastNode = qMax(lastNode, horizontal ? y : x);
+      }
+      for (int y = 0; y < image.height(); ++y) {
+        const auto row = reinterpret_cast<const QRgb*>(image.constScanLine(y));
+        for (int x = 0; x < image.width(); ++x)
+          if ((horizontal ? y : x) > lastNode + 20 && row[x] == ink && ++pixels >= 20)
+            return pixels;
+      }
+      return pixels;
+    };
+    const auto longCaption = QStringLiteral("完整的跨层连线标签 ").repeated(50);
+    for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"}) {
+      const auto header = QString("flowchart ") + direction + '\n';
+      const bool horizontal = QString(direction) == "LR" || QString(direction) == "RL";
+      for (const bool theme : {false, true}) {
+        const auto chain = header + "A[]-->B[]-->C[]\n";
+        const auto base = render::mermaid(chain, theme).image;
+        const auto routed = render::mermaid(chain + "A-->|" + longCaption + "|C\n", theme).image;
+        QVERIFY(!base.isNull() && !routed.isNull());
+        QVERIFY(horizontal ? routed.height() > base.height() : routed.width() > base.width());
+        QVERIFY(clearBorder(routed));
+        QCOMPARE(outsideInk(base, horizontal, theme), 0);
+        QVERIFY(outsideInk(routed, horizontal, theme) >= 20);
+      }
+      const auto routedLoop = render::mermaid(header + "A[]-->B[]-->C[]; A-->|Go|C; B-->B").image;
+      QVERIFY(!routedLoop.isNull() && clearBorder(routedLoop));
+      const auto fence = QString(3, QChar(0x60));
+      const auto markdown =
+          fence + "mermaid\n" + header + "A-->B-->C; A-->|" + longCaption + "|C\n" + fence + '\n';
+      QTextDocument document;
+      QVERIFY(editor::loadMarkdown(markdown, &document, nullptr));
+      QVERIFY(same(markdown, editor::serializeDocument(&document)));
+    }
+    for (const auto& invalid : {"A && B --> C", "A & --> B", "A --> B &", "A & B --> & C",
+                                "A & B --> C & D ? E", "A -->|Missing B & C", "A -- Work ==> B",
+                                "A -..> B", "A ~~~~|Invisible caption| B", "A e1@----> B"}) {
+      const auto result = render::mermaid(QString("flowchart TB\n") + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
+    }
+    QStringList ids;
+    for (int i = 0; i < 16; ++i) ids.append(QString("N%1").arg(i));
+    const auto many = ids.join(" & ");
+    QVERIFY(render::mermaid("flowchart TB\n" + many + " --> " + many).image.isNull());
+    QVERIFY(!render::mermaid("flowchart TB\n" + many + " --> " + ids.mid(0, 8).join(" & "))
+                 .image.isNull());
+    for (int i = 16; i < 64; ++i) ids.append(QString("N%1").arg(i));
+    QVERIFY(!render::mermaid("flowchart TB\n" + ids.join(" & ")).image.isNull());
+    QVERIFY(render::mermaid("flowchart TB\n" + ids.join(" & ") + " & Extra").image.isNull());
+    QVERIFY(render::mermaid("flowchart TB\n" + QString("A & ").repeated(64) + "A").image.isNull());
+    for (const auto& token : {QString(10, '-'), QString(9, '-') + '>', QString(8, '.'),
+                              QString(10, '='), QString(10, '~')}) {
+      const auto valid = token.startsWith('.') ? '-' + token + "->" : token;
+      QVERIFY(!render::mermaid("flowchart TB\nA " + valid + " B").image.isNull());
+      const auto extra = token.startsWith('.') ? "-" + token + ".->" : valid.front() + valid;
+      QVERIFY(render::mermaid("flowchart TB\nA " + extra + " B").image.isNull());
+    }
+    const auto fence = QString(3, QChar(0x60));
+    const auto markdown = fence + "mermaid\n" + source + fence + '\n';
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/chains-light.png"));
+      QVERIFY(dark.image.save(retained + "/chains-dark.png"));
+      QVERIFY(render::mermaid("flowchart LR\n" + expanded)
+                  .image.save(retained + "/chains-horizontal.png"));
     }
   }
 
@@ -2377,6 +2589,8 @@ class AdvancedContentTests : public QObject {
         << QStringLiteral("sequenceDiagram\n autonumber 1 .001\n A->>B: Work\n");
     QTest::newRow("flowchart-links")
         << flowchartLinks() << QStringLiteral("flowchart LR\nA-- Work ==>B\n");
+    QTest::newRow("flowchart-chains")
+        << flowchartChains() << QStringLiteral("flowchart TB\nA & B --> C &\n");
     QTest::newRow("flowchart-shapes")
         << flowchartShapes() << QStringLiteral("flowchart LR\n A[[Missing]\n");
     QTest::newRow("sequence-roles")
