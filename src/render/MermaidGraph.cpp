@@ -64,9 +64,11 @@ bool parseLink(QString& remaining, Edge& edge) {
   static const QRegularExpression words(
       R"rx(^\s*([<ox]?)(--|==|-\.)\s+("[^"]*"|.+?)\s+(--[-ox>]|==[=ox>]|\.-[ox>]?)\s*)rx");
   QString token;
+  qsizetype markerEnd = 0;
   auto match = compact.match(remaining);
   if (match.hasMatch()) {
     token = match.captured(1);
+    markerEnd = match.capturedEnd(1);
     edge.text = label(match.captured(2));
   } else {
     match = words.match(remaining);
@@ -77,8 +79,12 @@ bool parseLink(QString& remaining, Edge& edge) {
         (opening == "-." && !ending.startsWith(".-")))
       return false;
     token = match.captured(1) + (opening == "-." ? "-" : "") + ending;
+    markerEnd = match.capturedEnd(4);
     edge.text = label(match.captured(3));
   }
+  if ((token.endsWith('-') || token.endsWith('=')) && markerEnd < remaining.size() &&
+      (remaining.at(markerEnd) == 'o' || remaining.at(markerEnd) == 'x'))
+    return false;
   edge.style = token == "~~~"        ? LinkStyle::Invisible
                : token.contains('=') ? LinkStyle::Thick
                : token.contains('.') ? LinkStyle::Dotted

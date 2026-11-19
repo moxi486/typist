@@ -2198,6 +2198,8 @@ class AdvancedContentTests : public QObject {
     QVERIFY(solid > dotted && dotted > 20);
     QVERIFY(thick > solid * 1.5);
     QCOMPARE(lineInk(diagram("~~~")), 0);
+    QCOMPARE(render::mermaid("flowchart LR\nA[]--- oB[]\n").image, diagram("---"));
+    QCOMPARE(render::mermaid("flowchart LR\nA[]=== xB[]\n").image, diagram("==="));
     QCOMPARE(render::mermaid("flowchart LR\nA[]~~~A\n").image,
              render::mermaid("flowchart LR\nA[]\n").image);
     for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"}) {
@@ -2229,7 +2231,8 @@ class AdvancedContentTests : public QObject {
     const auto loopMarkdown = fence + "mermaid\n" + loopSource + fence + '\n';
     QVERIFY(editor::loadMarkdown(loopMarkdown, &document, nullptr));
     QVERIFY(same(loopMarkdown, editor::serializeDocument(&document)));
-    for (const auto& invalid : {"---->", "===>", "-..->", "~~>", "-- Work ==>", "== Work -->",
+    for (const auto& invalid : {"---->", "===>", "-..->", "~~>", "---o", "---x", "===o", "===x",
+                                "-- Work ---o", "== Work ===x", "-- Work ==>", "== Work -->",
                                 "-. Work -->", "~~~|Hidden label|", "e1@-->", "-->|Unclosed"}) {
       const auto result = render::mermaid(QString("flowchart LR\nA ") + invalid + " B\n");
       QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
