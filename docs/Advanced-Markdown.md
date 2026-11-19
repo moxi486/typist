@@ -483,7 +483,7 @@ stateDiagram-v2
     Active --> [*] : 退出应用
 ```
 
-`classDiagram` 支持类名、自定义显示名称、类注解、属性和方法。成员可写在类的花括号内，也可写作 `Class : 成员`。保留可见性符号，静态成员加下划线，抽象方法用斜体。支持继承、实现、组合、聚合、关联与依赖，关系可附文字说明和双端多重性。用 `direction` 设置上下或左右布局。单图最多 24 个类、48 条关系，每类最多 18 个成员。命名空间、泛型和交互指令保留为可编辑源码。 [Mermaid 类图语法](https://mermaid.js.org/syntax/classDiagram.html)
+`classDiagram` 支持类名、自定义显示名称、类注解、属性和方法。成员可写在类的花括号内，也可写作 `Class : 成员`。保留可见性符号，静态成员加下划线，抽象方法用斜体。支持继承、实现、组合、聚合、关联与依赖，关系可附文字说明和双端多重性。用 `direction` 设置上下或左右布局。单图最多 24 个类、48 条关系，每类最多 18 个成员。命名空间和交互指令保留为可编辑源码。 [Mermaid 类图语法](https://mermaid.js.org/syntax/classDiagram.html)
 
 ```mermaid
 classDiagram
@@ -497,6 +497,29 @@ classDiagram
     class Section["章节"]
     Document <|-- MarkdownDocument
     Document "1" *-- "1..*" Section : 包含
+```
+
+类图泛型写作 `class Repository~Document~`，图中显示为 `Repository<Document>`。属性、方法参数和返回值也支持相同写法，例如 `List~Document~ items`、`find(List~String~ keys) List~Document~`；`List~List~int~~` 显示为 `List<List<int>>`。成员开头的 `~` 仍表示内部可见性，末尾的 `$` / `*` 仍用于静态 / 抽象格式。 [Mermaid 泛型类型](https://mermaid.js.org/syntax/classDiagram.html#generic-types)
+
+支持最多 8 层嵌套的单类型参数。类型名可使用字母、数字、下划线、点或连字符连接的名称及 `[]` 数组后缀，支持中文类型名；类型参数内部使用紧凑写法，不含空格或逗号。方法的多个参数可在泛型外使用逗号分隔。空参数、未闭合泛型、超出深度、逗号类型参数及同一类 ID 的不同泛型声明均保留为可编辑源码。
+
+泛型不属于类 ID。声明 `Repository~Document~` 后，关系、成员、注解、注释及样式仍引用 `Repository`；这些引用可以写在泛型声明之前。重复相同泛型或后续省略泛型会保留原有类型。显示名称只替换基础名称，泛型后缀仍会显示，例如 `class Repo~T~["仓库"]` 显示为 `仓库<T>`。过长的类型按类框宽度显示省略号，完整泛型指令保留在 Markdown 中，HTML、PDF、DOCX 和 EPUB 导出包含渲染结果。
+
+```mermaid
+classDiagram
+    direction LR
+    class Repository~Document~:::primary {
+        <<interface>>
+        -List~Document~ items
+        +List~List~int~~ matrix
+        +find(List~String~ keys,Set~int~ ids) List~Document~
+        ~refresh(List~Document~ docs)$
+        +create() Box~Document~*
+    }
+    class Document["文档"]
+    Repository "1" o-- "*" Document : 管理
+    note for Repository "Markdown 泛型仓库\n关联仍使用原类 ID"
+    classDef primary fill:#e3edff,stroke:#5488c9,color:#243249,stroke-width:2
 ```
 
 类图注释使用 `note "说明"`，关联到类时写作 `note for 类ID "说明"`。独立注释放在图下方；关联注释以虚线连接到类，在上下布局时放在类的右侧，左右布局时放在类的下方，并为关系线预留空间。也可只包含独立注释。注释须写在类的花括号外，允许先写关联注释、后声明目标类；目标使用类 ID（支持中文和反引号包围的 ID），不是自定义显示名称。不存在的目标或错误语法会使整图保留为可编辑源码。

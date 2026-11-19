@@ -23,6 +23,7 @@ struct ClassBox {
   QList<Member> fields, methods;
   QRectF rect;
   GraphStyle style{};
+  QString generic{};
 };
 
 enum class Marker { None, OpenArrow, Triangle, Diamond, FilledDiamond };
@@ -49,6 +50,49 @@ struct ClassDiagram {
 };
 
 QString classId(QString id) { return id.startsWith(QChar(0x60)) ? id.mid(1, id.size() - 2) : id; }
+
+bool typeStart(QChar c) { return c.isLetterOrNumber() || c == '_' || c.isHighSurrogate(); }
+
+bool genericType(const QString& source, qsizetype& at, QString& display, int depth = 0) {
+  if (depth >= 8 || at >= source.size() || source.at(at) != '~') return false;
+  ++at;
+  static const QRegularExpression name(R"(^[\p{L}\p{N}_]+(?:[.-][\p{L}\p{N}_]+)*(?:\[\])*)");
+  const auto type = name.match(source.mid(at));
+  if (!type.hasMatch()) return false;
+  display += '<' + type.captured();
+  at += type.capturedLength();
+  if (at + 1 < source.size() && source.at(at) == '~' && typeStart(source.at(at + 1))) {
+    if (!genericType(source, at, display, depth + 1)) return false;
+    while (source.mid(at, 2) == "[]") {
+      display += "[]";
+      at += 2;
+    }
+  }
+  if (at >= source.size() || source.at(at++) != '~') return false;
+  display += '>';
+  return true;
+}
+
+bool genericMember(QString& text) {
+  QString display;
+  qsizetype at = 0;
+  if (text.startsWith('~')) {
+    display += '~';
+    ++at;
+  }
+  while (at < text.size()) {
+    if (text.at(at) == '~') {
+      if (!at ||
+          (!typeStart(text.at(at - 1)) && !text.at(at - 1).isLowSurrogate() &&
+           text.at(at - 1) != ']') ||
+          !genericType(text, at, display))
+        return false;
+    } else
+      display += text.at(at++);
+  }
+  text = std::move(display);
+  return true;
+}
 
 QString noteText(const QString& source) {
   QString text;
@@ -81,15 +125,14 @@ bool addMember(ClassBox& box, QString text) {
     box.annotation = match.captured(1).trimmed();
     return !box.annotation.isEmpty();
   }
-  if (text.startsWith("<<") || text.contains('{') || text.contains('}') ||
-      text.indexOf('~', 1) >= 0 || text.contains(":::"))
+  if (text.startsWith("<<") || text.contains('{') || text.contains('}') || text.contains(":::"))
     return false;
   const bool method = text.contains('(');
   if (method != text.contains(')')) return false;
   const bool underlined = text.endsWith('$'), italic = method && text.endsWith('*');
   if (underlined || italic) text.chop(1);
   text = text.trimmed();
-  if (text.isEmpty()) return false;
+  if (text.isEmpty() || !genericMember(text)) return false;
   (method ? box.methods : box.fields).append({text, underlined, italic});
   return box.fields.size() + box.methods.size() <= 18;
 }
@@ -100,7 +143,7 @@ bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
   static const QString styleId = QStringLiteral(R"([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)");
   static const QRegularExpression declaration(
       QStringLiteral(
-          R"rx(^class\s+(%1)(?:\s*\["([^"]+)"\])?(?:\s*<<([^<>]+)>>)?(?:\s*:::(%2))?\s*(\{\}|\{)?$)rx")
+          R"rx(^class\s+(%1)(~[^{}<>:";]*~)?(?:\s*\["([^"]+)"\])?(?:\s*<<([^<>]+)>>)?(?:\s*:::(%2))?\s*(\{\}|\{)?$)rx")
           .arg(id, styleId));
   static const QRegularExpression styling(QStringLiteral(R"(^style\s+(%1)\s+(.+)$)").arg(id));
   static const QRegularExpression definition("^classDef\\s+(" + styleId + "(?:\\s*,\\s*" + styleId +
@@ -179,14 +222,23 @@ bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
     } else if (const auto declarationMatch = declaration.match(line); declarationMatch.hasMatch()) {
       const auto index = box(declarationMatch.captured(1));
       auto& entry = diagram.boxes[index];
-      if (declarationMatch.capturedStart(2) >= 0)
-        entry.name = label(declarationMatch.captured(2)).simplified();
+      if (declarationMatch.capturedStart(2) >= 0) {
+        const auto source = declarationMatch.captured(2);
+        QString display;
+        qsizetype at = 0;
+        if (!genericType(source, at, display) || at != source.size() ||
+            (!entry.generic.isEmpty() && entry.generic != display))
+          return false;
+        entry.generic = display;
+      }
       if (declarationMatch.capturedStart(3) >= 0)
-        entry.annotation = declarationMatch.captured(3).trimmed();
-      if (declarationMatch.capturedStart(4) >= 0 &&
-          !attach(declarationMatch.captured(1), declarationMatch.captured(4)))
+        entry.name = label(declarationMatch.captured(3)).simplified();
+      if (declarationMatch.capturedStart(4) >= 0)
+        entry.annotation = declarationMatch.captured(4).trimmed();
+      if (declarationMatch.capturedStart(5) >= 0 &&
+          !attach(declarationMatch.captured(1), declarationMatch.captured(5)))
         return false;
-      if (declarationMatch.captured(5) == "{") open = index;
+      if (declarationMatch.captured(6) == "{") open = index;
     } else if (const auto stereotype = annotation.match(line); stereotype.hasMatch()) {
       const auto index = box(stereotype.captured(2));
       diagram.boxes[index].annotation = stereotype.captured(1).trimmed();
@@ -317,8 +369,9 @@ void drawClass(QPainter& painter, const ClassBox& box, const Fonts& fonts, const
     y += fonts.rowHeight - 3;
   }
   painter.setFont(fonts.heading);
-  painter.drawText(QRectF(rect.left() + 10, y, textWidth, fonts.rowHeight), Qt::AlignCenter,
-                   QFontMetricsF(fonts.heading).elidedText(box.name, Qt::ElideRight, textWidth));
+  painter.drawText(
+      QRectF(rect.left() + 10, y, textWidth, fonts.rowHeight), Qt::AlignCenter,
+      QFontMetricsF(fonts.heading).elidedText(box.name + box.generic, Qt::ElideRight, textWidth));
   y = rect.top() + titleHeight;
   for (const auto* members : {&box.fields, &box.methods}) {
     if (members->isEmpty()) continue;
@@ -433,7 +486,7 @@ QImage drawClasses(ClassDiagram diagram, bool dark) {
                                          [](const Note& note) { return note.anchor >= 0; });
   qreal nodeWidth = 132;
   for (auto& box : diagram.boxes) {
-    nodeWidth = qMax(nodeWidth, heading.horizontalAdvance(box.name) + 22);
+    nodeWidth = qMax(nodeWidth, heading.horizontalAdvance(box.name + box.generic) + 22);
     nodeWidth = qMax(nodeWidth, annotation.horizontalAdvance(box.annotation) + 36);
     for (const auto* members : {&box.fields, &box.methods})
       for (const auto& member : *members)
