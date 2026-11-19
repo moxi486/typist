@@ -1,4 +1,5 @@
 #include "MermaidInternal.h"
+#include "MermaidStyle.h"
 
 #include <QFontMetricsF>
 #include <QHash>
@@ -21,6 +22,7 @@ struct ClassBox {
   QString name, annotation;
   QList<Member> fields, methods;
   QRectF rect;
+  GraphStyle style{};
 };
 
 enum class Marker { None, OpenArrow, Triangle, Diamond, FilledDiamond };
@@ -95,9 +97,17 @@ bool addMember(ClassBox& box, QString text) {
 bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
   static const QString id =
       QStringLiteral(R"((?:\x60[^\x60]+\x60|[\p{L}\p{N}_]+(?:-[\p{L}\p{N}_]+)*))");
+  static const QString styleId = QStringLiteral(R"([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)");
   static const QRegularExpression declaration(
-      QStringLiteral(R"rx(^class\s+(%1)(?:\s*\["([^"]+)"\])?(?:\s*<<([^<>]+)>>)?\s*(\{\}|\{)?$)rx")
-          .arg(id));
+      QStringLiteral(
+          R"rx(^class\s+(%1)(?:\s*\["([^"]+)"\])?(?:\s*<<([^<>]+)>>)?(?:\s*:::(%2))?\s*(\{\}|\{)?$)rx")
+          .arg(id, styleId));
+  static const QRegularExpression styling(QStringLiteral(R"(^style\s+(%1)\s+(.+)$)").arg(id));
+  static const QRegularExpression definition("^classDef\\s+(" + styleId + "(?:\\s*,\\s*" + styleId +
+                                             ")*)\\s+(.+)$");
+  static const QRegularExpression assignment(
+      QStringLiteral(R"rx(^cssClass\s+"([^"]+)"\s+(%1)$)rx").arg(styleId));
+  static const QRegularExpression target(QStringLiteral(R"(^\s*(%1)\s*(,|$))").arg(id));
   static const QRegularExpression annotation(QStringLiteral(R"(^<<([^<>]+)>>\s+(%1)$)").arg(id));
   static const QRegularExpression relation(
       QStringLiteral(
@@ -110,6 +120,13 @@ bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
   static const QRegularExpression metadata(R"(^acc(?:Title|Descr)\s*[:{])",
                                            QRegularExpression::CaseInsensitiveOption);
   QHash<QString, int> ids;
+  QHash<QString, GraphStyle> definitions, styles;
+  QHash<QString, QStringList> assigned;
+  const auto attach = [&](const QString& name, const QString& style) {
+    auto& classes = assigned[classId(name)];
+    classes.append(style);
+    return classes.size() <= 16;
+  };
   const auto box = [&](QString name) {
     name = classId(name);
     const auto found = ids.constFind(name);
@@ -130,11 +147,31 @@ bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
       line = line.trimmed();
     }
     if (open >= 0) {
-      if (note.match(line).hasMatch()) return false;
+      if (note.match(line).hasMatch() || styling.match(line).hasMatch() ||
+          definition.match(line).hasMatch() || assignment.match(line).hasMatch())
+        return false;
       if (line == "}")
         open = -1;
       else if (!addMember(diagram.boxes[open], line))
         return false;
+    } else if (const auto styled = styling.match(line); styled.hasMatch()) {
+      GraphStyle style;
+      if (!parseStyle(styled.captured(2), style)) return false;
+      mergeStyle(styles[classId(styled.captured(1))], style);
+    } else if (const auto defined = definition.match(line); defined.hasMatch()) {
+      GraphStyle style;
+      if (!parseStyle(defined.captured(2), style)) return false;
+      for (const auto& name : defined.captured(1).split(','))
+        mergeStyle(definitions[name.trimmed()], style);
+      if (definitions.size() > 32) return false;
+    } else if (const auto attached = assignment.match(line); attached.hasMatch()) {
+      QString remaining = attached.captured(1);
+      while (!remaining.isEmpty()) {
+        const auto match = target.match(remaining);
+        if (!match.hasMatch() || !attach(match.captured(1), attached.captured(2))) return false;
+        remaining.remove(0, match.capturedLength());
+        if (match.captured(2) == "," && remaining.trimmed().isEmpty()) return false;
+      }
     } else if (const auto entry = note.match(line); entry.hasMatch()) {
       diagram.notes.append({noteText(entry.captured(2)), classId(entry.captured(1))});
     } else if (const auto orientation = direction.match(line); orientation.hasMatch()) {
@@ -146,7 +183,10 @@ bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
         entry.name = label(declarationMatch.captured(2)).simplified();
       if (declarationMatch.capturedStart(3) >= 0)
         entry.annotation = declarationMatch.captured(3).trimmed();
-      if (declarationMatch.captured(4) == "{") open = index;
+      if (declarationMatch.capturedStart(4) >= 0 &&
+          !attach(declarationMatch.captured(1), declarationMatch.captured(4)))
+        return false;
+      if (declarationMatch.captured(5) == "{") open = index;
     } else if (const auto stereotype = annotation.match(line); stereotype.hasMatch()) {
       const auto index = box(stereotype.captured(2));
       diagram.boxes[index].annotation = stereotype.captured(1).trimmed();
@@ -166,6 +206,20 @@ bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
       return false;
   }
   if (open >= 0 || (diagram.boxes.isEmpty() && diagram.notes.isEmpty())) return false;
+  for (auto it = styles.cbegin(); it != styles.cend(); ++it)
+    if (!ids.contains(it.key())) return false;
+  for (auto it = assigned.cbegin(); it != assigned.cend(); ++it)
+    if (!ids.contains(it.key())) return false;
+  for (auto it = ids.cbegin(); it != ids.cend(); ++it) {
+    auto resolved = definitions.value("default");
+    for (const auto& name : assigned.value(it.key())) {
+      const auto defined = definitions.constFind(name);
+      if (defined == definitions.cend()) return false;
+      mergeStyle(resolved, *defined);
+    }
+    mergeStyle(resolved, styles.value(it.key()));
+    diagram.boxes[it.value()].style = resolved;
+  }
   for (auto& entry : diagram.notes)
     if (!entry.target.isEmpty()) {
       const auto anchor = ids.constFind(entry.target);
@@ -241,12 +295,18 @@ qreal headingHeight(const ClassBox& box, const Fonts& fonts) {
 void drawClass(QPainter& painter, const ClassBox& box, const Fonts& fonts, const Theme& theme) {
   const auto rect = box.rect;
   const qreal titleHeight = headingHeight(box, fonts);
-  painter.fillRect(rect, theme.surface);
-  painter.fillRect(QRectF(rect.topLeft(), QSizeF(rect.width(), titleHeight)), theme.title);
-  painter.setPen(QPen(theme.line, 1.15));
+  if (box.style.fill.isValid()) {
+    painter.fillRect(rect, theme.paper);
+    painter.fillRect(rect, box.style.fill);
+  } else {
+    painter.fillRect(rect, theme.surface);
+    painter.fillRect(QRectF(rect.topLeft(), QSizeF(rect.width(), titleHeight)), theme.title);
+  }
+  painter.setPen(graphPen(box.style, theme.line, 1.15));
   painter.setBrush(Qt::NoBrush);
   painter.drawRect(rect);
-  painter.setPen(theme.ink);
+  const auto ink = box.style.color.isValid() ? box.style.color : theme.ink;
+  painter.setPen(ink);
   qreal y = rect.top() + 5;
   const qreal textWidth = rect.width() - 20;
   if (!box.annotation.isEmpty()) {
@@ -262,10 +322,10 @@ void drawClass(QPainter& painter, const ClassBox& box, const Fonts& fonts, const
   y = rect.top() + titleHeight;
   for (const auto* members : {&box.fields, &box.methods}) {
     if (members->isEmpty()) continue;
-    painter.setPen(QPen(theme.line, 1));
+    painter.setPen(graphPen(box.style, theme.line, 1));
     painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y));
     y += 4;
-    painter.setPen(theme.ink);
+    painter.setPen(ink);
     for (const auto& member : *members) {
       auto font = fonts.body;
       font.setUnderline(member.underlined);
