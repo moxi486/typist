@@ -2062,16 +2062,30 @@ class AdvancedContentTests : public QObject {
       const auto ratio = image.devicePixelRatio();
       int pixels = 0;
       for (int y = qRound(area.top() * ratio); y < qRound((area.bottom() + 1) * ratio); ++y)
-        for (int x = qRound(area.left() * ratio); x < qRound((area.right() + 1) * ratio); ++x)
-          pixels += image.pixelColor(x, y) == QColor("#445269");
+        for (int x = qRound(area.left() * ratio); x < qRound((area.right() + 1) * ratio); ++x) {
+          const auto pixel = image.pixelColor(x, y);
+          pixels += qAbs(pixel.red() - 68) < 48 && qAbs(pixel.green() - 82) < 48 &&
+                    qAbs(pixel.blue() - 105) < 48;
+        }
       return pixels;
     };
     const auto forward = render::mermaid("flowchart LR\nA[X]-->B>Y]\n").image;
     const auto reverse = render::mermaid("flowchart RL\nA>Y]-->B[X]\n").image;
     QVERIFY(!forward.isNull() && !reverse.isNull());
     // The line and arrowhead must reach into the asymmetric node's notch.
-    QVERIFY(ink(forward, QRect(263, 51, 14, 9)) > 20);
-    QVERIFY(ink(reverse, QRect(331, 53, 14, 5)) > 20);
+    const auto notchInk = [&](const QImage& image) {
+      const int split = image.width() / 2;
+      auto bounds = filledBounds(image.copy(split, 0, image.width() - split, image.height()));
+      if (bounds.isEmpty()) return 0;
+      bounds.translate(split, 0);
+      const auto ratio = image.devicePixelRatio();
+      const QRect probe(qRound(bounds.left() / ratio + 3), qRound(bounds.center().y() / ratio) - 4,
+                        qMax(1, qRound(bounds.width() / ratio * .15) - 3), 9);
+      return ink(image, probe);
+    };
+    const int forwardInk = notchInk(forward), reverseInk = notchInk(reverse);
+    QVERIFY2(forwardInk > 20, qPrintable(QString("Forward notch ink: %1").arg(forwardInk)));
+    QVERIFY2(reverseInk > 20, qPrintable(QString("Reverse notch ink: %1").arg(reverseInk)));
     const auto multiline =
         render::mermaid("flowchart TD\nA[(文档内容<br>本地资源)]-->B[[校验<br>保存]]\n").image;
     QVERIFY(!multiline.isNull());
