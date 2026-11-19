@@ -2,6 +2,7 @@
 
 #include <QFontMetricsF>
 #include <QHash>
+#include <QLineF>
 #include <QPainter>
 #include <QPainterPath>
 #include <QRegularExpression>
@@ -41,11 +42,53 @@ struct Node {
   QSizeF textSize{};
   QSizeF boxSize{};
 };
+enum class LinkStyle { Solid, Dotted, Thick, Invisible };
+enum class LinkHead { None, Arrow, Circle, Cross };
 struct Edge {
   int from, to;
   QString text;
-  bool dashed = false, head = true;
+  LinkStyle style = LinkStyle::Solid;
+  LinkHead start = LinkHead::None, end = LinkHead::Arrow;
 };
+
+LinkHead linkHead(QChar marker) {
+  if (marker == '<' || marker == '>') return LinkHead::Arrow;
+  if (marker == 'o') return LinkHead::Circle;
+  if (marker == 'x') return LinkHead::Cross;
+  return LinkHead::None;
+}
+
+bool parseLink(QString& remaining, Edge& edge) {
+  static const QRegularExpression compact(
+      R"(^\s*([<ox]?(?:--[-ox>]|==[=ox>]|-\.-[ox>]?)|~~~)\s*(?:\|([^|]*)\|\s*)?)");
+  static const QRegularExpression words(
+      R"rx(^\s*([<ox]?)(--|==|-\.)\s+("[^"]*"|.+?)\s+(--[-ox>]|==[=ox>]|\.-[ox>]?)\s*)rx");
+  QString token;
+  auto match = compact.match(remaining);
+  if (match.hasMatch()) {
+    token = match.captured(1);
+    edge.text = label(match.captured(2));
+  } else {
+    match = words.match(remaining);
+    if (!match.hasMatch()) return false;
+    const auto opening = match.captured(2), ending = match.captured(4);
+    if ((opening == "--" && !ending.startsWith("--")) ||
+        (opening == "==" && !ending.startsWith("==")) ||
+        (opening == "-." && !ending.startsWith(".-")))
+      return false;
+    token = match.captured(1) + (opening == "-." ? "-" : "") + ending;
+    edge.text = label(match.captured(3));
+  }
+  edge.style = token == "~~~"        ? LinkStyle::Invisible
+               : token.contains('=') ? LinkStyle::Thick
+               : token.contains('.') ? LinkStyle::Dotted
+                                     : LinkStyle::Solid;
+  if (edge.style == LinkStyle::Invisible && !edge.text.isEmpty()) return false;
+  edge.start = linkHead(token.front());
+  edge.end = linkHead(token.back());
+  remaining.remove(0, match.capturedLength());
+  return true;
+}
 int graphNode(QList<Node>& nodes, QHash<QString, int>& ids, const QString& id,
               NodeShape shape = NodeShape::Box) {
   const auto previous = ids.constFind(id);
@@ -110,8 +153,6 @@ RenderResult flowchart(QStringList lines, bool dark) {
       {"[/", "\\]", NodeShape::Trapezoid},     {"[\\", "/]", NodeShape::TrapezoidAlt},
       {">", "]", NodeShape::Asymmetric},       {"[", "]", NodeShape::Box},
       {"(", ")", NodeShape::Rounded},          {"{", "}", NodeShape::Diamond}};
-  static const QRegularExpression edgePattern(
-      R"rx(^\s*(-->|---|==>|-\.->|--\s+(.+?)\s+-->)\s*(?:\|([^|]*)\|\s*)?)rx");
   auto node = [&](QString& remaining) {
     const auto m = nodePattern.match(remaining);
     if (!m.hasMatch()) return -1;
@@ -149,14 +190,12 @@ RenderResult flowchart(QStringList lines, bool dark) {
     int previous = node(statement);
     if (previous < 0) return {{}, unsupported};
     while (!statement.trimmed().isEmpty()) {
-      const auto edge = edgePattern.match(statement);
-      if (!edge.hasMatch()) return {{}, unsupported};
-      statement.remove(0, edge.capturedLength());
+      Edge edge{previous, -1, {}};
+      if (!parseLink(statement, edge)) return {{}, unsupported};
       const int next = node(statement);
       if (next < 0) return {{}, unsupported};
-      edges.append({previous, next,
-                    label(edge.captured(3).isEmpty() ? edge.captured(2) : edge.captured(3)),
-                    edge.captured(1) == "-.->", edge.captured(1) != "---"});
+      edge.to = next;
+      edges.append(edge);
       previous = next;
       if (edges.size() > 128) return {{}, QStringLiteral("Diagram exceeds 128 edges")};
     }
@@ -343,10 +382,9 @@ QPainterPath nodeOutline(const Node& node) {
   return path;
 }
 
-QPointF graphPort(const Node& node, bool horizontal, bool positive) {
+QPointF graphPort(const Node& node, QPointF direction) {
   const auto path = nodeOutline(node);
   const auto bounds = path.boundingRect();
-  const auto direction = horizontal ? QPointF(positive ? 1 : -1, 0) : QPointF(0, positive ? 1 : -1);
   auto inside = node.rect.center();
   auto outside = inside + direction * (bounds.width() + bounds.height() + 2);
   for (int i = 0; i < 28; ++i) {
@@ -357,6 +395,73 @@ QPointF graphPort(const Node& node, bool horizontal, bool positive) {
       outside = middle;
   }
   return (inside + outside) / 2;
+}
+
+QPointF graphPort(const Node& node, bool horizontal, bool positive) {
+  return graphPort(node,
+                   horizontal ? QPointF(positive ? 1 : -1, 0) : QPointF(0, positive ? 1 : -1));
+}
+
+void drawLinkHead(QPainter& painter, QPointF near, QPointF tip, LinkHead head,
+                  const QColor& background) {
+  const qreal length = QLineF(near, tip).length();
+  if (head == LinkHead::None || qFuzzyIsNull(length)) return;
+  const auto direction = (tip - near) / length;
+  const QPointF normal(-direction.y(), direction.x());
+  painter.save();
+  const auto color = painter.pen().color();
+  painter.setPen(QPen(color, 1.6));
+  if (head == LinkHead::Circle) {
+    painter.setBrush(background);
+    painter.drawEllipse(tip - direction * 4, 4, 4);
+  } else if (head == LinkHead::Cross) {
+    const auto center = tip - direction * 4;
+    painter.drawLine(center - direction * 3.5 - normal * 3.5,
+                     center + direction * 3.5 + normal * 3.5);
+    painter.drawLine(center - direction * 3.5 + normal * 3.5,
+                     center + direction * 3.5 - normal * 3.5);
+  } else {
+    painter.setBrush(color);
+    painter.drawPolygon(
+        QPolygonF({tip, tip - direction * 9 + normal * 4, tip - direction * 9 - normal * 4}));
+  }
+  painter.restore();
+}
+
+QPointF drawFlowEdge(QPainter& painter, const QList<Node>& nodes, const QList<Edge>& edges,
+                     int index, bool horizontal, const QColor& background) {
+  const auto& edge = edges.at(index);
+  const auto& a = nodes.at(edge.from);
+  const auto& b = nodes.at(edge.to);
+  QPainterPath path;
+  QPointF caption;
+  if (edge.from == edge.to) {
+    int before = 0;
+    for (int i = 0; i < index; ++i)
+      before += edges.at(i).from == edge.from && edges.at(i).to == edge.to &&
+                edges.at(i).style != LinkStyle::Invisible;
+    const qreal radius = 52 + qMin(before, 4) * 12;
+    const auto start = graphPort(a, QPointF(1, -.35)), end = graphPort(a, QPointF(1, .35));
+    path.moveTo(start);
+    path.cubicTo(start + QPointF(radius, -24), end + QPointF(radius, 24), end);
+    caption = {a.rect.right() + radius * .8 + 84, a.rect.center().y()};
+  } else {
+    const bool reverse = horizontal ? a.rect.center().x() > b.rect.center().x()
+                                    : a.rect.center().y() > b.rect.center().y();
+    const auto start = graphPort(a, horizontal, !reverse), end = graphPort(b, horizontal, reverse);
+    path.moveTo(start);
+    path.lineTo(end);
+    caption = (start + end) / 2;
+  }
+  auto pen = painter.pen();
+  pen.setWidthF(edge.style == LinkStyle::Thick ? 3.4 : 1.6);
+  pen.setStyle(edge.style == LinkStyle::Dotted ? Qt::DashLine : Qt::SolidLine);
+  painter.setPen(pen);
+  painter.setBrush(Qt::NoBrush);
+  painter.drawPath(path);
+  drawLinkHead(painter, path.pointAtPercent(.08), path.pointAtPercent(0), edge.start, background);
+  drawLinkHead(painter, path.pointAtPercent(.92), path.pointAtPercent(1), edge.end, background);
+  return caption;
 }
 
 QPointF drawStateEdge(QPainter& painter, const QList<Node>& nodes, const QList<Edge>& edges,
@@ -458,23 +563,26 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
   for (const auto& rank : ranks) maxParallel = qMax(maxParallel, static_cast<int>(rank.size()));
   const qreal cellWidth = qMax(nodeWidth, largestCircle),
               cellHeight = qMax(nodeHeight, largestCircle);
-  const qreal majorStep = horizontal ? cellWidth + 110 : cellHeight + 82;
-  const qreal minorStep = horizontal ? cellHeight + 40 : cellWidth + 48;
-  const qreal majorSize = (maxRank + 1) * majorStep + 28, minorSize = maxParallel * minorStep + 28;
-  const bool loops = states && std::any_of(edges.cbegin(), edges.cend(),
-                                           [](const Edge& edge) { return edge.from == edge.to; });
+  const bool loops = std::any_of(edges.cbegin(), edges.cend(), [](const Edge& edge) {
+    return edge.from == edge.to && edge.style != LinkStyle::Invisible;
+  });
+  const qreal loopGap = loops && !states ? 250 : 0;
+  const qreal majorStep = horizontal ? cellWidth + 110 + loopGap : cellHeight + 82;
+  const qreal minorStep = horizontal ? cellHeight + 40 : cellWidth + 48 + loopGap;
+  const qreal majorSize = (maxRank + 1) * majorStep + 28 - (horizontal ? loopGap : 0),
+              minorSize = maxParallel * minorStep + 28 - (horizontal ? 0 : loopGap);
   const bool routes = states && std::any_of(edges.cbegin(), edges.cend(), [&](const Edge& edge) {
                         return qAbs(nodes.at(edge.from).rank - nodes.at(edge.to).rank) > 1;
                       });
-  const qreal naturalWidth =
-      (horizontal ? majorSize : minorSize) + (loops ? 118 : 0) + (!horizontal && routes ? 88 : 0);
+  qreal naturalWidth = (horizontal ? majorSize : minorSize) + (loops && states ? 118 : 0) +
+                       (!horizontal && routes ? 88 : 0);
   const qreal naturalHeight = horizontal ? minorSize + (routes ? 34 : 0) : majorSize;
-  const qreal scale = qMin(1., qMin(820. / naturalWidth, (states ? 720. : 1400.) / naturalHeight));
   for (int rank = 0; rank <= maxRank; ++rank) {
     const auto group = ranks.value(rank);
     for (int j = 0; j < group.size(); ++j) {
+      const qreal groupSpan = group.size() * minorStep - (horizontal ? 0 : loopGap);
       const qreal major = 28 + rank * majorStep,
-                  minor = 14 + (minorSize - group.size() * minorStep) / 2 + j * minorStep;
+                  minor = 14 + (minorSize - groupSpan) / 2 + j * minorStep;
       auto& node = nodes[group[j]];
       const qreal width = states          ? nodeWidth
                           : node.diameter ? node.diameter
@@ -489,6 +597,12 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
       node.rect = rect;
     }
   }
+  if (!states)
+    for (const auto& edge : edges)
+      if (edge.from == edge.to && edge.style != LinkStyle::Invisible)
+        naturalWidth = qMax(naturalWidth,
+                            nodes.at(edge.from).rect.right() + (edge.text.isEmpty() ? 100 : 250));
+  const qreal scale = qMin(1., qMin(820. / naturalWidth, (states ? 720. : 1400.) / naturalHeight));
   qreal outerLane = 0;
   for (const auto& node : nodes)
     outerLane = qMax(outerLane, horizontal ? node.rect.bottom() : node.rect.right());
@@ -502,23 +616,20 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
   const QColor foreground(dark ? "#dde3ec" : "#445269"), background(dark ? "#262b31" : "#ffffff");
   for (int i = 0; i < edges.size(); ++i) {
     const auto& edge = edges.at(i);
-    const auto a = nodes[edge.from].rect, b = nodes[edge.to].rect;
-    const bool reverse =
-        horizontal ? a.center().x() > b.center().x() : a.center().y() > b.center().y();
+    if (edge.style == LinkStyle::Invisible) continue;
     painter.setPen(QPen(foreground, 1.6));
     QPointF midpoint;
     if (states)
       midpoint = drawStateEdge(painter, nodes, edges, i, horizontal, outerLane);
-    else {
-      const auto from = graphPort(nodes.at(edge.from), horizontal, !reverse);
-      const auto to = graphPort(nodes.at(edge.to), horizontal, reverse);
-      arrow(painter, from, to, edge.dashed, edge.head);
-      midpoint = (from + to) / 2;
-    }
+    else
+      midpoint = drawFlowEdge(painter, nodes, edges, i, horizontal, background);
     if (!edge.text.isEmpty()) {
-      const auto caption = states ? metrics.elidedText(edge.text, Qt::ElideRight, 150) : edge.text;
+      const bool self = !states && edge.from == edge.to;
+      auto caption = edge.text;
+      if (self) caption.replace('\n', ' ');
+      if (states || self) caption = metrics.elidedText(caption, Qt::ElideRight, 150);
       QRectF text = metrics.boundingRect(caption);
-      if (states)
+      if (states || self)
         midpoint.setX(
             qBound(text.width() / 2 + 6, midpoint.x(), naturalWidth - text.width() / 2 - 6));
       text.moveCenter(midpoint);
