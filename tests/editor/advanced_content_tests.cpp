@@ -36,6 +36,20 @@ QString specimen() {
       "original source\n```\n\n"
       "[^note]: Footnotes preserve the original text.\n    中文注释也可以跨行。\n\n");
 }
+QString sequenceRoles() {
+  return QStringLiteral(
+      "sequenceDiagram\n box rgba(80,160,240,.12) 写作端\n actor User as 作者\n"
+      " participant UI@{\"type\":\"boundary\",\"alias\":\"写作界面\"}\n"
+      " participant Service@{\"type\":\"control\"} as 文档控制\n"
+      " participant Doc@{\"type\":\"entity\",\"alias\":\"文档\"}\n end\n"
+      " box transparent 存储服务\n participant Disk@{\"type\":\"database\"} as 磁盘\n"
+      " participant Entries@{\"type\":\"collections\"} as 文档集合\n"
+      " participant Tasks@{\"type\":\"queue\"} as 保存队列\n end\n autonumber 1.25 .25\n"
+      " User->>UI: 保存文档\n UI->>+Service: 请求保存\n critical 写入\n Service->>Doc: 校验内容\n"
+      " Service->>+Disk: 写入正文\n Disk-->>-Service: 写入完成\n end\n"
+      " Service-)+Tasks: 异步索引\n Tasks->>Entries: 更新集合\n Tasks--)-Service: 索引完成\n"
+      " Note over UI,Service: 源码和别名保持完整\n Service-->>-UI: 已保存\n UI-->>User: 完成\n");
+}
 bool same(const QString& a, const QString& b) {
   const auto left = core::parseMarkdown(a.toStdString()),
              right = core::parseMarkdown(b.toStdString());
@@ -1860,6 +1874,126 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void sequenceParticipantRolesKeepAliasesAndLifecycleBounds() {
+    const auto source = sequenceRoles();
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const auto prefix = QStringLiteral("sequenceDiagram\n participant B\n");
+    const auto message = QStringLiteral("\n A->>B: Request\n B-->>A: Done\n");
+    QList<QImage> symbols;
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    for (const auto& type : {"boundary", "control", "entity", "database", "collections", "queue"}) {
+      const auto config = QStringLiteral("@{\"type\":\"%1\"}").arg(type);
+      const auto external = prefix + "participant A" + config + " as Node" + message;
+      const auto image = render::mermaid(external).image;
+      QVERIFY2(!image.isNull(), type);
+      for (const auto& previous : symbols) {
+        QCOMPARE(image.size(), previous.size());
+        QVERIFY(image != previous);
+      }
+      symbols.append(image);
+      QCOMPARE(image, render::mermaid(prefix + "actor A" + config + " as Node" + message).image);
+      QCOMPARE(image, render::mermaid(prefix + "participant A@{\"type\":\"" + type +
+                                      "\",\"alias\":\"Node\"}" + message)
+                          .image);
+      QCOMPARE(image, render::mermaid(prefix + "participant A@{\"type\":\"" + type +
+                                      "\",\"alias\":\"Ignored\"} as Node" + message)
+                          .image);
+      auto longAlias = external;
+      longAlias.replace("as Node", "as " + QStringLiteral("文档内容与资源 ").repeated(20));
+      QVERIFY(render::mermaid(longAlias).image.height() > image.height());
+      for (bool reverse : {false, true}) {
+        const auto lifetime = QStringLiteral("sequenceDiagram\n") +
+                              (reverse ? "participant B\nparticipant A\n" : "participant A\n") +
+                              " A->>A: Before\n create participant B" + config +
+                              " as Worker<br>资源\n A->>+B: Create\n Note right of B: Work\n"
+                              " B-->>-A: Done\n destroy B\n A-xB: Stop\n A->>A: After\n";
+        const auto created = render::mermaid(lifetime).image;
+        QVERIFY2(!created.isNull(), qPrintable(lifetime));
+        const auto inkInColumn = [&](int first, int last) {
+          const auto ratio = created.devicePixelRatio();
+          const auto background = created.pixelColor(5, 5);
+          int ink = 0;
+          for (int y = qRound(first * ratio); y < qRound(last * ratio); ++y)
+            for (int x = qRound((reverse ? 146 : 356) * ratio);
+                 x <= qRound((reverse ? 148 : 358) * ratio); ++x)
+              ink += created.pixelColor(x, y) != background;
+          return ink;
+        };
+        QCOMPARE(inkInColumn(18, 90), 0);
+        const int height = qRound(created.height() / created.devicePixelRatio());
+        QCOMPARE(inkInColumn(height - 45, height - 20), 0);
+        if (!retained.isEmpty() && QString(type) == "database")
+          QVERIFY(created.save(retained +
+                               (reverse ? "/roles-created-reverse.png" : "/roles-created.png")));
+      }
+    }
+    const auto plain = prefix + "participant A as Node" + message;
+    const auto actor = prefix + "actor A as Node" + message;
+    QCOMPARE(
+        render::mermaid(plain).image,
+        render::mermaid(prefix + "actor A@{\"type\":\"participant\"} as Node" + message).image);
+    QCOMPARE(
+        render::mermaid(actor).image,
+        render::mermaid(prefix + "participant A@{\"type\":\"actor\"} as Node" + message).image);
+    QCOMPARE(render::mermaid(actor).image,
+             render::mermaid(prefix + "actor A@{\"alias\":\"Node\"}" + message).image);
+    QCOMPARE(render::mermaid(prefix + "participant A@{} as Node" + message).image,
+             render::mermaid(plain).image);
+    const auto escapedAlias =
+        prefix +
+        "participant A@{\"type\":\"entity\",\"alias\":\"菜单 \\\"打开\\\" {md}<br>正文\"}" +
+        message;
+    QCOMPARE(
+        render::mermaid(escapedAlias).image,
+        render::mermaid(
+            prefix + "participant A@{\"type\":\"entity\"} as 菜单 \"打开\" {md}<br>正文" + message)
+            .image);
+    QCOMPARE(
+        render::mermaid(prefix + "participant A@{\"type\":\"entity\"} as 外部 {标签}" + message)
+            .image,
+        render::mermaid(prefix + "participant A@{\"type\":\"entity\",\"alias\":\"外部 {标签}\"}" +
+                        message)
+            .image);
+    for (const auto& invalid : {
+             QStringLiteral("participant A@{\"type\":\"unknown\"}"),
+             QStringLiteral("participant A@{\"type\":null}"),
+             QStringLiteral("participant A@{\"type\":42}"),
+             QStringLiteral("participant A@{\"type\":\"database\",\"color\":\"red\"}"),
+             QStringLiteral("participant A@{\"alias\":{\"text\":\"Node\"}}"),
+             QStringLiteral("participant A@{\"alias\":[\"Node\"]}"),
+             QStringLiteral("participant A@{type:'database'}"),
+             QStringLiteral("participant A@{\"type\":\"database\",}"),
+             QStringLiteral("participant A@{\"type\":\"database\""),
+             QStringLiteral("participant A@{\n\"type\":\"database\"\n}"),
+             QStringLiteral("create participant A@{\"type\":\"unknown\"}\nB->>A: Create"),
+         }) {
+      const auto result = render::mermaid(prefix + invalid + message);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), qPrintable(invalid));
+    }
+    const auto markdown = QStringLiteral("```mermaid\n") + source + "```\n";
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/roles-light.png"));
+      QVERIFY(dark.image.save(retained + "/roles-dark.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -1975,6 +2109,9 @@ class AdvancedContentTests : public QObject {
                " A->>+B: Write\n Note over A,B: Keep source\n autonumber off\n"
                " B->>B: Check\n autonumber\n B-->>-A: Saved\n")
         << QStringLiteral("sequenceDiagram\n autonumber 1 .001\n A->>B: Work\n");
+    QTest::newRow("sequence-roles")
+        << sequenceRoles()
+        << QStringLiteral("sequenceDiagram\n participant A@{\"type\":\"other\"}\n A->>B: Work\n");
   }
 
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports() {

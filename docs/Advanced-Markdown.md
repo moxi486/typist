@@ -35,6 +35,26 @@ sequenceDiagram
     Editor-->>User: 保存完成
 ```
 
+参与者可以用 `@{"type":"类型"}` 指定符号：`boundary`（边界）、`control`（控制）、`entity`（实体）、`database`（数据库）、`collections`（集合）、`queue`（队列）；`actor` 和 `participant` 分别选择人物和矩形。`participant`、`actor` 和 `create participant / actor` 均可使用配置，`type` 优先于声明关键字。六类新符号和人物的名称显示在图形下方，创建消息按符号宽度连接，生命线从名称下方开始。 [Mermaid 参与者类型](https://mermaid.js.org/syntax/sequenceDiagram.html#boundary)
+
+配置中的 `"alias"` 设置显示名称，同时填写外部 `as 名称` 时以外部名称为准；省略 `type` 则沿用声明关键字的默认符号。别名支持中文、JSON 转义引号、花括号和 `<br>` 换行。原生配置使用单行标准 JSON 对象，只接受字符串类型的 `type` 和 `alias`；未知类型、其他配置字段、YAML 写法、多行或无效 JSON 保留为可编辑源码。
+
+```mermaid
+sequenceDiagram
+    participant UI@{"type":"boundary","alias":"写作界面"}
+    participant Service@{"type":"control"} as 文档控制
+    participant Doc@{"type":"entity"} as 文档
+    participant Disk@{"type":"database"} as 磁盘
+    participant Entries@{"type":"collections"} as 文档集合
+    participant Tasks@{"type":"queue"} as 保存队列
+    UI->>+Service: 保存文档
+    Service->>Doc: 校验内容
+    Service->>Disk: 写入正文
+    Service-)Tasks: 异步索引
+    Tasks->>Entries: 更新集合
+    Service-->>-UI: 已保存
+```
+
 标签可用 `<br>` 换行，排版会为消息和注释留出空间。长标签最多显示四行，完整内容保留在源码。支持最多 8 个参与者、60 条消息或注释、24 个控制片段与 6 层嵌套。其他控制指令与配置保留为可编辑源码。 [Mermaid 时序图语法](https://mermaid.js.org/syntax/sequenceDiagram.html)
 
 ```mermaid
