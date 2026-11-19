@@ -8,16 +8,38 @@
 #include <QSet>
 #include <QtMath>
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace typist::render::mermaid_detail {
 namespace {
-enum class NodeShape { Box, Rounded, Ellipse, Diamond, Start, End, Choice };
+enum class NodeShape {
+  Box,
+  Rounded,
+  Ellipse,
+  Diamond,
+  Stadium,
+  Subroutine,
+  Cylinder,
+  Asymmetric,
+  Hexagon,
+  Parallelogram,
+  ParallelogramAlt,
+  Trapezoid,
+  TrapezoidAlt,
+  DoubleCircle,
+  Start,
+  End,
+  Choice
+};
 struct Node {
   QString text;
   NodeShape shape = NodeShape::Box;
   int rank = 0;
   QRectF rect;
+  qreal diameter = 0;
+  QSizeF textSize{};
+  QSizeF boxSize{};
 };
 struct Edge {
   int from, to;
@@ -51,7 +73,7 @@ QStringList graphStatements(const QStringList& lines, bool inlineComments = fals
         break;
       if (c == '"') quoted = !quoted;
       if (!quoted && (c == '[' || c == '{' || c == '(')) ++nesting;
-      if (!quoted && (c == ']' || c == '}' || c == ')')) --nesting;
+      if (!quoted && (c == ']' || c == '}' || c == ')')) nesting = qMax(0, nesting - 1);
       if (c == ';' && nesting == 0 && !quoted) {
         if (!statement.trimmed().isEmpty()) statements.append(statement.trimmed());
         statement.clear();
@@ -74,29 +96,54 @@ RenderResult flowchart(QStringList lines, bool dark) {
   QList<Node> nodes;
   QList<Edge> edges;
   QHash<QString, int> ids;
-  static const QRegularExpression nodePattern(
-      R"rx(^\s*([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)(?:\[([^\]]*)\]|\(\(([^)]*)\)\)|\(([^)]*)\)|\{([^}]*)\})?)rx");
+  static const QRegularExpression nodePattern(R"(^\s*([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*))");
+  static const QRegularExpression unquotedDelimiter(R"rx([\[\]{}()"])rx");
+  struct Form {
+    QString open, close;
+    NodeShape shape;
+  };
+  static const QList<Form> forms = {
+      {"(((", ")))", NodeShape::DoubleCircle}, {"((", "))", NodeShape::Ellipse},
+      {"([", "])", NodeShape::Stadium},        {"[[", "]]", NodeShape::Subroutine},
+      {"[(", ")]", NodeShape::Cylinder},       {"{{", "}}", NodeShape::Hexagon},
+      {"[/", "/]", NodeShape::Parallelogram},  {"[\\", "\\]", NodeShape::ParallelogramAlt},
+      {"[/", "\\]", NodeShape::Trapezoid},     {"[\\", "/]", NodeShape::TrapezoidAlt},
+      {">", "]", NodeShape::Asymmetric},       {"[", "]", NodeShape::Box},
+      {"(", ")", NodeShape::Rounded},          {"{", "}", NodeShape::Diamond}};
   static const QRegularExpression edgePattern(
       R"rx(^\s*(-->|---|==>|-\.->|--\s+(.+?)\s+-->)\s*(?:\|([^|]*)\|\s*)?)rx");
   auto node = [&](QString& remaining) {
     const auto m = nodePattern.match(remaining);
     if (!m.hasMatch()) return -1;
     remaining.remove(0, m.capturedLength());
+    remaining = remaining.trimmed();
     const int index = graphNode(nodes, ids, m.captured(1));
-    if (!m.captured(2).isNull()) {
-      nodes[index].text = label(m.captured(2));
-      nodes[index].shape = NodeShape::Box;
-    } else if (!m.captured(3).isNull()) {
-      nodes[index].text = label(m.captured(3));
-      nodes[index].shape = NodeShape::Ellipse;
-    } else if (!m.captured(4).isNull()) {
-      nodes[index].text = label(m.captured(4));
-      nodes[index].shape = NodeShape::Rounded;
-    } else if (!m.captured(5).isNull()) {
-      nodes[index].text = label(m.captured(5));
-      nodes[index].shape = NodeShape::Diamond;
+    bool framed = false;
+    for (const auto& form : forms) {
+      if (!remaining.startsWith(form.open)) continue;
+      framed = true;
+      const auto body = remaining.mid(form.open.size());
+      QString text, tail;
+      if (body.startsWith('"')) {
+        const auto end = body.indexOf('"', 1);
+        if (end < 0) continue;
+        text = body.mid(1, end - 1);
+        tail = body.mid(end + 1).trimmed();
+        if (!tail.startsWith(form.close)) continue;
+        tail.remove(0, form.close.size());
+      } else {
+        const auto end = body.indexOf(form.close);
+        if (end < 0) continue;
+        text = body.left(end);
+        if (unquotedDelimiter.match(text).hasMatch()) continue;
+        tail = body.mid(end + form.close.size());
+      }
+      nodes[index].text = label(text);
+      nodes[index].shape = form.shape;
+      remaining = tail.trimmed();
+      return index;
     }
-    return index;
+    return framed ? -1 : index;
   };
   for (auto statement : graphStatements(lines)) {
     int previous = node(statement);
@@ -238,6 +285,80 @@ QRectF visibleStateBox(const Node& node) {
   return QRectF(node.rect.center() - QPointF(size / 2, size / 2), QSizeF(size, size));
 }
 
+QPainterPath nodeOutline(const Node& node) {
+  const auto r = node.rect;
+  const qreal l = r.left(), t = r.top(), right = r.right(), bottom = r.bottom(),
+              cx = r.center().x(), cy = r.center().y(), inset = qMin(24., r.width() * .18);
+  QPainterPath path;
+  QPolygonF polygon;
+  switch (node.shape) {
+    case NodeShape::Ellipse:
+    case NodeShape::DoubleCircle:
+      path.addEllipse(r);
+      return path;
+    case NodeShape::Diamond:
+      polygon = {{cx, t - 8}, {right + 8, cy}, {cx, bottom + 8}, {l - 8, cy}};
+      break;
+    case NodeShape::Hexagon:
+      polygon = {{l + inset, t},          {right - inset, t},  {right, cy},
+                 {right - inset, bottom}, {l + inset, bottom}, {l, cy}};
+      break;
+    case NodeShape::Asymmetric:
+      polygon = {{l, t}, {right, t}, {right, bottom}, {l, bottom}, {l + inset, cy}};
+      break;
+    case NodeShape::Parallelogram:
+      polygon = {{l + inset, t}, {right, t}, {right - inset, bottom}, {l, bottom}};
+      break;
+    case NodeShape::ParallelogramAlt:
+      polygon = {{l, t}, {right - inset, t}, {right, bottom}, {l + inset, bottom}};
+      break;
+    case NodeShape::Trapezoid:
+      polygon = {{l + inset, t}, {right - inset, t}, {right, bottom}, {l, bottom}};
+      break;
+    case NodeShape::TrapezoidAlt:
+      polygon = {{l, t}, {right, t}, {right - inset, bottom}, {l + inset, bottom}};
+      break;
+    case NodeShape::Cylinder: {
+      const qreal cap = qMin(12., r.height() / 4);
+      path.moveTo(l, t + cap);
+      path.arcTo(QRectF(l, t, r.width(), cap * 2), 180, -180);
+      path.lineTo(right, bottom - cap);
+      path.arcTo(QRectF(l, bottom - cap * 2, r.width(), cap * 2), 0, -180);
+      path.closeSubpath();
+      return path;
+    }
+    case NodeShape::Subroutine:
+      path.addRect(r);
+      return path;
+    default: {
+      const qreal radius = node.shape == NodeShape::Stadium   ? r.height() / 2
+                           : node.shape == NodeShape::Rounded ? 22
+                                                              : 5;
+      path.addRoundedRect(r, radius, radius);
+      return path;
+    }
+  }
+  path.addPolygon(polygon);
+  path.closeSubpath();
+  return path;
+}
+
+QPointF graphPort(const Node& node, bool horizontal, bool positive) {
+  const auto path = nodeOutline(node);
+  const auto bounds = path.boundingRect();
+  const auto direction = horizontal ? QPointF(positive ? 1 : -1, 0) : QPointF(0, positive ? 1 : -1);
+  auto inside = node.rect.center();
+  auto outside = inside + direction * (bounds.width() + bounds.height() + 2);
+  for (int i = 0; i < 28; ++i) {
+    const auto middle = (inside + outside) / 2;
+    if (path.contains(middle))
+      inside = middle;
+    else
+      outside = middle;
+  }
+  return (inside + outside) / 2;
+}
+
 QPointF drawStateEdge(QPainter& painter, const QList<Node>& nodes, const QList<Edge>& edges,
                       int index, bool horizontal, qreal outerLane) {
   const auto& edge = edges.at(index);
@@ -318,15 +439,27 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
   const QFontMetricsF metrics(font);
   qreal nodeWidth = 120, nodeHeight = 54;
   int maxParallel = 1;
-  for (const auto& n : nodes) {
-    const auto bounds =
-        metrics.boundingRect(QRectF(0, 0, 220, 180), Qt::TextWordWrap | Qt::AlignCenter, n.text);
-    nodeWidth = qMax(nodeWidth, qMin(250., bounds.width() + 36));
-    nodeHeight = qMax(nodeHeight, bounds.height() + 30);
+  qreal largestCircle = 0;
+  for (auto& n : nodes) {
+    const int wrap = Qt::TextWordWrap | Qt::AlignCenter | (states ? 0 : Qt::TextWrapAnywhere);
+    const auto bounds = metrics.boundingRect(QRectF(0, 0, 220, 180), wrap, n.text);
+    const bool shaped = n.shape >= NodeShape::Stadium && n.shape <= NodeShape::DoubleCircle;
+    n.boxSize = QSizeF(qMax(120., qMin(shaped ? 300. : 250., bounds.width() + (shaped ? 56 : 36))),
+                       qMax(54., bounds.height() + (n.shape == NodeShape::Cylinder ? 48 : 30)));
+    nodeWidth = qMax(nodeWidth, n.boxSize.width());
+    nodeHeight = qMax(nodeHeight, n.boxSize.height());
+    if (!states && (n.shape == NodeShape::Ellipse || n.shape == NodeShape::DoubleCircle)) {
+      n.textSize = bounds.size() + QSizeF(4, 4);
+      n.diameter = qMax(80., std::hypot(bounds.width(), bounds.height()) +
+                                 (n.shape == NodeShape::DoubleCircle ? 52 : 36));
+      largestCircle = qMax(largestCircle, n.diameter);
+    }
   }
   for (const auto& rank : ranks) maxParallel = qMax(maxParallel, static_cast<int>(rank.size()));
-  const qreal majorStep = horizontal ? nodeWidth + 110 : nodeHeight + 82;
-  const qreal minorStep = horizontal ? nodeHeight + 40 : nodeWidth + 48;
+  const qreal cellWidth = qMax(nodeWidth, largestCircle),
+              cellHeight = qMax(nodeHeight, largestCircle);
+  const qreal majorStep = horizontal ? cellWidth + 110 : cellHeight + 82;
+  const qreal minorStep = horizontal ? cellHeight + 40 : cellWidth + 48;
   const qreal majorSize = (maxRank + 1) * majorStep + 28, minorSize = maxParallel * minorStep + 28;
   const bool loops = states && std::any_of(edges.cbegin(), edges.cend(),
                                            [](const Edge& edge) { return edge.from == edge.to; });
@@ -342,17 +475,26 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
     for (int j = 0; j < group.size(); ++j) {
       const qreal major = 28 + rank * majorStep,
                   minor = 14 + (minorSize - group.size() * minorStep) / 2 + j * minorStep;
-      QRectF rect(horizontal ? major : minor, horizontal ? minor : major, nodeWidth, nodeHeight);
+      auto& node = nodes[group[j]];
+      const qreal width = states          ? nodeWidth
+                          : node.diameter ? node.diameter
+                                          : node.boxSize.width(),
+                  height = states          ? nodeHeight
+                           : node.diameter ? node.diameter
+                                           : node.boxSize.height();
+      QRectF rect((horizontal ? major : minor) + (cellWidth - width) / 2,
+                  (horizontal ? minor : major) + (cellHeight - height) / 2, width, height);
       if (mode == "RL") rect.moveLeft(majorSize - rect.right() - 14);
       if (mode == "BT") rect.moveTop(naturalHeight - rect.bottom() - 14);
-      nodes[group[j]].rect = rect;
+      node.rect = rect;
     }
   }
   qreal outerLane = 0;
   for (const auto& node : nodes)
     outerLane = qMax(outerLane, horizontal ? node.rect.bottom() : node.rect.right());
   outerLane += loops && !horizontal ? 85 : 17;
-  QImage image = canvas(qCeil(naturalWidth * scale), qCeil(naturalHeight * scale), dark);
+  QImage image = canvas(qMin(820, qCeil(naturalWidth * scale)),
+                        qMin(states ? 720 : 1400, qCeil(naturalHeight * scale)), dark);
   QPainter painter(&image);
   painter.setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing);
   painter.scale(scale, scale);
@@ -363,17 +505,15 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
     const auto a = nodes[edge.from].rect, b = nodes[edge.to].rect;
     const bool reverse =
         horizontal ? a.center().x() > b.center().x() : a.center().y() > b.center().y();
-    const QPointF start = horizontal ? QPointF(reverse ? a.left() : a.right(), a.center().y())
-                                     : QPointF(a.center().x(), reverse ? a.top() : a.bottom());
-    const QPointF finish = horizontal ? QPointF(reverse ? b.right() : b.left(), b.center().y())
-                                      : QPointF(b.center().x(), reverse ? b.bottom() : b.top());
     painter.setPen(QPen(foreground, 1.6));
     QPointF midpoint;
     if (states)
       midpoint = drawStateEdge(painter, nodes, edges, i, horizontal, outerLane);
     else {
-      arrow(painter, start, finish, edge.dashed, edge.head);
-      midpoint = (start + finish) / 2;
+      const auto from = graphPort(nodes.at(edge.from), horizontal, !reverse);
+      const auto to = graphPort(nodes.at(edge.to), horizontal, reverse);
+      arrow(painter, from, to, edge.dashed, edge.head);
+      midpoint = (from + to) / 2;
     }
     if (!edge.text.isEmpty()) {
       const auto caption = states ? metrics.elidedText(edge.text, Qt::ElideRight, 150) : edge.text;
@@ -410,19 +550,28 @@ RenderResult drawGraph(QList<Node> nodes, const QList<Edge>& edges, const QStrin
                                      {rect.left(), rect.center().y()}}));
       continue;
     }
-    if (node.shape == NodeShape::Ellipse)
-      painter.drawEllipse(node.rect);
-    else if (node.shape == NodeShape::Diamond)
-      painter.drawPolygon(QPolygonF({QPointF(node.rect.center().x(), node.rect.top() - 8),
-                                     QPointF(node.rect.right() + 8, node.rect.center().y()),
-                                     QPointF(node.rect.center().x(), node.rect.bottom() + 8),
-                                     QPointF(node.rect.left() - 8, node.rect.center().y())}));
-    else {
-      const int radius = node.shape == NodeShape::Rounded ? 22 : 5;
-      painter.drawRoundedRect(node.rect, radius, radius);
+    painter.drawPath(nodeOutline(node));
+    if (node.shape == NodeShape::DoubleCircle)
+      painter.drawEllipse(node.rect.adjusted(8, 8, -8, -8));
+    if (node.shape == NodeShape::Subroutine) {
+      painter.drawLine(node.rect.topLeft() + QPointF(10, 0),
+                       node.rect.bottomLeft() + QPointF(10, 0));
+      painter.drawLine(node.rect.topRight() - QPointF(10, 0),
+                       node.rect.bottomRight() - QPointF(10, 0));
     }
+    if (node.shape == NodeShape::Cylinder)
+      painter.drawEllipse(QRectF(node.rect.left(), node.rect.top(), node.rect.width(),
+                                 qMin(24., node.rect.height() / 2)));
     painter.setPen(foreground);
-    painter.drawText(node.rect.adjusted(12, 4, -12, -4), Qt::AlignCenter | Qt::TextWordWrap,
+    const bool shaped = node.shape >= NodeShape::Stadium && node.shape <= NodeShape::DoubleCircle;
+    const qreal inset = shaped ? 24 : 12, vertical = node.shape == NodeShape::Cylinder ? 16 : 4;
+    auto textRect = node.rect.adjusted(inset, vertical, -inset, -vertical);
+    if (node.diameter) {
+      textRect.setSize(node.textSize);
+      textRect.moveCenter(node.rect.center());
+    }
+    painter.drawText(textRect,
+                     Qt::AlignCenter | Qt::TextWordWrap | (states ? 0 : Qt::TextWrapAnywhere),
                      node.text);
   }
   return {image, {}};
