@@ -483,7 +483,7 @@ stateDiagram-v2
     Active --> [*] : 退出应用
 ```
 
-`classDiagram` 支持类名、自定义显示名称、类注解、属性和方法。成员可写在类的花括号内，也可写作 `Class : 成员`。保留可见性符号，静态成员加下划线，抽象方法用斜体。支持继承、实现、组合、聚合、关联与依赖，关系可附文字说明和双端多重性。用 `direction` 设置上下或左右布局。单图最多 24 个类、48 条关系，每类最多 18 个成员。命名空间、泛型、笔记、交互和样式指令保留为可编辑源码。 [Mermaid 类图语法](https://mermaid.js.org/syntax/classDiagram.html)
+`classDiagram` 支持类名、自定义显示名称、类注解、属性和方法。成员可写在类的花括号内，也可写作 `Class : 成员`。保留可见性符号，静态成员加下划线，抽象方法用斜体。支持继承、实现、组合、聚合、关联与依赖，关系可附文字说明和双端多重性。用 `direction` 设置上下或左右布局。单图最多 24 个类、48 条关系，每类最多 18 个成员。命名空间、泛型、交互和样式指令保留为可编辑源码。 [Mermaid 类图语法](https://mermaid.js.org/syntax/classDiagram.html)
 
 ```mermaid
 classDiagram
@@ -497,6 +497,21 @@ classDiagram
     class Section["章节"]
     Document <|-- MarkdownDocument
     Document "1" *-- "1..*" Section : 包含
+```
+
+类图注释使用 `note "说明"`，关联到类时写作 `note for 类ID "说明"`。独立注释放在图下方；关联注释以虚线连接到类，在上下布局时放在类的右侧，左右布局时放在类的下方，并为关系线预留空间。也可只包含独立注释。注释须写在类的花括号外，允许先写关联注释、后声明目标类；目标使用类 ID（支持中文和反引号包围的 ID），不是自定义显示名称。不存在的目标或错误语法会使整图保留为可编辑源码。
+
+注释正文用同一物理行上的双引号包围，`\n` 或 `<br>` / `<br/>` / `<br />` 表示换行，`\"` 和 `\\` 表示引号和反斜杠，其余反斜杠序列保留字面内容。支持中文自动换行与深浅主题。单图最多 16 条注释，每条最多展示 6 行，超出部分用省略号标示；完整文字保留在 Markdown 中。HTML、PDF、DOCX 和 EPUB 导出包含注释图像。
+
+```mermaid
+classDiagram
+    direction LR
+    note "文档关系\n说明保留在源码"
+    note for Document "保存与导出\n在本地完成"
+    class Document["文档"]
+    class Resource["资源"]
+    Document "1" o-- "*" Resource : 使用
+    note for Resource "图片、公式与图表<br>随文档导出"
 ```
 
 `gantt` 绘制按日期排列的项目计划。用 `title` 添加标题、`section` 分组。日期采用 `YYYY-MM-DD`，工期支持分钟 `m`、小时 `h`、天 `d` 和周 `w`，精确到分钟。可直接写开始和结束日期，也可指定任务 ID，通过 `after` 接续一个或多个任务；省略开始时间时接续上一项，首项须提供日期或依赖。使用 `done`、`active`、`crit` 和 `milestone` 标记状态。
