@@ -483,7 +483,7 @@ stateDiagram-v2
     Active --> [*] : 退出应用
 ```
 
-`classDiagram` 支持类名、自定义显示名称、类注解、属性和方法。成员可写在类的花括号内，也可写作 `Class : 成员`。保留可见性符号，静态成员加下划线，抽象方法用斜体。支持继承、实现、组合、聚合、关联与依赖，关系可附文字说明和双端多重性。用 `direction` 设置上下或左右布局。单图最多 24 个类、48 条关系，每类最多 18 个成员。命名空间和交互指令保留为可编辑源码。 [Mermaid 类图语法](https://mermaid.js.org/syntax/classDiagram.html)
+`classDiagram` 支持类名、自定义显示名称、类注解、属性和方法。成员可写在类的花括号内，也可写作 `Class : 成员`。保留可见性符号，静态成员加下划线，抽象方法用斜体。支持继承、实现、组合、聚合、关联与依赖，关系可附文字说明和双端多重性。用 `direction` 设置上下或左右布局。单图最多 24 个类或圆形接口节点、48 条关系，每类最多 18 个成员。命名空间和交互指令保留为可编辑源码。 [Mermaid 类图语法](https://mermaid.js.org/syntax/classDiagram.html)
 
 ```mermaid
 classDiagram
@@ -497,6 +497,26 @@ classDiagram
     class Section["章节"]
     Document <|-- MarkdownDocument
     Document "1" *-- "1..*" Section : 包含
+```
+
+圆形接口（lollipop）使用 `Input ()-- Writer` 或 `Writer --() Storage`，以带名称的圆圈和实线表示接口与类的连接，可用 `: 说明` 添加关系文字。支持五种方向、深浅主题、中文及反引号包围的接口名称；过长名称显示省略号。每次出现都会创建独立接口，同名接口也不会共享。 [Mermaid 圆形接口](https://mermaid.js.org/syntax/classDiagram.html#lollipop-interfaces)
+
+接口端的名称用于显示，不是普通类 ID。例如 `Writer --() Storage` 后再声明 `class Storage`，会得到一个独立的普通类和一个圆形接口。`note for`、`style` 和 `cssClass` 继续通过普通类 ID 定位，不会选中同名圆形接口；`classDef default` 可统一设置类和接口的填充、文字及边框样式。普通类端可与泛型、自定义名称、成员、注释及样式组合。接口每次出现均计入单图最多 24 个节点的限制，关系仍最多 48 条。虚线、箭头、双端圆形接口和接口关系上的多重性保留为可编辑源码。完整指令保留在 Markdown 中，HTML、PDF、DOCX 和 EPUB 导出包含接口图像。
+
+```mermaid
+classDiagram
+    direction LR
+    class Writer~Document~:::primary {
+        +List~Document~ items
+        +save() bool
+    }
+    class Document["文档"]
+    Input ()-- Writer : 提交
+    Writer --() Storage : 保存
+    Document --() Storage : 归档
+    Writer "1" o-- "*" Document : 管理
+    note for Writer "Markdown 接口\n同名接口各自独立"
+    classDef primary fill:#e3edff,stroke:#5488c9,color:#243249,stroke-width:2
 ```
 
 类图泛型写作 `class Repository~Document~`，图中显示为 `Repository<Document>`。属性、方法参数和返回值也支持相同写法，例如 `List~Document~ items`、`find(List~String~ keys) List~Document~`；`List~List~int~~` 显示为 `List<List<int>>`。成员开头的 `~` 仍表示内部可见性，末尾的 `$` / `*` 仍用于静态 / 抽象格式。 [Mermaid 泛型类型](https://mermaid.js.org/syntax/classDiagram.html#generic-types)

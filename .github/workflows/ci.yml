@@ -147,5 +147,16 @@ jobs:
       - name: Build
         run: cmake --build build/windows-msvc --config Release
       - name: Test
-        run: ctest --test-dir build/windows-msvc -C Release --output-on-failure
+        env:
+          TYPIST_ADVANCED_OUTPUT: ${{ runner.temp }}/typist-advanced-images
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:TYPIST_ADVANCED_OUTPUT | Out-Null
+          ctest --test-dir build/windows-msvc -C Release --output-on-failure
+      - name: Capture diagram images
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: msvc-diagram-images
+          path: ${{ runner.temp }}/typist-advanced-images
+          if-no-files-found: ignore
 
