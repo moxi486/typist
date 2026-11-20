@@ -483,7 +483,7 @@ stateDiagram-v2
     Active --> [*] : 退出应用
 ```
 
-`classDiagram` 支持类名、自定义显示名称、类注解、属性和方法。成员可写在类的花括号内，也可写作 `Class : 成员`。保留可见性符号，静态成员加下划线，抽象方法用斜体。支持继承、实现、组合、聚合、关联与依赖，关系可附文字说明和双端多重性。用 `direction` 设置上下或左右布局。单图最多 24 个类或圆形接口节点、48 条关系，每类最多 18 个成员。命名空间和交互指令保留为可编辑源码。 [Mermaid 类图语法](https://mermaid.js.org/syntax/classDiagram.html)
+`classDiagram` 支持类名、自定义显示名称、类注解、属性和方法。成员可写在类的花括号内，也可写作 `Class : 成员`。保留可见性符号，静态成员加下划线，抽象方法用斜体。支持继承、实现、组合、聚合、关联与依赖，关系可附文字说明和双端多重性。用 `direction` 设置上下或左右布局。单图最多 24 个类或圆形接口节点、48 条关系，每类最多 18 个成员。交互指令保留为可编辑源码。 [Mermaid 类图语法](https://mermaid.js.org/syntax/classDiagram.html)
 
 ```mermaid
 classDiagram
@@ -497,6 +497,38 @@ classDiagram
     class Section["章节"]
     Document <|-- MarkdownDocument
     Document "1" *-- "1..*" Section : 包含
+```
+
+用 `namespace 名称 {` 与单独一行的 `}` 为类分组，`namespace 名称["显示名称"] {` 可设置分组标题。支持最多 8 个平级分组、中文和反引号名称，以及多行空分组。组内仅放类声明及其成员块；关系、独立成员指令、注释、样式和方向写在组外。类 ID 全局有效，关系可先于分组声明。同一命名空间可再次打开，合并其中的类；已有显示名称保留，直到显式指定新的显示名称。先在组外出现的类可加入分组，此后组外声明保留其归属；将同一个类分配给两个不同分组会保留整图源码。
+
+分组随 `TD / TB / BT / LR / RL` 排布。上下布局时组内类横排，左右布局时组内类纵排，顺序取类首次出现顺序；跨组关系从分组边缘连接，注释为关联类预留空间。类的泛型、成员、自定义名称和样式继续生效；默认样式用于类与圆形接口，分组容器使用主题配色。圆形接口在分组外独立布局。标题过长时省略显示，完整内容保留在 Markdown 中。HTML、PDF、DOCX 和 EPUB 导出包含分组图像。嵌套、未加反引号的点分命名空间、分组容器样式及组内关系等扩展语法保留为可编辑源码。 [Mermaid 命名空间](https://mermaid.js.org/syntax/classDiagram.html#define-namespace)
+
+```mermaid
+classDiagram
+    direction TB
+    namespace Editing["编辑模块"] {
+        class Editor~Document~ {
+            +List~Document~ documents
+            +save() bool
+        }
+        class Document["文档"]
+    }
+    namespace Storage["存储模块"] {
+        class Repository {
+            +write(Document)
+        }
+    }
+    class App["应用"]
+    App --> Editor : 打开
+    Editor "1" o-- "*" Document : 包含
+    Document --> Repository : 保存
+    App --> Repository : 直达
+    Repository --> Repository : 重试
+    Repository --() Disk
+    note for Editor "Markdown 编辑与预览\n保留源码"
+    note "模块关系"
+    classDef storage stroke:#5488c9,stroke-width:2
+    cssClass "Repository" storage
 ```
 
 圆形接口（lollipop）使用 `Input ()-- Writer` 或 `Writer --() Storage`，以带名称的圆圈和实线表示接口与类的连接，可用 `: 说明` 添加关系文字。支持五种方向、深浅主题、中文及反引号包围的接口名称；过长名称显示省略号。每次出现都会创建独立接口，同名接口也不会共享。 [Mermaid 圆形接口](https://mermaid.js.org/syntax/classDiagram.html#lollipop-interfaces)
