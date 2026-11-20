@@ -97,6 +97,16 @@ QString classStyles() {
       " classDef asset fill:#e0f1e8,stroke:#469875\n"
       " style Resource stroke-width:2px,stroke-dasharray:5 3\n");
 }
+QString classGenerics() {
+  return QStringLiteral(
+      "classDiagram\n direction LR\n class Repository~Document~:::primary {\n"
+      " <<interface>>\n -List~Document~ items\n +List~List~int~~ matrix\n"
+      " +find(List~String~ keys,Set~int~ ids) List~Document~\n"
+      " ~refresh(List~Document~ docs)$\n +create() Box~Document~*\n }\n"
+      " class Document[\"文档\"]\n Repository \"1\" o-- \"*\" Document : 管理\n"
+      " note for Repository \"Markdown 泛型仓库\\n关联仍使用原类 ID\"\n"
+      " classDef primary fill:#e3edff,stroke:#5488c9,color:#243249,stroke-width:2\n");
+}
 QString flowchartShapes() {
   return QStringLiteral(
       "flowchart LR\n A([开始]) --> B[[校验]] --> C[(数据库)]\n"
@@ -650,8 +660,8 @@ class AdvancedContentTests : public QObject {
     for (const auto& invalid : {
              QStringLiteral("classDiagram"),
              QStringLiteral("classDiagram\nclass A{\n-int field"),
-             QStringLiteral("classDiagram\nclass A~int~"),
-             QStringLiteral("classDiagram\nclass A\nA : +List~int~ items"),
+             QStringLiteral("classDiagram\nclass A~int"),
+             QStringLiteral("classDiagram\nclass A\nA : +Map~K,V~ items"),
              QStringLiteral("classDiagram\nnamespace Core {\n class A\n}"),
              QStringLiteral("classDiagram\nclass A\nnote over A \"text\""),
              QStringLiteral("classDiagram\nclass A\nA ?-- B"),
@@ -3330,6 +3340,130 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void classGenericsKeepIdentifiersAndFormatNestedTypes() {
+    const auto source = classGenerics();
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const QList<QPair<QString, QString>> equivalent = {
+        {"class A~T~", "class A[\"A<T>\"]"},
+        {"class A~List~int~~", "class A[\"A<List<int>>\"]"},
+        {"class A~T~\nclass A", "class A~T~"},
+        {"class A~T~\nclass A~T~", "class A~T~"},
+        {"class A~T~[\"文档\"]", "class A[\"文档<T>\"]"},
+        {"class A[\"文档\"]\nclass A~T~", "class A~T~[\"文档\"]"},
+        {"class `Doc Box`~T~", "class `Doc Box`[\"Doc Box<T>\"]"},
+        {"class 文档~类型~", "class 文档[\"文档<类型>\"]"},
+        {"class A~𠀀~", "class A[\"A<𠀀>\"]"},
+        {"class A~List~𠀀~~", "class A[\"A<List<𠀀>>\"]"},
+        {"class A~System.String[]~", "class A[\"A<System.String[]>\"]"},
+        {"class A~List~int~[]~", "class A[\"A<List<int>[]>\"]"},
+        {"class A~T~ <<interface>>:::selected\nclassDef selected fill:#cef",
+         "class A[\"A<T>\"] <<interface>>:::selected\nclassDef selected fill:#cef"},
+        {"class A~T~ {\n-List~int~ items$\n~List~T~ values\n+get() List~List~int~~*\n}",
+         "class A[\"A<T>\"] {\n-List<int> items$\n~List<T> values\n+get() List<List<int>>*\n}"},
+        {"class A\nA : ~List~T~ items\nA : +set(List~T~ a,Set~int~ b) Box~T~$",
+         "class A\nA : ~List<T> items\nA : +set(List<T> a,Set<int> b) Box<T>$"},
+        {"class A\nA : +List~int~[] items", "class A\nA : +List<int>[] items"},
+        {"class A\nA : +Box~List~int~[]~ items", "class A\nA : +Box<List<int>[]> items"},
+        {"class A\nA : +容器~𠀀~ items", "class A\nA : +容器<𠀀> items"},
+        {"class A\nA : +𠀀~T~ items", "class A\nA : +𠀀<T> items"},
+        {"A-->B\nclass A~T~\nnote for A \"note\"\nstyle A fill:#cef",
+         "A-->B\nclass A[\"A<T>\"]\nnote for A \"note\"\nstyle A fill:#cef"},
+        {"cssClass \"A\" selected\nclass A~T~\nclassDef selected fill:#cef",
+         "cssClass \"A\" selected\nclass A[\"A<T>\"]\nclassDef selected fill:#cef"},
+        {"<<interface>> A\nA : +List~T~ items\nclass A~T~",
+         "<<interface>> A\nA : +List<T> items\nclass A[\"A<T>\"]"},
+    };
+    for (const auto& pair : equivalent)
+      for (const bool theme : {false, true}) {
+        const auto actual = render::mermaid("classDiagram\n" + pair.first, theme);
+        const auto expected = render::mermaid("classDiagram\n" + pair.second, theme);
+        QVERIFY2(!actual.image.isNull(), qPrintable(pair.first));
+        QVERIFY2(!expected.image.isNull(), qPrintable(pair.second));
+        QCOMPARE(actual.image, expected.image);
+      }
+    for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"}) {
+      auto directed = source;
+      directed.replace("direction LR", QString("direction ") + direction);
+      for (const bool theme : {false, true}) {
+        const auto image = render::mermaid(directed, theme).image;
+        QVERIFY(!image.isNull());
+        QVERIFY(image.width() <= 1880 && image.height() <= 2520);
+        const auto background = image.pixel(0, 0);
+        for (int x = 0; x < image.width(); ++x) {
+          QCOMPARE(image.pixel(x, 0), background);
+          QCOMPARE(image.pixel(x, image.height() - 1), background);
+        }
+        for (int y = 0; y < image.height(); ++y) {
+          QCOMPARE(image.pixel(0, y), background);
+          QCOMPARE(image.pixel(image.width() - 1, y), background);
+        }
+      }
+    }
+    const QString nested = QString("List~").repeated(8) + "T" + QString("~").repeated(8);
+    QVERIFY(!render::mermaid("classDiagram\nclass A\nA : +" + nested + " items").image.isNull());
+    QVERIFY(!render::mermaid("classDiagram\nclass A" + nested.mid(4)).image.isNull());
+    QVERIFY(
+        render::mermaid("classDiagram\nclass A\nA : +Box~" + nested + "~ items").image.isNull());
+    QVERIFY(render::mermaid("classDiagram\nclass A~" + nested + "~").image.isNull());
+    const QString longType = QString("VeryLongTypeName").repeated(30);
+    const QString longSource =
+        "classDiagram\nclass A~" + longType + "~\nA : +List~" + longType + "~ items\n";
+    const auto longImage = render::mermaid(longSource).image;
+    QVERIFY(!longImage.isNull() && longImage.width() <= 1880);
+    for (const auto& invalid : {
+             "class A~T",
+             "class A~~",
+             "class A~T~~",
+             "class A~T U~",
+             "class A~ T~",
+             "class A~Map~K,V~~",
+             "class A~T~\nclass A~U~",
+             "class A~T~-->B",
+             "class A~T~\nnote for A~T~ \"note\"",
+             "class A~T~\nstyle A~T~ fill:red",
+             "class A\nA : +List~T items",
+             "class A\nA : +List~~ items",
+             "class A\nA : +List~T~~ items",
+             "class A\nA : +List~T~Missing items",
+             "class A\nA : +Map~K,V~ items",
+             "class A\nA : +List~List~T~ items",
+             "class A\nA : +List~List~T~~~ items",
+             "class A\nA : +List~T U~ items",
+         }) {
+      const auto result = render::mermaid(QString("classDiagram\n") + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
+    }
+    const auto fence = QString(3, QChar(0x60));
+    QTextDocument document;
+    const auto full = fence + "mermaid\n" + longSource + fence + '\n';
+    QVERIFY(editor::loadMarkdown(full, &document, nullptr));
+    QVERIFY(same(full, editor::serializeDocument(&document)));
+    const auto markdown = fence + "mermaid\n" + source + fence + '\n';
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/class-generics-light.png"));
+      QVERIFY(dark.image.save(retained + "/class-generics-dark.png"));
+      QVERIFY(longImage.save(retained + "/class-generics-long.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -3459,6 +3593,8 @@ class AdvancedContentTests : public QObject {
                                  << QStringLiteral("classDiagram\nnote for Missing \"text\"\n");
     QTest::newRow("class-styles") << classStyles()
                                   << QStringLiteral("classDiagram\nclass A:::missing\n");
+    QTest::newRow("class-generics")
+        << classGenerics() << QStringLiteral("classDiagram\nclass A~T~\nclass A~U~\n");
     QTest::newRow("flowchart-shapes")
         << flowchartShapes() << QStringLiteral("flowchart LR\n A[[Missing]\n");
     QTest::newRow("sequence-roles")

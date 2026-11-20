@@ -12,7 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install formatter
-        run: sudo apt-get update && sudo apt-get install -y clang-format-18
+        run: bash .github/scripts/install-apt.sh clang-format-18
+      - name: CI dependency installer tests
+        run: python3 -m unittest discover -s tests/ci -v
       - name: Format check
         run: git ls-files -z 'src/**/*.cpp' 'src/**/*.h' 'tests/**/*.cpp' | xargs -0 -r clang-format-18 --dry-run --Werror
       - name: core must stay UI-free
@@ -27,7 +29,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libcmark-gfm-dev libcmark-gfm-extensions-dev qt6-base-dev
+      - run: bash .github/scripts/install-apt.sh libcmark-gfm-dev libcmark-gfm-extensions-dev qt6-base-dev
       # Performance budgets are measured on optimized builds.
       - run: cmake --preset linux-gcc -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build/linux-gcc
@@ -37,7 +39,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libcmark-gfm-dev libcmark-gfm-extensions-dev
+      - run: bash .github/scripts/install-apt.sh libcmark-gfm-dev libcmark-gfm-extensions-dev
       - run: cmake -S . -B build/core -D TYPIST_BUILD_APP=OFF -D TYPIST_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
       - run: cmake --build build/core
       - run: ctest --test-dir build/core --output-on-failure
@@ -106,7 +108,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y qt6-base-dev qt6-l10n-tools
+      - run: bash .github/scripts/install-apt.sh qt6-base-dev qt6-l10n-tools
       - name: Refresh source strings
         run: /usr/lib/qt6/bin/lupdate src/ui/*.cpp src/ui/*.h -ts translations/typist_zh.ts
       - name: Compile catalogs
