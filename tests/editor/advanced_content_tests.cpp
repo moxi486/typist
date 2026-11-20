@@ -3483,17 +3483,19 @@ class AdvancedContentTests : public QObject {
     const auto circles = [](const QImage& image) {
       QList<QRect> result;
       QBitArray visited(image.width() * image.height());
-      const auto color = QColor("#ff0000").rgb();
+      const auto colored = [&](int x, int y) {
+        const auto color = image.pixelColor(x, y);
+        return color.red() > 200 && color.green() < 70 && color.blue() < 70;
+      };
       for (int y = 0; y < image.height(); ++y)
         for (int x = 0; x < image.width(); ++x) {
           const int index = y * image.width() + x;
-          if (visited.testBit(index) || image.pixel(x, y) != color) continue;
+          if (visited.testBit(index) || !colored(x, y)) continue;
           QList<int> pending{index};
           visited.setBit(index);
           QRect bounds(x, y, 1, 1);
           const auto add = [&](int at) {
-            if (!visited.testBit(at) &&
-                image.pixel(at % image.width(), at / image.width()) == color) {
+            if (!visited.testBit(at) && colored(at % image.width(), at / image.width())) {
               visited.setBit(at);
               pending.append(at);
             }
@@ -3505,6 +3507,10 @@ class AdvancedContentTests : public QObject {
             if (px + 1 < image.width()) add(at + 1);
             if (py) add(at - image.width());
             if (py + 1 < image.height()) add(at + image.width());
+            if (px && py) add(at - image.width() - 1);
+            if (px + 1 < image.width() && py) add(at - image.width() + 1);
+            if (px && py + 1 < image.height()) add(at + image.width() - 1);
+            if (px + 1 < image.width() && py + 1 < image.height()) add(at + image.width() + 1);
           }
           if (bounds.width() >= 8 && bounds.width() <= 60 && bounds.height() >= 8 &&
               bounds.height() <= 60 && qAbs(bounds.width() - bounds.height()) <= 3)
@@ -3529,7 +3535,17 @@ class AdvancedContentTests : public QObject {
       for (const bool theme : {false, true}) {
         const auto image = render::mermaid(directed + red, theme).image;
         QVERIFY(!image.isNull() && clearBorder(image));
-        QCOMPARE(circles(image).size(), 3);
+        const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+        if (!retained.isEmpty())
+          QVERIFY(image.save(retained + "/class-interfaces-outline-" + direction +
+                             (theme ? "-dark.png" : "-light.png")));
+        const auto count = circles(image).size();
+        QVERIFY2(count == 3, qPrintable(QString("direction=%1 dark=%2 size=%3x%4 circles=%5")
+                                            .arg(direction)
+                                            .arg(theme)
+                                            .arg(image.width())
+                                            .arg(image.height())
+                                            .arg(count)));
         QVERIFY(image.width() <= 1880 && image.height() <= 2520);
       }
       const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
