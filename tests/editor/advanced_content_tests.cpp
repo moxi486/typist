@@ -107,6 +107,15 @@ QString classGenerics() {
       " note for Repository \"Markdown 泛型仓库\\n关联仍使用原类 ID\"\n"
       " classDef primary fill:#e3edff,stroke:#5488c9,color:#243249,stroke-width:2\n");
 }
+QString classInterfaces() {
+  return QStringLiteral(
+      "classDiagram\n direction LR\n class Writer~Document~:::primary {\n"
+      " +List~Document~ items\n +save() bool\n }\n class Document[\"文档\"]\n"
+      " Input ()-- Writer : 提交\n Writer --() Storage : 保存\n"
+      " Document --() Storage : 归档\n Writer \"1\" o-- \"*\" Document : 管理\n"
+      " note for Writer \"Markdown 接口\\n同名接口各自独立\"\n"
+      " classDef primary fill:#e3edff,stroke:#5488c9,color:#243249,stroke-width:2\n");
+}
 QString flowchartShapes() {
   return QStringLiteral(
       "flowchart LR\n A([开始]) --> B[[校验]] --> C[(数据库)]\n"
@@ -3464,6 +3473,144 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void classInterfacesKeepSeparateOccurrencesAndClearLabels() {
+    const auto source = classInterfaces();
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const auto circles = [](const QImage& image) {
+      QList<QRect> result;
+      QBitArray visited(image.width() * image.height());
+      const auto color = QColor("#ff0000").rgb();
+      for (int y = 0; y < image.height(); ++y)
+        for (int x = 0; x < image.width(); ++x) {
+          const int index = y * image.width() + x;
+          if (visited.testBit(index) || image.pixel(x, y) != color) continue;
+          QList<int> pending{index};
+          visited.setBit(index);
+          QRect bounds(x, y, 1, 1);
+          const auto add = [&](int at) {
+            if (!visited.testBit(at) &&
+                image.pixel(at % image.width(), at / image.width()) == color) {
+              visited.setBit(at);
+              pending.append(at);
+            }
+          };
+          while (!pending.isEmpty()) {
+            const int at = pending.takeLast(), px = at % image.width(), py = at / image.width();
+            bounds |= QRect(px, py, 1, 1);
+            if (px) add(at - 1);
+            if (px + 1 < image.width()) add(at + 1);
+            if (py) add(at - image.width());
+            if (py + 1 < image.height()) add(at + image.width());
+          }
+          if (bounds.width() >= 8 && bounds.width() <= 60 && bounds.height() >= 8 &&
+              bounds.height() <= 60 && qAbs(bounds.width() - bounds.height()) <= 3)
+            result.append(bounds);
+        }
+      return result;
+    };
+    const auto clearBorder = [](const QImage& image) {
+      const auto background = image.pixel(0, 0);
+      for (int x = 0; x < image.width(); ++x)
+        if (image.pixel(x, 0) != background || image.pixel(x, image.height() - 1) != background)
+          return false;
+      for (int y = 0; y < image.height(); ++y)
+        if (image.pixel(0, y) != background || image.pixel(image.width() - 1, y) != background)
+          return false;
+      return true;
+    };
+    const QString red = "\nclassDef default stroke:red,stroke-width:2\n";
+    for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"}) {
+      auto directed = source;
+      directed.replace("direction LR", QString("direction ") + direction);
+      for (const bool theme : {false, true}) {
+        const auto image = render::mermaid(directed + red, theme).image;
+        QVERIFY(!image.isNull() && clearBorder(image));
+        QCOMPARE(circles(image).size(), 3);
+        QVERIFY(image.width() <= 1880 && image.height() <= 2520);
+      }
+      const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+      if (!retained.isEmpty())
+        QVERIFY(render::mermaid(directed).image.save(retained + "/class-interfaces-" + direction +
+                                                     ".png"));
+    }
+    for (const auto& fragment :
+         {"C --() I\nC --() I", "I ()-- A\nI ()-- B", "I ()-- C\nC --() I"}) {
+      const auto image = render::mermaid(QString("classDiagram\n") + fragment + red).image;
+      QVERIFY(!image.isNull());
+      QCOMPARE(circles(image).size(), 2);
+    }
+    const auto ordinary =
+        render::mermaid("classDiagram\nclass I <<interface>>\nI:+save()\n" + red).image;
+    QVERIFY(!ordinary.isNull());
+    QCOMPARE(circles(ordinary).size(), 0);
+    const auto separate =
+        render::mermaid("classDiagram\nA--()I\nclass I {\n+save()\n}\n" + red).image;
+    QVERIFY(!separate.isNull());
+    QCOMPARE(circles(separate).size(), 1);
+    const QList<QPair<QString, QString>> equivalent = {
+        {"I()--A;", "I ()-- A"},
+        {"A--()I;", "A --() I"},
+        {"`中文接口`()--`文档`", "中文接口 ()-- 文档"},
+        {"A--()`保存 接口`", "A --() `保存 接口`"},
+        {"class A~T~\nA--()I\nnote for A \"note\"\nstyle A fill:#cef,color:#123",
+         "class A[\"A<T>\"]\nA--()I\nnote for A \"note\"\nstyle A fill:#cef,color:#123"},
+        {"A--()I\nclass A[\"文档\"]", "class A[\"文档\"]\nA--()I"},
+        {"I()--A : \"使用\"", "I()--A : 使用"},
+    };
+    for (const auto& pair : equivalent)
+      for (const bool theme : {false, true}) {
+        const auto image = render::mermaid("classDiagram\n" + pair.first, theme);
+        QVERIFY2(!image.image.isNull(), qPrintable(pair.first));
+        QCOMPARE(image.image, render::mermaid("classDiagram\n" + pair.second, theme).image);
+      }
+    QString many = "classDiagram\nclass A\n";
+    for (int i = 0; i < 23; ++i) many += "A--()I\n";
+    const auto dense = render::mermaid(many).image;
+    QVERIFY(!dense.isNull() && clearBorder(dense));
+    QVERIFY(dense.width() <= 1880 && dense.height() <= 2520);
+    QVERIFY(render::mermaid(many + "A--()I\n").image.isNull());
+    QString relations = "classDiagram\nA--()I\n";
+    for (int i = 0; i < 47; ++i) relations += "A-->B\n";
+    QVERIFY(!render::mermaid(relations).image.isNull());
+    QVERIFY(render::mermaid(relations + "A-->B\n").image.isNull());
+    const auto longImage =
+        render::mermaid("classDiagram\nA--()" + QString("LongInterface").repeated(30)).image;
+    QVERIFY(!longImage.isNull() && clearBorder(longImage));
+    for (const auto& invalid :
+         {"I ().. A", "A ..() I", "I ()--() J", "A --()", "()-- A", "A --()> I", "I ()--> A",
+          "I \"1\" ()-- A", "A~T~ --() I", "A--()I\nnote for I \"missing target\"",
+          "A--()I\nstyle I fill:red", "class A {\nI ()-- A\n}"}) {
+      const auto result = render::mermaid(QString("classDiagram\n") + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
+    }
+    const auto fence = QString(3, QChar(0x60));
+    const auto markdown = fence + "mermaid\n" + source + fence + '\n';
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/class-interfaces-light.png"));
+      QVERIFY(dark.image.save(retained + "/class-interfaces-dark.png"));
+      QVERIFY(dense.save(retained + "/class-interfaces-dense.png"));
+      QVERIFY(longImage.save(retained + "/class-interfaces-long.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -3595,6 +3742,8 @@ class AdvancedContentTests : public QObject {
                                   << QStringLiteral("classDiagram\nclass A:::missing\n");
     QTest::newRow("class-generics")
         << classGenerics() << QStringLiteral("classDiagram\nclass A~T~\nclass A~U~\n");
+    QTest::newRow("class-interfaces")
+        << classInterfaces() << QStringLiteral("classDiagram\nA --()> I\n");
     QTest::newRow("flowchart-shapes")
         << flowchartShapes() << QStringLiteral("flowchart LR\n A[[Missing]\n");
     QTest::newRow("sequence-roles")

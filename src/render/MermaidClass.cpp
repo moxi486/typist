@@ -24,6 +24,7 @@ struct ClassBox {
   QRectF rect;
   GraphStyle style{};
   QString generic{};
+  bool lollipop = false;
 };
 
 enum class Marker { None, OpenArrow, Triangle, Diamond, FilledDiamond };
@@ -156,6 +157,8 @@ bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
       QStringLiteral(
           R"rx(^(%1)\s*(?:"([^"]+)"\s*)?(<\||[<o*])?(--|\.\.)(\|>|[>o*])?\s*(?:"([^"]+)"\s*)?(%1)\s*(?::(?!:)\s*(.+))?$)rx")
           .arg(id));
+  static const QRegularExpression interfaceRelation(
+      QStringLiteral(R"(^(%1)\s*(\(\)--|--\(\))\s*(%1)\s*(?::(?!:)\s*(.+))?$)").arg(id));
   static const QRegularExpression member(QStringLiteral(R"(^(%1)\s*:(?!:)\s*(.+)$)").arg(id));
   static const QRegularExpression note(
       QStringLiteral(R"rx(^note(?:\s+for\s+(%1))?\s+"((?:[^"\\]|\\.)*)"$)rx").arg(id));
@@ -179,6 +182,12 @@ bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
     diagram.boxes.append({name, {}, {}, {}, {}});
     return index;
   };
+  const auto addInterface = [&](const QString& name) {
+    const int index = int(diagram.boxes.size());
+    diagram.boxes.append({classId(name), {}, {}, {}, {}});
+    diagram.boxes.last().lollipop = true;
+    return index;
+  };
 
   int open = -1;
   for (qsizetype i = 1; i < lines.size(); ++i) {
@@ -191,7 +200,8 @@ bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
     }
     if (open >= 0) {
       if (note.match(line).hasMatch() || styling.match(line).hasMatch() ||
-          definition.match(line).hasMatch() || assignment.match(line).hasMatch())
+          definition.match(line).hasMatch() || assignment.match(line).hasMatch() ||
+          interfaceRelation.match(line).hasMatch())
         return false;
       if (line == "}")
         open = -1;
@@ -242,6 +252,18 @@ bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
     } else if (const auto stereotype = annotation.match(line); stereotype.hasMatch()) {
       const auto index = box(stereotype.captured(2));
       diagram.boxes[index].annotation = stereotype.captured(1).trimmed();
+    } else if (const auto link = interfaceRelation.match(line); link.hasMatch()) {
+      const bool left = link.captured(2) == "()--";
+      const auto from = left ? addInterface(link.captured(1)) : box(link.captured(1));
+      const auto to = left ? box(link.captured(3)) : addInterface(link.captured(3));
+      diagram.relations.append({from,
+                                to,
+                                Marker::None,
+                                Marker::None,
+                                false,
+                                label(link.captured(4)).simplified(),
+                                {},
+                                {}});
     } else if (const auto link = relation.match(line); link.hasMatch()) {
       const auto from = box(link.captured(1)), to = box(link.captured(7));
       diagram.relations.append({from, to, readMarker(link.captured(3)),
@@ -262,6 +284,8 @@ bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
     if (!ids.contains(it.key())) return false;
   for (auto it = assigned.cbegin(); it != assigned.cend(); ++it)
     if (!ids.contains(it.key())) return false;
+  for (auto& entry : diagram.boxes)
+    if (entry.lollipop) entry.style = definitions.value("default");
   for (auto it = ids.cbegin(); it != ids.cend(); ++it) {
     auto resolved = definitions.value("default");
     for (const auto& name : assigned.value(it.key())) {
@@ -289,6 +313,30 @@ struct Fonts {
   QFont body, heading, annotation;
   qreal rowHeight;
 };
+
+QPointF interfaceCenter(QRectF rect, bool horizontal) {
+  return horizontal ? QPointF(rect.center().x(), rect.top() + 12)
+                    : QPointF(rect.left() + 14, rect.center().y());
+}
+
+void drawInterface(QPainter& painter, const ClassBox& box, const Fonts& fonts, const Theme& theme,
+                   bool horizontal) {
+  const auto center = interfaceCenter(box.rect, horizontal);
+  painter.setPen(Qt::NoPen);
+  painter.setBrush(theme.paper);
+  painter.drawEllipse(center, 8, 8);
+  painter.setPen(graphPen(box.style, theme.line, 1.4));
+  painter.setBrush(box.style.fill.isValid() ? box.style.fill : theme.paper);
+  painter.drawEllipse(center, 8, 8);
+  painter.setFont(fonts.body);
+  painter.setPen(box.style.color.isValid() ? box.style.color : theme.ink);
+  const auto label = horizontal ? QRectF(box.rect.left() + 8, box.rect.top() + 28,
+                                         box.rect.width() - 16, fonts.rowHeight)
+                                : QRectF(box.rect.left() + 32, center.y() - fonts.rowHeight / 2,
+                                         box.rect.width() - 40, fonts.rowHeight);
+  painter.drawText(label, horizontal ? Qt::AlignCenter : Qt::AlignLeft | Qt::AlignVCenter,
+                   QFontMetricsF(fonts.body).elidedText(box.name, Qt::ElideRight, label.width()));
+}
 
 QStringList noteLines(const QString& text, const QFont& font, qreal width) {
   QStringList lines;
@@ -484,8 +532,15 @@ QImage drawClasses(ClassDiagram diagram, bool dark) {
                                  [](const Relation& edge) { return edge.from == edge.to; });
   const bool attachedNotes = std::any_of(diagram.notes.cbegin(), diagram.notes.cend(),
                                          [](const Note& note) { return note.anchor >= 0; });
+  const bool interfaces = std::any_of(diagram.boxes.cbegin(), diagram.boxes.cend(),
+                                      [](const ClassBox& box) { return box.lollipop; });
   qreal nodeWidth = 132;
   for (auto& box : diagram.boxes) {
+    if (box.lollipop) {
+      nodeWidth = qMax(nodeWidth, body.horizontalAdvance(box.name) + (horizontal ? 16 : 40));
+      box.rect.setHeight(horizontal ? fonts.rowHeight + 34 : qMax(38., fonts.rowHeight + 12));
+      continue;
+    }
     nodeWidth = qMax(nodeWidth, heading.horizontalAdvance(box.name + box.generic) + 22);
     nodeWidth = qMax(nodeWidth, annotation.horizontalAdvance(box.annotation) + 36);
     for (const auto* members : {&box.fields, &box.methods})
@@ -623,7 +678,8 @@ QImage drawClasses(ClassDiagram diagram, bool dark) {
   }
 
   const qreal scale = qMin(1., qMin(940. / area.width(), 1260. / area.height()));
-  auto image = canvas(qCeil(area.width() * scale), qCeil(area.height() * scale), dark);
+  auto image = canvas(qMin(940, qCeil(area.width() * scale)),
+                      qMin(1260, qCeil(area.height() * scale)), dark);
   if (image.isNull()) return image;
   QPainter painter(&image);
   painter.setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing);
@@ -652,12 +708,14 @@ QImage drawClasses(ClassDiagram diagram, bool dark) {
       const qreal turn = x + (left ? -1 : 1) * (24 + qMin(3, before) * 8);
       const qreal y = a.center().y();
       path = QPolygonF({{x, y - 9}, {turn, y - 9}, {turn, y + 9}, {x, y + 9}});
-    } else if (attachedNotes && ai == bi) {
+    } else if ((attachedNotes || interfaces) && ai == bi) {
       const qreal lane = span.at(ai).first - 12;
-      const auto start =
-          horizontal ? QPointF(a.left(), a.center().y()) : QPointF(a.center().x(), a.top());
-      const auto end =
-          horizontal ? QPointF(b.left(), b.center().y()) : QPointF(b.center().x(), b.top());
+      const auto start = diagram.boxes.at(edge.from).lollipop ? interfaceCenter(a, horizontal)
+                         : horizontal                         ? QPointF(a.left(), a.center().y())
+                                                              : QPointF(a.center().x(), a.top());
+      const auto end = diagram.boxes.at(edge.to).lollipop ? interfaceCenter(b, horizontal)
+                       : horizontal                       ? QPointF(b.left(), b.center().y())
+                                                          : QPointF(b.center().x(), b.top());
       path = QPolygonF({start, point(lane, horizontal ? start.y() : start.x()),
                         point(lane, horizontal ? end.y() : end.x()), end});
     } else {
@@ -666,15 +724,16 @@ QImage drawClasses(ClassDiagram diagram, bool dark) {
           sideBySide ? a.center().x() < b.center().x() : a.center().y() < b.center().y();
       const auto delta = b.center() - a.center();
       const qreal fan = qBound(-30., (sideBySide ? delta.y() : delta.x()) * .12, 30.);
-      const auto port = [sideBySide](QRectF rect, bool positive, qreal shift) {
+      const auto port = [&](int index, QRectF rect, bool positive, qreal shift) {
+        if (diagram.boxes.at(index).lollipop) return interfaceCenter(rect, horizontal);
         const qreal room = qMax(0., (sideBySide ? rect.height() : rect.width()) / 2 - 8);
         const qreal inset = qBound(-room, shift, room);
         return sideBySide
                    ? QPointF(positive ? rect.right() : rect.left(), rect.center().y() + inset)
                    : QPointF(rect.center().x() + inset, positive ? rect.bottom() : rect.top());
       };
-      const auto start = port(a, forward, offset + fan);
-      const auto end = port(b, !forward, offset - fan);
+      const auto start = port(edge.from, a, forward, offset + fan);
+      const auto end = port(edge.to, b, !forward, offset - fan);
       if (ai != bi && qAbs(ai - bi) > 1) {
         const auto as = span.at(ai), bs = span.at(bi);
         const qreal stubA = (forward ? as.second + 26 : as.first - 26) + offset;
@@ -684,7 +743,7 @@ QImage drawClasses(ClassDiagram diagram, bool dark) {
         const qreal to = horizontal ? end.y() : end.x();
         path = QPolygonF({start, point(stubA, from), point(stubA, lane), point(stubB, lane),
                           point(stubB, to), end});
-      } else if (attachedNotes && ai != bi) {
+      } else if ((attachedNotes || interfaces) && ai != bi) {
         const auto as = span.at(ai), bs = span.at(bi);
         const qreal middle = forward ? (as.second + bs.first) / 2 : (as.first + bs.second) / 2;
         path = QPolygonF({start, point(middle, horizontal ? start.y() : start.x()),
@@ -709,7 +768,11 @@ QImage drawClasses(ClassDiagram diagram, bool dark) {
                                       {lane, note.rect.center().y()},
                                       {note.rect.left(), note.rect.center().y()}}));
     }
-  for (const auto& box : diagram.boxes) drawClass(painter, box, fonts, theme);
+  for (const auto& box : diagram.boxes)
+    if (box.lollipop)
+      drawInterface(painter, box, fonts, theme, horizontal);
+    else
+      drawClass(painter, box, fonts, theme);
   for (const auto& note : diagram.notes) drawNote(painter, note, fonts, theme, dark);
   return image;
 }
