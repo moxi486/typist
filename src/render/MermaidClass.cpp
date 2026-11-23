@@ -43,6 +43,7 @@ struct Note {
   int anchor = -1;
   QRectF rect{};
   QStringList lines{};
+  int space = -1;
 };
 
 struct ClassDiagram {
@@ -207,7 +208,9 @@ bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
       line.chop(1);
       line = line.trimmed();
     }
-    if (space >= 0 && open < 0 && line != "}" && !declaration.match(line).hasMatch()) return false;
+    if (space >= 0 && open < 0 && line != "}" && !declaration.match(line).hasMatch() &&
+        !note.match(line).hasMatch())
+      return false;
     if (open >= 0) {
       if (note.match(line).hasMatch() || styling.match(line).hasMatch() ||
           definition.match(line).hasMatch() || assignment.match(line).hasMatch() ||
@@ -251,6 +254,7 @@ bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
       }
     } else if (const auto entry = note.match(line); entry.hasMatch()) {
       diagram.notes.append({noteText(entry.captured(2)), classId(entry.captured(1))});
+      diagram.notes.last().space = space;
     } else if (const auto orientation = direction.match(line); orientation.hasMatch()) {
       diagram.direction = orientation.captured(1);
     } else if (const auto declarationMatch = declaration.match(line); declarationMatch.hasMatch()) {
@@ -331,6 +335,7 @@ bool parseClasses(ClassDiagram& diagram, const QStringList& lines) {
       const auto anchor = ids.constFind(entry.target);
       if (anchor == ids.cend()) return false;
       entry.anchor = *anchor;
+      if (entry.space >= 0 && diagram.boxes.at(entry.anchor).space != entry.space) return false;
     }
   return true;
 }
@@ -548,8 +553,11 @@ void drawRelation(QPainter& painter, const Relation& relation, const QPolygonF& 
 
 struct NamespaceUnit {
   QList<int> nodes{};
+  QList<int> notes{};
   QRectF rect{};
   QSizeF body{};
+  QSizeF notesSize{};
+  qreal notesTop = 0, insideEnd = 0;
   int space = -1, inside = 0, outside = 0;
 };
 
@@ -579,6 +587,10 @@ QImage drawNamespaces(ClassDiagram diagram, const Fonts& fonts, const Theme& the
     owner[i] = unit;
     units[unit].nodes.append(i);
     if (loops.at(i)) cells[i].rwidth() += 80;
+  }
+  for (int i = 0; i < diagram.notes.size(); ++i) {
+    const auto& note = diagram.notes.at(i);
+    if (note.anchor < 0 && note.space >= 0) units[note.space].notes.append(i);
   }
   QList<int> inside(diagram.relations.size(), 0), fromSlot(inside), toSlot(inside);
   QList<QPair<int, int>> links;
@@ -616,13 +628,31 @@ QImage drawNamespaces(ClassDiagram diagram, const Fonts& fonts, const Theme& the
     }
     const qreal top = header + 24 + (horizontal ? 0 : unit.outside * 12);
     const qreal right = 24 + (horizontal ? unit.inside * 18 : 0);
-    const qreal bottom = 24 + (horizontal ? 0 : unit.inside * 18);
+    const qreal bottom = 24 + (horizontal ? 0 : unit.inside * 18) +
+                         (!horizontal && !unit.notes.isEmpty() ? unit.outside * 12 : 0);
     const qreal title = qBound(
         160.,
         QFontMetricsF(fonts.heading).horizontalAdvance(diagram.spaces.at(unit.space).name) + 36,
         360.);
     unit.rect.setSize({qMax(title, unit.body.width() + 24 + right),
                        qMax(header + 48, unit.body.height() + top + bottom)});
+    unit.insideEnd = unit.rect.height() - 12;
+    if (!unit.notes.isEmpty()) {
+      const int columns = qMin(2, int(unit.notes.size()));
+      qreal height = 0, row = 0;
+      for (int i = 0; i < unit.notes.size(); ++i) {
+        if (i && i % columns == 0) {
+          height += row + 16;
+          row = 0;
+        }
+        row = qMax(row, diagram.notes.at(unit.notes.at(i)).rect.height());
+      }
+      unit.notesSize = {columns * nodeWidth + (columns - 1) * 20, height + row};
+      unit.notesTop = unit.nodes.isEmpty() ? top : unit.rect.height() + 8;
+      unit.rect.setWidth(qMax(unit.rect.width(), unit.notesSize.width() + 48));
+      unit.rect.setHeight(unit.notesTop + unit.notesSize.height() + 24);
+    }
+    if (horizontal) unit.insideEnd = unit.rect.width() - 12;
   }
   const auto ranks = graphRanks(int(units.size()), links);
   QList<QList<int>> layers;
@@ -693,16 +723,29 @@ QImage drawNamespaces(ClassDiagram diagram, const Fonts& fonts, const Theme& the
           }
         offset += (horizontal ? cell.height() : cell.width()) + 36;
       }
+      const int columns = qMin(2, int(unit.notes.size()));
+      qreal y = unit.rect.top() + unit.notesTop, row = 0;
+      for (int i = 0; i < unit.notes.size(); ++i) {
+        if (i && i % columns == 0) {
+          y += row + 16;
+          row = 0;
+        }
+        auto& note = diagram.notes[unit.notes.at(i)];
+        note.rect.moveTopLeft(
+            {unit.rect.center().x() - unit.notesSize.width() / 2 + (i % columns) * (nodeWidth + 20),
+             y});
+        row = qMax(row, note.rect.height());
+      }
     }
   }
   int general = 0;
-  for (const auto& note : diagram.notes) general += note.anchor < 0;
+  for (const auto& note : diagram.notes) general += note.anchor < 0 && note.space < 0;
   if (general) {
     const int columns = qMin(3, general);
     qreal y = area.height() + 24, rowHeight = 0;
     int at = 0;
     for (auto& note : diagram.notes) {
-      if (note.anchor >= 0) continue;
+      if (note.anchor >= 0 || note.space >= 0) continue;
       const int column = at++ % columns;
       if (!column && at > 1) {
         y += rowHeight + 16;
@@ -732,6 +775,11 @@ QImage drawNamespaces(ClassDiagram diagram, const Fonts& fonts, const Theme& the
       const qreal lane = unit.rect.top() + header + 12 + slot * 12;
       const qreal gutter = unit.rect.right() - 12;
       path << QPointF(start.x(), lane) << QPointF(gutter, lane) << QPointF(gutter, unit.rect.top());
+    } else if (!horizontal && !unit.notes.isEmpty()) {
+      const qreal lane = unit.rect.top() + unit.notesTop - 12 - slot * 12;
+      const qreal gutter = unit.rect.right() - 12;
+      path << QPointF(start.x(), lane) << QPointF(gutter, lane)
+           << QPointF(gutter, unit.rect.bottom());
     } else {
       path << (horizontal ? QPointF(positive ? unit.rect.right() : unit.rect.left(), start.y())
                           : QPointF(start.x(), unit.rect.bottom()));
@@ -800,8 +848,8 @@ QImage drawNamespaces(ClassDiagram diagram, const Fonts& fonts, const Theme& the
     QPolygonF path, core;
     if (a == b) {
       const auto start = port(edge.from, true, shift), end = port(edge.to, true, -shift);
-      const qreal lane = (horizontal ? units.at(a).rect.right() : units.at(a).rect.bottom()) - 12 -
-                         inside.at(i) * 18;
+      const qreal lane = (horizontal ? units.at(a).rect.left() : units.at(a).rect.top()) +
+                         units.at(a).insideEnd - inside.at(i) * 18;
       core = QPolygonF({start, point(lane, horizontal ? start.y() : start.x()),
                         point(lane, horizontal ? end.y() : end.x()), end});
       path = core;
