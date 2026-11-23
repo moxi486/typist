@@ -19,6 +19,7 @@
 #include <QXmlStreamReader>
 #include <QtEndian>
 #include <QtTest>
+#include <algorithm>
 
 using namespace typist;
 namespace {
@@ -115,6 +116,18 @@ QString classInterfaces() {
       " Document --() Storage : 归档\n Writer \"1\" o-- \"*\" Document : 管理\n"
       " note for Writer \"Markdown 接口\\n同名接口各自独立\"\n"
       " classDef primary fill:#e3edff,stroke:#5488c9,color:#243249,stroke-width:2\n");
+}
+QString classNamespaces() {
+  return QStringLiteral(
+      "classDiagram\n direction TB\n namespace Editing[\"编辑模块\"] {\n"
+      " class Editor~Document~ {\n +List~Document~ documents\n +save() bool\n }\n"
+      " class Document[\"文档\"]\n }\n namespace Storage[\"存储模块\"] {\n"
+      " class Repository {\n +write(Document)\n }\n }\n class App[\"应用\"]\n"
+      " App --> Editor : 打开\n Editor \"1\" o-- \"*\" Document : 包含\n"
+      " Document --> Repository : 保存\n App --> Repository : 直达\n"
+      " Repository --> Repository : 重试\n Repository --() Disk\n"
+      " note for Editor \"Markdown 编辑与预览\\n保留源码\"\n note \"模块关系\"\n"
+      " classDef storage stroke:#5488c9,stroke-width:2\n cssClass \"Repository\" storage\n");
 }
 QString flowchartShapes() {
   return QStringLiteral(
@@ -671,7 +684,7 @@ class AdvancedContentTests : public QObject {
              QStringLiteral("classDiagram\nclass A{\n-int field"),
              QStringLiteral("classDiagram\nclass A~int"),
              QStringLiteral("classDiagram\nclass A\nA : +Map~K,V~ items"),
-             QStringLiteral("classDiagram\nnamespace Core {\n class A\n}"),
+             QStringLiteral("classDiagram\nnamespace Core.Inner {\n class A\n}"),
              QStringLiteral("classDiagram\nclass A\nnote over A \"text\""),
              QStringLiteral("classDiagram\nclass A\nA ?-- B"),
              QStringLiteral("classDiagram\nclass A\nclassDef selected font-size:16px"),
@@ -3627,6 +3640,168 @@ class AdvancedContentTests : public QObject {
     }
   }
 
+  void classNamespacesKeepOwnershipAndSeparatePanels() {
+    const auto source = classNamespaces();
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY(!light.image.isNull() && !dark.image.isNull());
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const auto clearBorder = [](const QImage& image) {
+      if (image.isNull()) return false;
+      const auto background = image.pixelColor(0, 0);
+      for (int x = 0; x < image.width(); ++x)
+        if (image.pixelColor(x, 0) != background ||
+            image.pixelColor(x, image.height() - 1) != background)
+          return false;
+      for (int y = 0; y < image.height(); ++y)
+        if (image.pixelColor(0, y) != background ||
+            image.pixelColor(image.width() - 1, y) != background)
+          return false;
+      return true;
+    };
+    const auto regions = [](const QImage& image, QColor color) {
+      QList<QRect> result;
+      QBitArray seen(image.width() * image.height());
+      for (int y = 0; y < image.height(); ++y)
+        for (int x = 0; x < image.width(); ++x) {
+          const int start = y * image.width() + x;
+          if (seen.testBit(start) || image.pixelColor(x, y) != color) continue;
+          QList<QPoint> queue{{x, y}};
+          seen.setBit(start);
+          QRect bounds(x, y, 1, 1);
+          for (qsizetype at = 0; at < queue.size(); ++at) {
+            const auto p = queue.at(at);
+            bounds |= QRect(p, QSize(1, 1));
+            for (int dy = -1; dy <= 1; ++dy)
+              for (int dx = -1; dx <= 1; ++dx) {
+                const auto q = p + QPoint(dx, dy);
+                if (q.x() < 0 || q.y() < 0 || q.x() >= image.width() || q.y() >= image.height())
+                  continue;
+                const int index = q.y() * image.width() + q.x();
+                if (!seen.testBit(index) && image.pixelColor(q) == color) {
+                  seen.setBit(index);
+                  queue.append(q);
+                }
+              }
+          }
+          if (queue.size() > 300 && bounds.width() > 40 && bounds.height() > 16)
+            result.append(bounds);
+        }
+      // Relation strokes can split a panel's fill into separate connected regions.
+      bool merged = true;
+      while (merged) {
+        merged = false;
+        for (qsizetype i = 0; i < result.size() && !merged; ++i)
+          for (qsizetype j = i + 1; j < result.size(); ++j)
+            if (result.at(i).adjusted(-6, -6, 6, 6).intersects(result.at(j))) {
+              result[i] |= result.at(j);
+              result.removeAt(j);
+              merged = true;
+              break;
+            }
+      }
+      return result;
+    };
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"})
+      for (const bool night : {false, true}) {
+        auto directed = source;
+        directed.replace("direction TB", QString("direction ") + direction);
+        const auto image = render::mermaid(directed, night).image;
+        QVERIFY(!image.isNull());
+        if (!retained.isEmpty())
+          QVERIFY(image.save(retained + "/class-namespaces-" + direction +
+                             (night ? "-dark.png" : "-light.png")));
+        QVERIFY(clearBorder(image));
+        const auto panels = regions(image, QColor(night ? "#2b323d" : "#f1f5fb"));
+        const auto classes = regions(image, QColor(night ? "#394d67" : "#e2ecfb"));
+        QCOMPARE(panels.size(), 2);
+        QCOMPARE(classes.size(), 4);
+        QVERIFY(!panels.at(0).intersects(panels.at(1)));
+        QList<int> contained;
+        for (const auto& panel : panels) {
+          int count = 0;
+          for (const auto& box : classes) count += panel.contains(box);
+          contained.append(count);
+        }
+        std::sort(contained.begin(), contained.end());
+        QCOMPARE(contained, QList<int>({1, 2}));
+        QVERIFY(image.width() <= 1880 && image.height() <= 2520);
+      }
+    const QList<QPair<QString, QString>> equivalent{
+        {"namespace N {\nclass A\n}\nnamespace N {\nclass B\n}",
+         "namespace N {\nclass A\nclass B\n}"},
+        {"class A\nnamespace N {\nclass A\n}", "namespace N {\nclass A\n}"},
+        {"namespace N {\nclass A\n}\nclass A", "namespace N {\nclass A\n}"},
+        {"A-->B\nnamespace N {\nclass A\nclass B\n}", "namespace N {\nclass A\nclass B\n}\nA-->B"},
+        {"namespace N[\"显示名称\"] {\nclass A\n}\nnamespace N {\nclass B\n}",
+         "namespace N[\"显示名称\"] {\nclass A\nclass B\n}"},
+        {"namespace `文档 模块` {\nclass `文档 类`~T~\n}",
+         "namespace `文档 模块` {\nclass `文档 类`[\"文档 类<T>\"]\n}"},
+        {"namespace N {\nclass A~T~:::hot\n}\nclassDef hot fill:#abcdef",
+         "namespace N {\nclass A[\"A<T>\"]\n}\nstyle A fill:#abcdef"},
+        {"namespace N {\nclass A\n}\nA : +save()", "namespace N {\nclass A {\n+save()\n}\n}"}};
+    for (const auto& pair : equivalent)
+      for (const bool night : {false, true}) {
+        const auto a = render::mermaid("classDiagram\n" + pair.first, night).image;
+        const auto b = render::mermaid("classDiagram\n" + pair.second, night).image;
+        QVERIFY2(!a.isNull(), qPrintable(pair.first));
+        QCOMPARE(a, b);
+      }
+    const auto empty = render::mermaid("classDiagram\nnamespace Empty {\n}\n").image;
+    QVERIFY(!empty.isNull() && clearBorder(empty));
+    QString groups = "classDiagram\n";
+    for (int i = 0; i < 8; ++i) groups += QString("namespace N%1 {\n}\n").arg(i);
+    QVERIFY(!render::mermaid(groups).image.isNull());
+    QVERIFY(render::mermaid(groups + "namespace N8 {\n}\n").image.isNull());
+    QString dense = "classDiagram\nnamespace N {\n";
+    for (int i = 0; i < 24; ++i) dense += QString("class A%1\n").arg(i);
+    const auto denseImage = render::mermaid(dense + "}\n").image;
+    QVERIFY(!denseImage.isNull() && clearBorder(denseImage));
+    QVERIFY(denseImage.width() <= 1880 && denseImage.height() <= 2520);
+    QVERIFY(render::mermaid(dense + "class Overflow\n}\n").image.isNull());
+    QString edges = "classDiagram\nnamespace N {\nclass A\nclass B\n}\n";
+    for (int i = 0; i < 48; ++i) edges += "A-->B\n";
+    QVERIFY(!render::mermaid(edges).image.isNull());
+    QVERIFY(render::mermaid(edges + "A-->B\n").image.isNull());
+    for (const auto& valid :
+         {"namespace N {\nclass A\n}\nnamespace M {\nclass B\n}\nA-->B\nB-->A\nA-->A\nB-->B",
+          "namespace N {\nclass A\n}\nA--()I\nnote for A \"说明\"",
+          "namespace N {\nclass N\n}\nstyle N fill:#abcdef\nnote for N \"类名\""}) {
+      const auto image = render::mermaid(QString("classDiagram\n") + valid).image;
+      QVERIFY2(!image.isNull() && clearBorder(image), valid);
+    }
+    for (const auto& invalid :
+         {"namespace N {\nclass A", "namespace N {\nnamespace M {\nclass A\n}\n}",
+          "namespace N.M {\nclass A\n}", "namespace N {\nclass A\n}\nnamespace M {\nclass A\n}",
+          "namespace N {\nA-->B\n}", "namespace N {\nnote \"text\"\n}",
+          "namespace N {\nclass A\nstyle A fill:red\n}", "namespace N[\" \"] {\nclass A\n}",
+          "namespace N {\n}\nstyle N fill:red", "namespace N {\nclass A\n}\n}"}) {
+      const auto result = render::mermaid(QString("classDiagram\n") + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
+    }
+    const auto markdown =
+        QString(3, QChar(0x60)) + "mermaid\n" + source + QString(3, QChar(0x60)) + '\n';
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    if (!retained.isEmpty()) {
+      QVERIFY(light.image.save(retained + "/class-namespaces-light.png"));
+      QVERIFY(dark.image.save(retained + "/class-namespaces-dark.png"));
+      QVERIFY(denseImage.save(retained + "/class-namespaces-dense.png"));
+    }
+  }
+
   void nativeDiagramsKeepSourceAndEmbedPicturesInExports_data() {
     QTest::addColumn<QString>("diagram");
     QTest::addColumn<QString>("invalid");
@@ -3661,7 +3836,7 @@ class AdvancedContentTests : public QObject {
                                   " +save()\n }\n Document <|-- MarkdownDocument\n"
                                   " Document \"1\" *-- \"1..*\" Section : contains\n")
                            << QStringLiteral(
-                                  "classDiagram\n namespace Core {\n   class Document\n }\n");
+                                  "classDiagram\n namespace Core.Inner {\n   class Document\n }\n");
     QTest::newRow("quadrant") << QStringLiteral(
                                      "quadrantChart\n title Priorities\n x-axis Less --> More\n"
                                      " y-axis Low --> High\n quadrant-2 Start here\n"
@@ -3760,6 +3935,8 @@ class AdvancedContentTests : public QObject {
         << classGenerics() << QStringLiteral("classDiagram\nclass A~T~\nclass A~U~\n");
     QTest::newRow("class-interfaces")
         << classInterfaces() << QStringLiteral("classDiagram\nA --()> I\n");
+    QTest::newRow("class-namespaces")
+        << classNamespaces() << QStringLiteral("classDiagram\nnamespace N {\nclass A\n");
     QTest::newRow("flowchart-shapes")
         << flowchartShapes() << QStringLiteral("flowchart LR\n A[[Missing]\n");
     QTest::newRow("sequence-roles")
