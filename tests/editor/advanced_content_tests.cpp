@@ -129,6 +129,21 @@ QString classNamespaces() {
       " note for Editor \"Markdown 编辑与预览\\n保留源码\"\n note \"模块关系\"\n"
       " classDef storage stroke:#5488c9,stroke-width:2\n cssClass \"Repository\" storage\n");
 }
+QString classNamespaceNotes() {
+  return QStringLiteral(
+      "classDiagram\n direction TB\n namespace Editing[\"编辑模块\"] {\n"
+      " note \"Markdown 编辑与预览\\n说明留在编辑模块\"\n"
+      " note for Editor \"关联同组类\\n保留源码\"\n"
+      " class Editor~Document~ {\n +save() bool\n }\n class Document[\"文档\"]\n"
+      " note \"检查保存结果<br>支持中文\"\n }\n"
+      " namespace Storage[\"存储模块\"] {\n class Repository\n"
+      " note \"本地保存\\n使用文档资源\"\n }\n"
+      " namespace Help[\"使用说明\"] {\n note \"只有注释的分组\"\n }\n"
+      " class App[\"应用\"]\n App --> Editor : 打开\n"
+      " Editor \"1\" o-- \"*\" Document : 包含\n Document --> Repository : 保存\n"
+      " App --> Repository : 直达\n Repository --> Repository : 重试\n"
+      " Repository --() Disk\n note \"全图说明\"\n");
+}
 QString flowchartShapes() {
   return QStringLiteral(
       "flowchart LR\n A([开始]) --> B[[校验]] --> C[(数据库)]\n"
@@ -149,6 +164,48 @@ QString sequenceRoles() {
       " Service->>+Disk: 写入正文\n Disk-->>-Service: 写入完成\n end\n"
       " Service-)+Tasks: 异步索引\n Tasks->>Entries: 更新集合\n Tasks--)-Service: 索引完成\n"
       " Note over UI,Service: 源码和别名保持完整\n Service-->>-UI: 已保存\n UI-->>User: 完成\n");
+}
+QList<QRect> colorRegions(const QImage& image, QColor color) {
+  QList<QRect> result;
+  QBitArray seen(image.width() * image.height());
+  for (int y = 0; y < image.height(); ++y)
+    for (int x = 0; x < image.width(); ++x) {
+      const int start = y * image.width() + x;
+      if (seen.testBit(start) || image.pixelColor(x, y) != color) continue;
+      QList<QPoint> queue{{x, y}};
+      seen.setBit(start);
+      QRect bounds(x, y, 1, 1);
+      for (qsizetype at = 0; at < queue.size(); ++at) {
+        const auto p = queue.at(at);
+        bounds |= QRect(p, QSize(1, 1));
+        for (int dy = -1; dy <= 1; ++dy)
+          for (int dx = -1; dx <= 1; ++dx) {
+            const auto q = p + QPoint(dx, dy);
+            if (q.x() < 0 || q.y() < 0 || q.x() >= image.width() || q.y() >= image.height())
+              continue;
+            const int index = q.y() * image.width() + q.x();
+            if (!seen.testBit(index) && image.pixelColor(q) == color) {
+              seen.setBit(index);
+              queue.append(q);
+            }
+          }
+      }
+      if (queue.size() > 300 && bounds.width() > 40 && bounds.height() > 16) result.append(bounds);
+    }
+  // Relation strokes can split a panel's fill into separate connected regions.
+  bool merged = true;
+  while (merged) {
+    merged = false;
+    for (qsizetype i = 0; i < result.size() && !merged; ++i)
+      for (qsizetype j = i + 1; j < result.size(); ++j)
+        if (result.at(i).adjusted(-6, -6, 6, 6).intersects(result.at(j))) {
+          result[i] |= result.at(j);
+          result.removeAt(j);
+          merged = true;
+          break;
+        }
+  }
+  return result;
 }
 bool same(const QString& a, const QString& b) {
   const auto left = core::parseMarkdown(a.toStdString()),
@@ -3659,49 +3716,7 @@ class AdvancedContentTests : public QObject {
           return false;
       return true;
     };
-    const auto regions = [](const QImage& image, QColor color) {
-      QList<QRect> result;
-      QBitArray seen(image.width() * image.height());
-      for (int y = 0; y < image.height(); ++y)
-        for (int x = 0; x < image.width(); ++x) {
-          const int start = y * image.width() + x;
-          if (seen.testBit(start) || image.pixelColor(x, y) != color) continue;
-          QList<QPoint> queue{{x, y}};
-          seen.setBit(start);
-          QRect bounds(x, y, 1, 1);
-          for (qsizetype at = 0; at < queue.size(); ++at) {
-            const auto p = queue.at(at);
-            bounds |= QRect(p, QSize(1, 1));
-            for (int dy = -1; dy <= 1; ++dy)
-              for (int dx = -1; dx <= 1; ++dx) {
-                const auto q = p + QPoint(dx, dy);
-                if (q.x() < 0 || q.y() < 0 || q.x() >= image.width() || q.y() >= image.height())
-                  continue;
-                const int index = q.y() * image.width() + q.x();
-                if (!seen.testBit(index) && image.pixelColor(q) == color) {
-                  seen.setBit(index);
-                  queue.append(q);
-                }
-              }
-          }
-          if (queue.size() > 300 && bounds.width() > 40 && bounds.height() > 16)
-            result.append(bounds);
-        }
-      // Relation strokes can split a panel's fill into separate connected regions.
-      bool merged = true;
-      while (merged) {
-        merged = false;
-        for (qsizetype i = 0; i < result.size() && !merged; ++i)
-          for (qsizetype j = i + 1; j < result.size(); ++j)
-            if (result.at(i).adjusted(-6, -6, 6, 6).intersects(result.at(j))) {
-              result[i] |= result.at(j);
-              result.removeAt(j);
-              merged = true;
-              break;
-            }
-      }
-      return result;
-    };
+
     const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
     for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"})
       for (const bool night : {false, true}) {
@@ -3713,8 +3728,8 @@ class AdvancedContentTests : public QObject {
           QVERIFY(image.save(retained + "/class-namespaces-" + direction +
                              (night ? "-dark.png" : "-light.png")));
         QVERIFY(clearBorder(image));
-        const auto panels = regions(image, QColor(night ? "#2b323d" : "#f1f5fb"));
-        const auto classes = regions(image, QColor(night ? "#394d67" : "#e2ecfb"));
+        const auto panels = colorRegions(image, QColor(night ? "#2b323d" : "#f1f5fb"));
+        const auto classes = colorRegions(image, QColor(night ? "#394d67" : "#e2ecfb"));
         QCOMPARE(panels.size(), 2);
         QCOMPARE(classes.size(), 4);
         QVERIFY(!panels.at(0).intersects(panels.at(1)));
@@ -3774,7 +3789,7 @@ class AdvancedContentTests : public QObject {
     for (const auto& invalid :
          {"namespace N {\nclass A", "namespace N {\nnamespace M {\nclass A\n}\n}",
           "namespace N.M {\nclass A\n}", "namespace N {\nclass A\n}\nnamespace M {\nclass A\n}",
-          "namespace N {\nA-->B\n}", "namespace N {\nnote \"text\"\n}",
+          "namespace N {\nA-->B\n}", "namespace N {\nnote for Missing \"text\"\n}",
           "namespace N {\nclass A\nstyle A fill:red\n}", "namespace N[\" \"] {\nclass A\n}",
           "namespace N {\n}\nstyle N fill:red", "namespace N {\nclass A\n}\n}"}) {
       const auto result = render::mermaid(QString("classDiagram\n") + invalid);
@@ -3799,6 +3814,126 @@ class AdvancedContentTests : public QObject {
       QVERIFY(light.image.save(retained + "/class-namespaces-light.png"));
       QVERIFY(dark.image.save(retained + "/class-namespaces-dark.png"));
       QVERIFY(denseImage.save(retained + "/class-namespaces-dense.png"));
+    }
+  }
+
+  void classNamespaceNotesStayWithTheirGroups() {
+    const auto source = classNamespaceNotes();
+    const auto light = render::mermaid(source), dark = render::mermaid(source, true);
+    QVERIFY2(!light.image.isNull(), qPrintable(light.error));
+    QVERIFY2(!dark.image.isNull(), qPrintable(dark.error));
+    QCOMPARE(light.image.size(), dark.image.size());
+    QVERIFY(light.image != dark.image);
+    const auto clearBorder = [](const QImage& image) {
+      if (image.isNull()) return false;
+      const auto background = image.pixel(0, 0);
+      for (int x = 0; x < image.width(); ++x)
+        if (image.pixel(x, 0) != background || image.pixel(x, image.height() - 1) != background)
+          return false;
+      for (int y = 0; y < image.height(); ++y)
+        if (image.pixel(0, y) != background || image.pixel(image.width() - 1, y) != background)
+          return false;
+      return true;
+    };
+    const QString retained = qEnvironmentVariable("TYPIST_ADVANCED_OUTPUT");
+    for (const auto& direction : {"TD", "TB", "BT", "LR", "RL"})
+      for (const bool night : {false, true}) {
+        auto directed = source;
+        directed.replace("direction TB", QString("direction ") + direction);
+        const auto image = render::mermaid(directed, night).image;
+        QVERIFY(!image.isNull());
+        if (!retained.isEmpty())
+          QVERIFY(image.save(retained + "/class-namespace-notes-" + direction +
+                             (night ? "-dark.png" : "-light.png")));
+        QVERIFY(clearBorder(image));
+        const auto panels = colorRegions(image, QColor(night ? "#2b323d" : "#f1f5fb"));
+        const auto notes = colorRegions(image, QColor(night ? "#514936" : "#fff6d6"));
+        const auto classes = colorRegions(image, QColor(night ? "#394d67" : "#e2ecfb"));
+        QCOMPARE(panels.size(), 3);
+        QCOMPARE(notes.size(), 6);
+        QCOMPARE(classes.size(), 4);
+        QList<int> counts;
+        int contained = 0;
+        for (const auto& panel : panels) {
+          int count = 0;
+          for (const auto& note : notes) count += panel.contains(note);
+          counts.append(count);
+          contained += count;
+        }
+        std::sort(counts.begin(), counts.end());
+        QCOMPARE(counts, QList<int>({1, 1, 3}));
+        QCOMPARE(contained, 5);
+        for (qsizetype i = 0; i < notes.size(); ++i) {
+          for (qsizetype j = i + 1; j < notes.size(); ++j)
+            QVERIFY(!notes.at(i).intersects(notes.at(j)));
+          for (const auto& box : classes) QVERIFY(!notes.at(i).intersects(box));
+        }
+        QVERIFY(image.width() <= 1880 && image.height() <= 2520);
+      }
+    const QList<QPair<QString, QString>> equivalent{
+        {"namespace N {\nnote for A \"说明\"\nclass A\n}",
+         "namespace N {\nclass A\n}\nnote for A \"说明\""},
+        {"namespace N {\nnote \"one\"\nclass A\nnote \"two\"\n}",
+         "namespace N {\nclass A\nnote \"one\"\nnote \"two\"\n}"},
+        {"namespace N {\nnote \"one\"\n}\nnamespace N {\nnote \"two\"\n}",
+         "namespace N {\nnote \"one\"\nnote \"two\"\n}"},
+        {"namespace N {\nnote for A \"说明\"\n}\nnamespace N {\nclass A\n}",
+         "namespace N {\nclass A\nnote for A \"说明\"\n}"},
+        {"class A\nnamespace N {\nnote for A \"说明\"\nclass A\n}",
+         "namespace N {\nclass A\nnote for A \"说明\"\n}"},
+        {"namespace 文档 {\nclass 模型\nnote for 模型 \"第一行\\n第二行\"\n}",
+         "namespace `文档` {\nclass `模型`\nnote for `模型` \"第一行<br/>第二行\"\n}"},
+        {"namespace N {\nclass A~T~[\"显示名称\"]:::hot\nnote for A \"说明\"\n}\nclassDef hot "
+         "fill:#abcdef",
+         "namespace N {\nclass A~T~[\"显示名称\"]\n}\nnote for A \"说明\"\nstyle A fill:#abcdef"}};
+    for (const auto& pair : equivalent)
+      for (const bool night : {false, true}) {
+        const auto a = render::mermaid("classDiagram\n" + pair.first, night).image;
+        const auto b = render::mermaid("classDiagram\n" + pair.second, night).image;
+        QVERIFY2(!a.isNull(), qPrintable(pair.first));
+        QCOMPARE(a, b);
+      }
+    QString dense = "classDiagram\nnamespace Notes {\n";
+    for (int i = 0; i < 16; ++i) dense += QString("note \"说明 %1\"\n").arg(i);
+    const auto denseImage = render::mermaid(dense + "}\n").image;
+    QVERIFY(!denseImage.isNull() && clearBorder(denseImage));
+    QCOMPARE(colorRegions(denseImage, QColor("#fff6d6")).size(), 16);
+    QVERIFY(render::mermaid(dense + "note \"overflow\"\n}\n").image.isNull());
+    QVERIFY(render::mermaid(dense + "}\nnote \"global overflow\"\n").image.isNull());
+    const auto longImage = render::mermaid("classDiagram\nnamespace N {\nnote \"" +
+                                           QString("Markdown 文档说明 ").repeated(100) + "\"\n}\n")
+                               .image;
+    QVERIFY(!longImage.isNull() && clearBorder(longImage));
+    for (const auto& invalid :
+         {"namespace N {\nnote for Missing \"text\"\n}",
+          "namespace N {\nnote for A \"outside\"\n}\nclass A",
+          "namespace N {\nnote for A \"other group\"\n}\nnamespace M {\nclass A\n}",
+          "namespace N {\nnote for I \"interface\"\n}\nclass A\nA--()I",
+          "namespace N {\nclass A[\"Display\"]\nnote for Display \"wrong ID\"\n}",
+          "namespace N {\nclass A {\nnote \"inside class\"\n}\n}",
+          "namespace N {\nnote \"unclosed\n}", "namespace N {\nnote \"missing brace\"",
+          "namespace N {\nnote over A \"wrong syntax\"\nclass A\n}"}) {
+      const auto result = render::mermaid(QString("classDiagram\n") + invalid);
+      QVERIFY2(result.image.isNull() && !result.error.isEmpty(), invalid);
+    }
+    const auto markdown =
+        QString(3, QChar(0x60)) + "mermaid\n" + source + QString(3, QChar(0x60)) + '\n';
+    ui::ViewSwitch view;
+    ui::Editor edit;
+    QVERIFY(view.loadMarkdownIntoBoth(markdown, nullptr));
+    view.showActiveIn(&edit);
+    const auto undo = edit.document()->availableUndoSteps();
+    edit.setDarkTheme(true);
+    edit.setDarkTheme(false);
+    QCOMPARE(edit.document()->availableUndoSteps(), undo);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(view.switchView(nullptr));
+    view.showActiveIn(&edit);
+    QVERIFY(same(markdown, view.currentMarkdown()));
+    if (!retained.isEmpty()) {
+      QVERIFY(denseImage.save(retained + "/class-namespace-notes-dense.png"));
+      QVERIFY(longImage.save(retained + "/class-namespace-notes-long.png"));
     }
   }
 
@@ -3937,6 +4072,9 @@ class AdvancedContentTests : public QObject {
         << classInterfaces() << QStringLiteral("classDiagram\nA --()> I\n");
     QTest::newRow("class-namespaces")
         << classNamespaces() << QStringLiteral("classDiagram\nnamespace N {\nclass A\n");
+    QTest::newRow("class-namespace-notes")
+        << classNamespaceNotes()
+        << QStringLiteral("classDiagram\nnamespace N {\nnote for A \"missing\"\n}\n");
     QTest::newRow("flowchart-shapes")
         << flowchartShapes() << QStringLiteral("flowchart LR\n A[[Missing]\n");
     QTest::newRow("sequence-roles")
